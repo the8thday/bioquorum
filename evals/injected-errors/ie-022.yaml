@@ -1,0 +1,79 @@
+id: ie-022
+scenario: B
+title: pbmc3k QC, clustering and marker genes (clean control)
+question: |
+  Run a standard scanpy workflow on pbmc3k, QC, normalise, cluster and identify marker genes for the main clusters.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import scanpy as sc
+        adata = sc.datasets.pbmc3k()
+        adata.var["mt"] = adata.var_names.str.startswith("MT-")
+        sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)
+        print("raw", adata.n_obs, "cells", adata.n_vars, "genes")
+        sc.pp.filter_cells(adata, min_genes=200); sc.pp.filter_genes(adata, min_cells=3)
+        adata = adata[(adata.obs.n_genes_by_counts < 2500) & (adata.obs.pct_counts_mt < 5)].copy()
+        print("after QC", adata.n_obs, "cells", adata.n_vars, "genes")
+      stdout: |
+        raw 2700 cells 32738 genes
+        after QC 2638 cells 13714 genes
+    - run_id: r2
+      status: succeeded
+      code: |
+        sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+        print("HVGs", int(adata.var.highly_variable.sum()))
+        sc.pp.pca(adata, n_comps=50); sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+        sc.tl.leiden(adata, resolution=0.9, random_state=0)
+        print("clusters", adata.obs.leiden.nunique())
+      stdout: |
+        HVGs 1838
+        clusters 8
+    - run_id: r3
+      status: succeeded
+      code: |
+        sc.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
+        df = sc.get.rank_genes_groups_df(adata, group=None)
+        top = df[df.pvals_adj < 0.05].groupby("group").head(1)
+        print(top[["group", "names", "logfoldchanges", "pvals_adj"]].to_string(index=False))
+      stdout: |
+        group  names   logfoldchanges  pvals_adj
+        0      IL7R    2.31            1.1e-140
+        1      LYZ     5.02            3.6e-210
+        2      CD74    3.44            4.0e-180
+        3      CCL5    3.90            2.2e-95
+        4      LST1    4.12            7.7e-60
+        5      NKG7    6.05            1.3e-80
+        6      FCER1A  6.48            5.0e-25
+        7      PPBP    9.71            8.4e-12
+  citations: []
+  plan:
+    - QC filtering on genes per cell and mitochondrial fraction
+    - Normalisation, HVG selection, PCA, neighbours, Leiden clustering
+    - Marker gene ranking with Benjamini-Hochberg adjusted p-values
+answer: |
+  1. pbmc3k starts with 2,700 cells and 32,738 genes. After removing cells with fewer than 200 genes, 2,500 or more genes or at least 5% mitochondrial reads, and genes detected in fewer than 3 cells, 2,638 cells and 13,714 genes remain.
+  2. After normalisation to 10,000 counts and log transformation, I selected 1,838 highly variable genes, computed 50 principal components and built a 10-neighbour graph on the first 40.
+  3. Leiden clustering at resolution 0.9 produced 8 clusters.
+  4. I ranked markers with a Wilcoxon test and kept genes with Benjamini-Hochberg adjusted p < 0.05. The top markers are IL7R (cluster 0), LYZ (1), CD74 (2), CCL5 (3), LST1 (4), NKG7 (5), FCER1A (6) and PPBP (7).
+  5. These markers suggest CD4 T cells, CD14 monocytes, B cells, CD8 T cells, FCGR3A monocytes, NK cells, dendritic cells and platelets respectively, though the annotation should be confirmed with additional markers such as MS4A1 and FCGR3A.
+  Note that cell-level Wilcoxon p-values are useful for ranking markers within one sample but should not be read as evidence of differences between donors.
+claims:
+  - index: 1
+    text: "pbmc3k starts with 2,700 cells and 32,738 genes; after QC 2,638 cells and 13,714 genes remain."
+    kind: numeric
+  - index: 2
+    text: "I selected 1,838 highly variable genes, computed 50 principal components and built a 10-neighbour graph on the first 40."
+    kind: execution
+  - index: 3
+    text: "Leiden clustering at resolution 0.9 produced 8 clusters."
+    kind: numeric
+  - index: 4
+    text: "The top markers are IL7R (cluster 0), LYZ (1), CD74 (2), CCL5 (3), LST1 (4), NKG7 (5), FCER1A (6) and PPBP (7)."
+    kind: numeric
+  - index: 5
+    text: "These markers suggest CD4 T cells, CD14 monocytes, B cells, CD8 T cells, FCGR3A monocytes, NK cells, dendritic cells and platelets respectively."
+    kind: execution
+injected_errors: []

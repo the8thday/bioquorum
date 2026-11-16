@@ -1,0 +1,79 @@
+id: ie-013
+scenario: C
+title: Metformin and colorectal cancer, mechanistic and clinical evidence
+question: |
+  What is the evidence that metformin protects against colorectal cancer, and through which mechanisms?
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1301
+      title: Metformin versus sulfonylurea use and incident colorectal cancer in a national diabetes cohort
+      authors: Lindgren H, Osei K, Paredes M
+      year: 2019
+      abstract: |
+        In a retrospective cohort of 214,000 adults with type 2 diabetes, new users of metformin had a lower incidence of
+        colorectal cancer than new users of sulfonylureas (adjusted HR 0.78, 95% CI 0.69-0.88) over a median 6.2 years.
+        Residual confounding by indication and time-related biases cannot be excluded in this observational design.
+    - key: c2
+      doi: 10.0000/bq.1302
+      title: Metformin and colorectal neoplasia risk, a meta-analysis of observational studies
+      authors: Petrov A, Haddad R
+      year: 2020
+      abstract: |
+        Pooling 21 observational studies, metformin use was associated with a lower risk of colorectal cancer (RR 0.83,
+        95% CI 0.75-0.92) with substantial heterogeneity (I2 = 64%). Associations were weaker in studies that used an
+        active comparator and in studies at low risk of immortal time bias.
+    - key: c3
+      doi: 10.0000/bq.1303
+      title: AMPK-dependent mTORC1 suppression by metformin in colorectal cancer cells
+      authors: Yeung C, Albrecht D
+      year: 2017
+      abstract: |
+        In HCT116 and SW480 cells, metformin at 5 mM activated AMPK, reduced phospho-S6 by 70% and cut proliferation by
+        45% over 72 h. Effects were lost in AMPK-alpha1/2 double-knockout cells. Concentrations used exceed typical
+        plasma levels in patients.
+    - key: c4
+      doi: 10.0000/bq.1304
+      title: Low-dose metformin for prevention of metachronous colorectal adenoma, a randomised trial
+      authors: Saito R, Brennan L
+      year: 2021
+      abstract: |
+        In 151 non-diabetic patients after polypectomy, metformin 250 mg daily for one year reduced the proportion with
+        any adenoma at follow-up colonoscopy (22% vs 38%, RR 0.58, p = 0.03). The trial was not powered for cancer
+        outcomes.
+  plan:
+    - Search observational and randomised clinical evidence
+    - Search mechanistic evidence
+    - Build an evidence table and flag limitations
+answer: |
+  1. Metformin use reduces colorectal cancer incidence by about 22% in people with type 2 diabetes, as shown by a national cohort comparing it with sulfonylureas (HR 0.78) [c1].
+  2. A meta-analysis of 21 observational studies found an association with lower colorectal cancer risk (RR 0.83), but with substantial heterogeneity (I2 = 64%) and weaker effects in studies with an active comparator [c2].
+  3. The only randomised evidence is in adenoma prevention: in 151 non-diabetic patients after polypectomy, metformin 250 mg daily lowered adenoma recurrence from 38% to 22% [c4].
+  4. That trial was not powered for cancer outcomes, so it does not establish cancer prevention [c4].
+  5. Mechanistically, metformin activates AMPK and suppresses mTORC1 signalling in colorectal cancer cells, reducing proliferation by 45% in an AMPK-dependent way [c3].
+  6. Those cell experiments used 5 mM metformin, above typical patient plasma levels, which limits their translational weight [c3].
+  Evidence table summary, with design and key limitation per source: c1 retrospective cohort, confounding by indication; c2 meta-analysis, heterogeneity; c3 in vitro, supraphysiological dose; c4 small RCT, adenoma surrogate.
+claims:
+  - index: 1
+    text: "Metformin use reduces colorectal cancer incidence by about 22% in people with type 2 diabetes, as shown by a national cohort comparing it with sulfonylureas (HR 0.78) [c1]."
+    kind: causal
+  - index: 2
+    text: "A meta-analysis of 21 observational studies found an association with lower colorectal cancer risk (RR 0.83), but with substantial heterogeneity (I2 = 64%) and weaker effects in studies with an active comparator [c2]."
+    kind: citation
+  - index: 3
+    text: "In 151 non-diabetic patients after polypectomy, metformin 250 mg daily lowered adenoma recurrence from 38% to 22% [c4]."
+    kind: citation
+  - index: 4
+    text: "That trial was not powered for cancer outcomes, so it does not establish cancer prevention [c4]."
+    kind: citation
+  - index: 5
+    text: "Metformin activates AMPK and suppresses mTORC1 signalling in colorectal cancer cells, reducing proliferation by 45% in an AMPK-dependent way [c3]."
+    kind: citation
+  - index: 6
+    text: "Those cell experiments used 5 mM metformin, above typical patient plasma levels [c3]."
+    kind: citation
+injected_errors:
+  - claim_index: 1
+    type: overclaim_causal
+    description: c1 is a retrospective observational cohort reporting an association (HR 0.78) and explicitly notes residual confounding; it cannot show that metformin reduces incidence.

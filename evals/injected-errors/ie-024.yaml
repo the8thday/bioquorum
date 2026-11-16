@@ -1,0 +1,63 @@
+id: ie-024
+scenario: C
+title: BTK inhibitors in multiple sclerosis (clean control)
+question: |
+  What is the evidence that Bruton's tyrosine kinase inhibitors act on CNS-compartmentalised inflammation in multiple sclerosis?
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.2401
+      title: BTK is expressed in microglia at the edge of chronic active multiple sclerosis lesions
+      authors: Raghunathan V, Elsner J
+      year: 2021
+      abstract: |
+        In post-mortem brain tissue from 19 people with progressive MS, BTK protein was detected in B cells and in
+        iron-rim microglia at the edge of chronic active lesions, with 3.4-fold higher BTK+ microglial density than in
+        normal-appearing white matter. The study is descriptive and cannot establish a functional role.
+    - key: c2
+      doi: 10.0000/bq.2402
+      title: A brain-penetrant BTK inhibitor in relapsing multiple sclerosis, a 16-week phase 2b dose-finding trial
+      authors: Castellano D, Moberg A, Tiwari R
+      year: 2020
+      abstract: |
+        In 130 patients with relapsing MS, the highest dose reduced new gadolinium-enhancing lesions by 85% relative to
+        placebo over weeks 12-16. Lower doses showed smaller, non-significant reductions. Disability outcomes were not
+        assessed in this short trial.
+    - key: c3
+      doi: 10.0000/bq.2403
+      title: BTK inhibition reprograms microglia toward a homeostatic state in a cuprizone demyelination model
+      authors: Feld L, Okonjo C
+      year: 2022
+      abstract: |
+        In cuprizone-fed mice, a CNS-penetrant BTK inhibitor reduced microglial activation markers by 40% and enhanced
+        remyelination, measured as a 1.8-fold increase in myelinated axons at week 6 after withdrawal.
+  plan:
+    - Search human tissue evidence for BTK expression in the CNS
+    - Search clinical trial evidence
+    - Search preclinical mechanistic evidence
+    - Build evidence table and flag limitations
+answer: |
+  1. In post-mortem tissue from 19 people with progressive MS, BTK was found in B cells and in iron-rim microglia at the edge of chronic active lesions, at 3.4-fold higher density than in normal-appearing white matter [c1].
+  2. This finding is descriptive and does not show that BTK in microglia contributes to lesion expansion [c1].
+  3. In a cuprizone mouse model, a CNS-penetrant BTK inhibitor reduced microglial activation markers by 40% and was associated with a 1.8-fold increase in myelinated axons after cuprizone withdrawal [c3].
+  4. Clinically, the highest dose of a brain-penetrant BTK inhibitor reduced new gadolinium-enhancing lesions by 85% versus placebo in 130 patients with relapsing MS, while lower doses showed smaller, non-significant reductions [c2].
+  5. That trial measured an imaging surrogate over 16 weeks and did not assess disability, so it does not yet show an effect on compartmentalised CNS inflammation in humans [c2].
+  Evidence table: c1 human post-mortem, descriptive; c3 mouse model, mechanistic; c2 phase 2b RCT, imaging surrogate. The hypothesis that BTK inhibitors act on CNS-resident microglia is biologically plausible but not yet proven in patients.
+claims:
+  - index: 1
+    text: "In post-mortem tissue from 19 people with progressive MS, BTK was found in B cells and in iron-rim microglia at the edge of chronic active lesions, at 3.4-fold higher density than in normal-appearing white matter [c1]."
+    kind: citation
+  - index: 2
+    text: "This finding is descriptive and does not show that BTK in microglia contributes to lesion expansion [c1]."
+    kind: citation
+  - index: 3
+    text: "In a cuprizone mouse model, a CNS-penetrant BTK inhibitor reduced microglial activation markers by 40% and was associated with a 1.8-fold increase in myelinated axons after cuprizone withdrawal [c3]."
+    kind: citation
+  - index: 4
+    text: "The highest dose of a brain-penetrant BTK inhibitor reduced new gadolinium-enhancing lesions by 85% versus placebo in 130 patients with relapsing MS, while lower doses showed smaller, non-significant reductions [c2]."
+    kind: citation
+  - index: 5
+    text: "That trial measured an imaging surrogate over 16 weeks and did not assess disability, so it does not yet show an effect on compartmentalised CNS inflammation in humans [c2]."
+    kind: citation
+injected_errors: []

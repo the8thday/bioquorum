@@ -1,0 +1,72 @@
+id: ie-014
+scenario: C
+title: Semaglutide in metabolic dysfunction-associated steatohepatitis
+question: |
+  Summarise the mechanistic and clinical evidence for semaglutide in MASH, including whether its liver effects are direct or indirect.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1401
+      title: Subcutaneous semaglutide in biopsy-confirmed steatohepatitis, a 72-week phase 2 trial
+      authors: Abernethy J, Kowalski T, Ruiz M
+      year: 2021
+      abstract: |
+        In 320 patients with biopsy-confirmed steatohepatitis and F1-F3 fibrosis, semaglutide 0.4 mg daily achieved
+        steatohepatitis resolution without fibrosis worsening in 59% versus 17% on placebo. Improvement in fibrosis stage
+        was not significantly different (43% vs 33%, p = 0.48). Mean body weight fell by 13% on the highest dose.
+    - key: c2
+      doi: 10.0000/bq.1402
+      title: GLP-1 receptor is absent from human hepatocytes, implications for incretin therapy in fatty liver disease
+      authors: Moretti G, Lund A
+      year: 2019
+      abstract: |
+        Using in situ hybridisation and a validated monoclonal antibody on 48 human liver biopsies, we detected GLP1R in
+        portal vascular smooth muscle and some cholangiocytes but not in hepatocytes or stellate cells. Hepatic benefits
+        of GLP-1 receptor agonists are therefore likely to be mediated indirectly.
+    - key: c3
+      doi: 10.0000/bq.1403
+      title: Weight loss magnitude predicts histological improvement in steatohepatitis
+      authors: Fairbanks O, Nnamdi E
+      year: 2018
+      abstract: |
+        In a prospective cohort of 293 patients undergoing lifestyle intervention, weight loss of at least 10% was
+        associated with steatohepatitis resolution in 90% and fibrosis regression in 45% of patients.
+  plan:
+    - Search clinical trials of semaglutide with histological endpoints
+    - Search evidence on hepatic GLP1R expression and mechanism
+    - Build evidence table and flag conflicting findings
+answer: |
+  1. In a 72-week phase 2 trial of 320 patients with F1-F3 fibrosis, semaglutide 0.4 mg daily achieved steatohepatitis resolution without fibrosis worsening in 59% versus 17% on placebo [c1].
+  2. Fibrosis improvement was not significantly different from placebo (43% vs 33%), which is the main gap in the clinical evidence [c1].
+  3. Patients on the highest dose lost on average 31% of body weight [c1].
+  4. GLP1R was not detected in human hepatocytes or stellate cells, only in portal vascular smooth muscle and cholangiocytes, so hepatic effects are probably indirect [c2].
+  5. Consistent with an indirect, weight-driven mechanism, weight loss of at least 10% was associated with steatohepatitis resolution in 90% of patients in a lifestyle intervention cohort [c3].
+  6. Semaglutide also directly reduces hepatic de novo lipogenesis through hepatocyte GLP-1 receptor signalling in a stable-isotope tracer study [c4].
+  Conflict flagged: a direct hepatocyte mechanism sits uneasily with the absence of hepatocyte GLP1R [c2], so any direct hepatic mechanism should be treated as unproven.
+claims:
+  - index: 1
+    text: "In a 72-week phase 2 trial of 320 patients with F1-F3 fibrosis, semaglutide 0.4 mg daily achieved steatohepatitis resolution without fibrosis worsening in 59% versus 17% on placebo [c1]."
+    kind: citation
+  - index: 2
+    text: "Fibrosis improvement was not significantly different from placebo (43% vs 33%) [c1]."
+    kind: citation
+  - index: 3
+    text: "Patients on the highest dose lost on average 31% of body weight [c1]."
+    kind: numeric
+  - index: 4
+    text: "GLP1R was not detected in human hepatocytes or stellate cells, only in portal vascular smooth muscle and cholangiocytes, so hepatic effects are probably indirect [c2]."
+    kind: citation
+  - index: 5
+    text: "Weight loss of at least 10% was associated with steatohepatitis resolution in 90% of patients in a lifestyle intervention cohort [c3]."
+    kind: citation
+  - index: 6
+    text: "Semaglutide also directly reduces hepatic de novo lipogenesis through hepatocyte GLP-1 receptor signalling in a stable-isotope tracer study [c4]."
+    kind: citation
+injected_errors:
+  - claim_index: 3
+    type: value_mismatch
+    description: c1 reports a mean body weight loss of 13% on the highest dose, not 31%.
+  - claim_index: 6
+    type: fabricated_citation
+    description: The answer cites [c4], but evidence contains only c1-c3; no provided source reports a tracer study of hepatic de novo lipogenesis.

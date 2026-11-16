@@ -1,0 +1,71 @@
+id: ie-017
+scenario: C
+title: Mechanisms of SGLT2 inhibitor benefit in heart failure
+question: |
+  What mechanisms explain the benefit of SGLT2 inhibitors in heart failure with reduced ejection fraction? Include safety.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1701
+      title: SGLT2 inhibition and cardiovascular death or worsening heart failure in HFrEF, a randomised outcome trial
+      authors: Kjellberg N, Achterberg R, Sato Y
+      year: 2019
+      abstract: |
+        In 4,744 patients with HFrEF (NCT09991701), an SGLT2 inhibitor reduced the composite of worsening heart failure or
+        cardiovascular death (HR 0.74, 95% CI 0.65-0.85) over 18 months. Benefits were similar in patients with and
+        without diabetes. Volume depletion and renal adverse events were not increased.
+    - key: c2
+      doi: 10.0000/bq.1702
+      title: SGLT2 inhibitors restore tubuloglomerular feedback and reduce glomerular hyperfiltration
+      authors: Brightman L, Oyelaran T
+      year: 2018
+      abstract: |
+        In 40 patients with type 2 diabetes, SGLT2 inhibition reduced measured GFR by 9% within two weeks, consistent with
+        afferent arteriolar vasoconstriction via restored tubuloglomerular feedback. Plasma volume fell by 7%.
+    - key: c3
+      doi: 10.0000/bq.1703
+      title: Myocardial ketone body utilisation after SGLT2 inhibition in a porcine heart failure model
+      authors: Castell M, Rønning H
+      year: 2019
+      abstract: |
+        In pigs with post-infarction heart failure, SGLT2 inhibition shifted myocardial fuel use toward ketone bodies,
+        increased myocardial ATP production and attenuated adverse left ventricular remodelling over two months.
+  plan:
+    - Summarise outcome trial evidence in HFrEF
+    - Summarise haemodynamic and renal mechanisms
+    - Summarise myocardial metabolic mechanisms
+    - Summarise safety evidence, including euglycaemic ketoacidosis and genital mycotic infections
+answer: |
+  1. Outcome benefit in HFrEF is established: in 4,744 patients, an SGLT2 inhibitor reduced worsening heart failure or cardiovascular death (HR 0.74) over 18 months, similarly with or without diabetes [c1].
+  2. Part of the benefit is likely haemodynamic and renal. SGLT2 inhibition lowered GFR by about 9% within two weeks, consistent with restored tubuloglomerular feedback, and reduced plasma volume by 7% [c2].
+  3. A metabolic mechanism has also been proposed; in patients with type 2 diabetes, SGLT2 inhibition increased myocardial ketone utilisation and ATP production [c2].
+  4. In a porcine post-infarction model, the shift toward ketone use was accompanied by attenuated left ventricular remodelling over two months [c3].
+  5. In the outcome trial, volume depletion and renal adverse events were not increased [c1].
+  All planned sections, including safety, are covered above. The mechanisms are probably complementary rather than exclusive; human myocardial metabolic data remain limited.
+claims:
+  - index: 1
+    text: "In 4,744 patients, an SGLT2 inhibitor reduced worsening heart failure or cardiovascular death (HR 0.74) over 18 months, similarly with or without diabetes [c1]."
+    kind: citation
+  - index: 2
+    text: "SGLT2 inhibition lowered GFR by about 9% within two weeks, consistent with restored tubuloglomerular feedback, and reduced plasma volume by 7% [c2]."
+    kind: citation
+  - index: 3
+    text: "In patients with type 2 diabetes, SGLT2 inhibition increased myocardial ketone utilisation and ATP production [c2]."
+    kind: citation
+  - index: 4
+    text: "In a porcine post-infarction model, the shift toward ketone use was accompanied by attenuated left ventricular remodelling over two months [c3]."
+    kind: citation
+  - index: 5
+    text: "In the outcome trial, volume depletion and renal adverse events were not increased [c1]."
+    kind: citation
+  - index: 6
+    text: "All planned sections, including safety, are covered above."
+    kind: plan
+injected_errors:
+  - claim_index: 3
+    type: fabricated_citation
+    description: c2 is a renal haemodynamics study (GFR and plasma volume) and says nothing about myocardial ketone utilisation or ATP; the ketone finding comes from pigs in c3.
+  - claim_index: 6
+    type: plan_incomplete
+    description: The approved plan requires safety evidence on euglycaemic ketoacidosis and genital mycotic infections, which the answer never addresses while claiming safety is covered.

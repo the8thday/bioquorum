@@ -1,0 +1,79 @@
+- id: q-C-01
+  scenario: C
+  difficulty: 1
+  question: |
+    What are the proposed mechanisms by which metformin lowers blood glucose in type 2 diabetes? Build a cited evidence table.
+  requires:
+    - pubmed
+    - literature
+  rubric:
+    - Describes reduced hepatic gluconeogenesis as a principal glucose-lowering effect.
+    - Mentions inhibition of mitochondrial complex I or changes in cellular energy state, and activation of AMPK, while noting that AMPK-independent mechanisms have also been proposed.
+    - Mentions gut-mediated effects (e.g. increased GLP-1 or GDF15, or changes in the microbiome).
+    - States that the relative importance of these mechanisms is still debated.
+    - Every cited DOI or PMID resolves, and the cited source supports the specific claim.
+
+- id: q-C-02
+  scenario: C
+  difficulty: 2
+  question: |
+    Summarise the randomised evidence and the proposed mechanisms for SGLT2 inhibitors in heart failure, across the ejection fraction spectrum.
+  requires:
+    - pubmed
+    - clinicaltrials
+    - literature
+  rubric:
+    - Cites outcome trials in HFrEF (e.g. DAPA-HF, EMPEROR-Reduced) showing fewer heart failure hospitalisations or cardiovascular deaths.
+    - Cites outcome trials in HFpEF or mildly reduced EF (e.g. EMPEROR-Preserved, DELIVER).
+    - States that the benefit was seen in patients with and without diabetes.
+    - Presents mechanisms (natriuresis or volume, myocardial metabolism or ketones, renal effects, etc.) as hypotheses rather than established facts.
+    - Every cited DOI resolves, and the evidence table records study type for each source.
+
+- id: q-C-03
+  scenario: C
+  difficulty: 2
+  question: |
+    Review the evidence that low-dose colchicine reduces cardiovascular events through anti-inflammatory mechanisms. Flag any contradictory trials.
+  requires:
+    - pubmed
+    - clinicaltrials
+    - literature
+  rubric:
+    - Cites at least one positive randomised trial (e.g. COLCOT after recent MI, LoDoCo2 in chronic coronary disease).
+    - Describes the mechanism as microtubule disruption, with downstream inhibition of neutrophil function and/or NLRP3 inflammasome activation.
+    - Flags at least one neutral or contradictory randomised result (e.g. CLEAR SYNERGY after MI) in a separate contradictions section.
+    - Mentions safety signals such as gastrointestinal effects or the non-cardiovascular death imbalance reported in some trials.
+    - Every cited DOI resolves, and each citation supports the sentence it is attached to.
+  notes: CLEAR SYNERGY (OASIS 9) reported no reduction in its primary endpoint with colchicine after MI.
+
+- id: q-C-04
+  scenario: C
+  difficulty: 3
+  question: |
+    Is there credible evidence that GLP-1 receptor agonists protect against Alzheimer's disease or Parkinson's disease? Separate observational from randomised evidence.
+  requires:
+    - pubmed
+    - clinicaltrials
+    - literature
+  rubric:
+    - Separates observational studies (e.g. claims or registry cohorts showing lower dementia incidence) from randomised trials.
+    - Does not use causal language ("prevents", "reduces risk") for findings that come only from observational data.
+    - States that the large phase 3 trials of oral semaglutide in early Alzheimer's disease (evoke and evoke+) did not meet their primary endpoint.
+    - Discusses randomised evidence in Parkinson's disease (e.g. exenatide or lixisenatide trials), noting mixed or modest results.
+    - Every cited DOI resolves, and contradictions between observational and randomised findings are flagged explicitly.
+  notes: The evoke and evoke+ topline results were announced in late 2025. Graders should verify the current status of these trials when scoring.
+
+- id: q-C-05
+  scenario: C
+  difficulty: 3
+  question: |
+    Review the evidence that rapamycin or other mTORC1 inhibitors slow ageing. Keep animal and human evidence clearly separated.
+  requires:
+    - pubmed
+    - literature
+  rubric:
+    - Cites the NIA Interventions Testing Program finding that rapamycin extends lifespan in genetically heterogeneous mice, including when started late in life.
+    - Mentions lifespan extension in other model organisms (yeast, worms or flies), or cites them as supporting evidence.
+    - States that human evidence is limited to surrogate endpoints (e.g. improved vaccine responses to influenza with an mTOR inhibitor in older adults) and that no human lifespan data exist.
+    - Mentions known adverse effects such as glucose intolerance or insulin resistance (linked to mTORC2 inhibition), immunosuppression or mouth ulcers.
+    - Uses no causal ageing claims for humans, and every cited DOI resolves.

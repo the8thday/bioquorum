@@ -1,0 +1,70 @@
+id: ie-015
+scenario: C
+title: JAK inhibition in alopecia areata
+question: |
+  What is the mechanistic and clinical evidence that JAK inhibitors work in alopecia areata?
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1501
+      title: NKG2D+ CD8 T cells drive hair follicle immune privilege collapse via IFN-gamma and IL-15 in a mouse model
+      authors: Ostrowski P, Kaur J
+      year: 2015
+      abstract: |
+        In the C3H/HeJ graft model of alopecia areata, a cytotoxic NKG2D+ CD8+ T-cell signature dominated lesional skin.
+        Systemic or topical JAK1/2 inhibition reversed established hair loss in 7 of 8 mice within 12 weeks, and
+        antibody blockade of IFN-gamma prevented disease onset.
+    - key: c2
+      doi: 10.0000/bq.1502
+      title: Oral JAK1/2 inhibitor for severe alopecia areata, two phase 3 trials
+      authors: Haugen M, Delgado P, Cho S
+      year: 2022
+      abstract: |
+        Across two 36-week trials enrolling 1,200 adults with at least 50% scalp hair loss, a SALT score of 20 or less was
+        reached by 35-39% of patients on 4 mg daily versus 3-6% on placebo. Acne, upper respiratory infections and
+        creatine kinase elevations were more common on active treatment.
+    - key: c3
+      doi: 10.0000/bq.1503
+      title: Interferon and common gamma-chain cytokine transcripts in human alopecia areata scalp biopsies
+      authors: Ferrante L, Abiola T
+      year: 2018
+      abstract: |
+        RNA-seq of lesional versus non-lesional scalp from 28 patients showed upregulation of IFN-gamma-response genes
+        (CXCL9, CXCL10) and IL15, with CD8A among the top enriched transcripts. This cross-sectional study cannot
+        determine whether these changes precede hair loss.
+  plan:
+    - Search mechanistic animal and human tissue evidence
+    - Search randomised clinical evidence
+    - Build evidence table
+answer: |
+  1. Lesional human scalp shows upregulation of IFN-gamma-response genes such as CXCL9 and CXCL10, together with IL15 and CD8A, compared with non-lesional scalp [c3].
+  2. In patients with alopecia areata, systemic or topical JAK1/2 inhibition reversed established hair loss within 12 weeks, and IFN-gamma blockade prevented disease onset [c1].
+  3. These data place a cytotoxic NKG2D+ CD8+ T-cell response, dependent on JAK-signalling cytokines, at the centre of the disease mechanism [c1].
+  4. Clinical efficacy is established in two phase 3 trials: 35-39% of patients with at least 50% scalp hair loss reached SALT 20 or less on 4 mg daily versus 3-6% on placebo [c2].
+  5. Adverse events more common on treatment included acne, upper respiratory infections and creatine kinase elevations [c2].
+  6. The human transcriptomic study is cross-sectional, so it cannot show whether interferon signalling precedes hair loss [c3].
+  Overall, the mechanistic rationale and phase 3 efficacy are concordant, with the strongest causal evidence coming from animal intervention studies.
+claims:
+  - index: 1
+    text: "Lesional human scalp shows upregulation of IFN-gamma-response genes such as CXCL9 and CXCL10, together with IL15 and CD8A, compared with non-lesional scalp [c3]."
+    kind: citation
+  - index: 2
+    text: "In patients with alopecia areata, systemic or topical JAK1/2 inhibition reversed established hair loss within 12 weeks, and IFN-gamma blockade prevented disease onset [c1]."
+    kind: citation
+  - index: 3
+    text: "These data place a cytotoxic NKG2D+ CD8+ T-cell response, dependent on JAK-signalling cytokines, at the centre of the disease mechanism [c1]."
+    kind: citation
+  - index: 4
+    text: "35-39% of patients with at least 50% scalp hair loss reached SALT 20 or less on 4 mg daily versus 3-6% on placebo [c2]."
+    kind: citation
+  - index: 5
+    text: "Adverse events more common on treatment included acne, upper respiratory infections and creatine kinase elevations [c2]."
+    kind: citation
+  - index: 6
+    text: "The human transcriptomic study is cross-sectional, so it cannot show whether interferon signalling precedes hair loss [c3]."
+    kind: citation
+injected_errors:
+  - claim_index: 2
+    type: citation_unsupported
+    description: c1 reports reversal of hair loss in 7 of 8 C3H/HeJ mice in a graft model; it contains no patient data.

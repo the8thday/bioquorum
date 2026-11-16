@@ -1,0 +1,92 @@
+- id: q-A-01
+  scenario: A
+  difficulty: 1
+  question: |
+    Evaluate IL23R as a therapeutic target for inflammatory bowel disease. Summarise the genetic evidence, expression and existing drugs acting on the pathway.
+  requires:
+    - opentargets
+    - gwas_catalog
+    - gtex
+    - chembl
+    - literature
+  rubric:
+    - Mentions the IL23R coding variant R381Q (rs11209026) and states that its minor allele is protective against IBD.
+    - States that the IL-23 pathway is clinically validated in IBD through approved antibodies against p40 (ustekinumab) and/or p19 (e.g. risankizumab, mirikizumab, guselkumab).
+    - Notes that approved drugs target the ligand, not the IL23R receptor itself.
+    - Cites a genetic association source (Open Targets or GWAS Catalog) and includes at least one literature citation.
+    - Each cited DOI or PMID resolves to a real record whose content matches the claim.
+  notes: Do not grade exact Open Targets scores, which change between releases.
+
+- id: q-A-02
+  scenario: A
+  difficulty: 2
+  question: |
+    Assess TYK2 as a target for plaque psoriasis and other autoimmune diseases, including the human genetic safety argument and the competitive landscape.
+  requires:
+    - opentargets
+    - gwas_catalog
+    - chembl
+    - clinicaltrials
+    - literature
+  rubric:
+    - Mentions the TYK2 P1104A variant (rs34536443) as a partial loss-of-function allele that protects against several autoimmune diseases.
+    - Uses the partial loss-of-function genetics to argue for safety of partial inhibition, and notes the infection susceptibility of complete TYK2 deficiency or of P1104A homozygosity for tuberculosis.
+    - States that deucravacitinib is an approved allosteric TYK2 inhibitor binding the pseudokinase (JH2) domain, approved for plaque psoriasis.
+    - Explains that JH2 binding gives selectivity over JAK1-3, unlike ATP-site JAK inhibitors.
+    - Identifies other TYK2 inhibitors in clinical development using ClinicalTrials.gov or ChEMBL, with sources.
+  notes: Accept any correct set of competitor compounds; do not grade exact trial counts.
+
+- id: q-A-03
+  scenario: A
+  difficulty: 2
+  question: |
+    Summarise the human genetic validation of PCSK9 for lowering LDL cholesterol and coronary risk, and list the approved drug modalities.
+  requires:
+    - gwas_catalog
+    - opentargets
+    - chembl
+    - literature
+  rubric:
+    - States that PCSK9 gain-of-function mutations cause autosomal dominant familial hypercholesterolaemia.
+    - States that PCSK9 loss-of-function variants lower LDL cholesterol and are associated with reduced coronary heart disease risk.
+    - Notes that people with two loss-of-function alleles have very low LDL and no obvious adverse phenotype, which supports safety.
+    - Names the approved monoclonal antibodies (evolocumab, alirocumab) and the siRNA inclisiran.
+    - Cites outcome trial evidence showing that PCSK9 inhibition reduces cardiovascular events (e.g. FOURIER or ODYSSEY OUTCOMES).
+  notes: Mentioning oral PCSK9 inhibitors in development is fine but not required.
+
+- id: q-A-04
+  scenario: A
+  difficulty: 3
+  question: |
+    Build a target dossier for HSD17B13 in MASH and alcohol-related liver disease. Is inhibition supported by human genetics, and which modalities are being pursued?
+  requires:
+    - gwas_catalog
+    - opentargets
+    - gtex
+    - clinicaltrials
+    - literature
+  rubric:
+    - Identifies the rs72613567 splice variant (TA insertion) as a loss-of-function allele associated with lower risk of chronic liver disease, including cirrhosis.
+    - States that the protective allele is associated with less liver injury or fibrosis progression but not with less steatosis.
+    - Notes predominantly hepatocyte or liver-restricted expression and describes HSD17B13 as a lipid-droplet-associated protein.
+    - Notes that the main clinical programmes are RNA interference (siRNA) approaches, with small molecules also in development, citing a trial registry or literature source.
+    - Flags that the enzyme's physiological substrate and mechanism of protection are not fully established.
+  notes: Do not grade the exact number of programmes or their phases.
+
+- id: q-A-05
+  scenario: A
+  difficulty: 3
+  question: |
+    A colleague proposes a NOD2 inhibitor for Crohn's disease because NOD2 is the strongest Crohn's risk gene. Evaluate whether the genetics supports inhibition.
+  requires:
+    - gwas_catalog
+    - opentargets
+    - gtex
+    - literature
+  rubric:
+    - Names the main Crohn's-associated NOD2 variants (R702W, G908R, and the L1007fs frameshift).
+    - States that these risk variants impair NOD2 signalling in response to muramyl dipeptide, i.e. they are loss of function.
+    - Concludes that the direction of effect argues against inhibition and that activation or restoration of NOD2 signalling would be more consistent with the genetics.
+    - Mentions the association with ileal or fibrostenotic Crohn's disease, or NOD2 expression in Paneth cells and monocytes.
+    - Supports each key claim with a citation that resolves and actually states the claim.
+  notes: This tests direction-of-effect reasoning. An answer that endorses inhibition without addressing the loss-of-function genetics fails the third point.

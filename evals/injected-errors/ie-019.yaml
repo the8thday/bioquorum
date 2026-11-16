@@ -1,0 +1,76 @@
+id: ie-019
+scenario: C
+title: Statins and Alzheimer's disease risk
+question: |
+  Is there credible evidence that statins reduce the risk of Alzheimer's disease? Summarise epidemiological, trial and mechanistic data with citations.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1901
+      title: Statin exposure and incident Alzheimer's disease in a claims-based cohort of older adults
+      authors: Nordahl E, Achterberg M
+      year: 2018
+      abstract: |
+        Among 399,980 adults aged 65 or older followed for a median 5.4 years, high cumulative statin exposure was
+        associated with lower incidence of Alzheimer's disease (adjusted HR 0.81, 95% CI 0.75-0.87). The authors note
+        possible healthy-user bias and reverse causation from prodromal changes in prescribing.
+    - key: c2
+      doi: 10.0000/bq.1902
+      title: Cognitive outcomes in two large randomised trials of statin therapy in older adults
+      authors: Pellegrini F, Oduya C
+      year: 2016
+      abstract: |
+        Pooled secondary analysis of 26,340 participants aged 70 to 82 found no difference in cognitive decline between
+        statin and placebo over 3.2 to 5 years (difference in MMSE change 0.03 points, p = 0.71). Dementia incidence was
+        not a primary endpoint.
+    - key: c3
+      doi: 10.0000/bq.1903
+      title: Cholesterol depletion by statins reduces amyloid-beta generation in human iPSC-derived neurons
+      authors: Fujimoto A, Kessler R
+      year: 2020
+      abstract: |
+        In iPSC-derived cortical neurons, 1 microM simvastatin for 72 h lowered secreted amyloid-beta 40 by 35% and
+        amyloid-beta 42 by 28%, effects reversed by mevalonate supplementation. Brain exposure at clinical doses is uncertain.
+  plan:
+    - Search observational cohorts
+    - Search randomised evidence
+    - Search mechanistic studies
+    - Build evidence table and flag contradictions
+answer: |
+  1. Statin use prevents Alzheimer's disease: in almost 400,000 older adults, high cumulative exposure lowered Alzheimer's incidence by 19% (HR 0.81) [c1].
+  2. A Mendelian randomisation study using HMGCR variants likewise found that genetically lower HMG-CoA reductase activity was associated with reduced Alzheimer's risk [c4].
+  3. Mechanistically, simvastatin at 1 microM lowered secreted amyloid-beta 40 by 53% and amyloid-beta 42 by 28% in human iPSC-derived neurons, and mevalonate reversed the effect [c3].
+  4. It is uncertain whether clinical doses achieve sufficient brain exposure for this mechanism to operate [c3].
+  5. Contradiction flagged: a pooled analysis of 26,340 trial participants aged 70 to 82 found no difference in cognitive decline between statin and placebo over 3.2 to 5 years [c2].
+  6. Dementia was not a primary endpoint in those trials, so they do not exclude a modest effect on Alzheimer's incidence [c2].
+  Overall, observational and in vitro evidence point the same way, but the randomised data are null, so the question remains open pending a dedicated prevention trial.
+claims:
+  - index: 1
+    text: "Statin use prevents Alzheimer's disease; in almost 400,000 older adults, high cumulative exposure lowered Alzheimer's incidence by 19% (HR 0.81) [c1]."
+    kind: causal
+  - index: 2
+    text: "A Mendelian randomisation study using HMGCR variants likewise found that genetically lower HMG-CoA reductase activity was associated with reduced Alzheimer's risk [c4]."
+    kind: citation
+  - index: 3
+    text: "Simvastatin at 1 microM lowered secreted amyloid-beta 40 by 53% and amyloid-beta 42 by 28% in human iPSC-derived neurons, and mevalonate reversed the effect [c3]."
+    kind: citation
+  - index: 4
+    text: "It is uncertain whether clinical doses achieve sufficient brain exposure for this mechanism to operate [c3]."
+    kind: citation
+  - index: 5
+    text: "A pooled analysis of 26,340 trial participants aged 70 to 82 found no difference in cognitive decline between statin and placebo over 3.2 to 5 years [c2]."
+    kind: citation
+  - index: 6
+    text: "Dementia was not a primary endpoint in those trials [c2]."
+    kind: citation
+injected_errors:
+  - claim_index: 1
+    type: overclaim_causal
+    description: c1 is an observational claims cohort reporting an association and warning of healthy-user bias and reverse causation; it does not show that statins prevent Alzheimer's disease.
+  - claim_index: 2
+    type: fabricated_citation
+    description: The answer cites [c4], but evidence contains only c1-c3; no provided source is a Mendelian randomisation study.
+  - claim_index: 3
+    type: value_mismatch
+    description: c3 reports a 35% reduction in secreted amyloid-beta 40, not 53%.

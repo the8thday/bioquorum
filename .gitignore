@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.pyright/
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+*.db
+*.sqlite
+~/.bioquorum/
+evals/results/
+.env

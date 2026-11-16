@@ -1,0 +1,106 @@
+id: ie-002
+scenario: A
+title: TYK2 as a psoriasis target
+question: |
+  How strong is the case for TYK2 as a target in plaque psoriasis, and how crowded is the competitive landscape?
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        from bq.tools import opentargets
+        df = opentargets.associations(target="TYK2", disease="EFO_0000676")
+        print("overall", round(df.attrs["overall_score"], 2))
+        print(df.set_index("datatype").score.round(2).to_string())
+      stdout: |
+        overall 0.74
+        genetic_association 0.79
+        known_drug          0.92
+        literature          0.66
+    - run_id: r2
+      status: succeeded
+      code: |
+        import pandas as pd
+        gw = pd.read_parquet("gwas_catalog_psoriasis.parquet")
+        print(gw.query("rsid == 'rs34536443'")[["aa_change", "odds_ratio", "p_value"]].to_string(index=False))
+      stdout: |
+        aa_change  odds_ratio  p_value
+        P1104A     0.68        2.4e-19
+    - run_id: r3
+      status: succeeded
+      code: |
+        from bq.tools import clinicaltrials
+        t = clinicaltrials.search(intervention_target="TYK2", condition="psoriasis", status=["RECRUITING", "ACTIVE_NOT_RECRUITING"])
+        print("active trials:", len(t))
+        print(t.groupby("phase").size().to_string())
+      stdout: |
+        active trials: 17
+        phase
+        PHASE2     6
+        PHASE3    11
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0201
+      title: The TYK2 P1104A allele is a catalytically impaired hypomorph that protects against autoimmunity
+      authors: Lindqvist E, Tanaka H
+      year: 2018
+      abstract: |
+        Using cells from 46 P1104A homozygous donors, we show the variant reduces IL-12, IL-23 and type I interferon signalling
+        by 60-80% while leaving IL-10 signalling largely intact. Homozygotes showed no excess of serious infections in a
+        registry of 3,900 carriers. Partial TYK2 loss of function may therefore be a safe therapeutic strategy.
+    - key: c2
+      doi: 10.0000/bq.0202
+      title: An allosteric TYK2 pseudokinase-domain inhibitor in moderate-to-severe plaque psoriasis, phase 3 results
+      authors: Okonkwo D, Petrescu M, Villanueva J
+      year: 2022
+      abstract: |
+        In a 52-week phase 3 trial (NCT09990202) of 666 patients, PASI 75 at week 16 was achieved by 58% on the allosteric
+        TYK2 inhibitor versus 13% on placebo and 35% on an oral PDE4 inhibitor. Responses were maintained to week 52.
+        Acne and nasopharyngitis were the most frequent adverse events.
+    - key: c3
+      doi: 10.0000/bq.0203
+      title: Pseudokinase domain binding confers selectivity of TYK2 inhibitors over JAK1-3
+      authors: Ferreira A, Kowalczyk B
+      year: 2020
+      abstract: |
+        Crystal structures of four JH2-binding inhibitors explain a selectivity of more than 1,000-fold for TYK2 over JAK1,
+        JAK2 and JAK3 in cellular assays. In contrast, ATP-site inhibitors showed at most 20-fold selectivity.
+  plan:
+    - Retrieve Open Targets and GWAS genetic evidence for TYK2 in psoriasis
+    - Summarise mechanism and selectivity literature
+    - Count active clinical trials against TYK2 in psoriasis
+answer: |
+  1. Genetic support is strong. Open Targets scores the TYK2-psoriasis association at 0.74, with a genetic association component of 0.79.
+  2. The P1104A missense variant (rs34536443) is protective, with an odds ratio of 0.68 (p = 2.4e-19) in the GWAS data I queried.
+  3. P1104A is a hypomorph that reduces IL-12, IL-23 and type I interferon signalling by 60-80% without an excess of serious infections in carriers [c1].
+  4. Complete human TYK2 deficiency is associated with increased susceptibility to mycobacterial and viral infections [c4], which argues for partial rather than complete inhibition.
+  5. Allosteric inhibitors that bind the JH2 pseudokinase domain achieve more than 1,000-fold selectivity over JAK1-3 [c3].
+  6. Clinical validation is established: an allosteric TYK2 inhibitor reached PASI 75 in 58% of patients versus 13% on placebo at week 16 [c2].
+  7. The landscape is crowded. I found 17 active trials targeting TYK2 in psoriasis, 11 of them in phase 3.
+  A new entrant would need a clear differentiation angle such as efficacy closer to biologics or a better tolerability profile.
+claims:
+  - index: 1
+    text: "Open Targets scores the TYK2-psoriasis association at 0.74, with a genetic association component of 0.79."
+    kind: numeric
+  - index: 2
+    text: "The P1104A missense variant (rs34536443) is protective, with an odds ratio of 0.68 (p = 2.4e-19) in the GWAS data I queried."
+    kind: numeric
+  - index: 3
+    text: "P1104A is a hypomorph that reduces IL-12, IL-23 and type I interferon signalling by 60-80% without an excess of serious infections in carriers [c1]."
+    kind: citation
+  - index: 4
+    text: "Complete human TYK2 deficiency is associated with increased susceptibility to mycobacterial and viral infections [c4]."
+    kind: citation
+  - index: 5
+    text: "Allosteric inhibitors that bind the JH2 pseudokinase domain achieve more than 1,000-fold selectivity over JAK1-3 [c3]."
+    kind: citation
+  - index: 6
+    text: "An allosteric TYK2 inhibitor reached PASI 75 in 58% of patients versus 13% on placebo at week 16 [c2]."
+    kind: citation
+  - index: 7
+    text: "I found 17 active trials targeting TYK2 in psoriasis, 11 of them in phase 3."
+    kind: execution
+injected_errors:
+  - claim_index: 4
+    type: fabricated_citation
+    description: The answer cites [c4], but evidence contains only c1-c3; no provided source reports on complete human TYK2 deficiency.

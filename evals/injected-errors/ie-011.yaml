@@ -1,0 +1,65 @@
+id: ie-011
+scenario: B
+title: Bulk RNA-seq of fibroblasts treated with a TGF-beta receptor inhibitor
+question: |
+  Analyse my bulk RNA-seq data (fibro_log2cpm.csv) comparing TGF-beta-stimulated lung fibroblasts with and without a TGFBR1 inhibitor. Which fibrosis genes change, and what explains the variation in collagen output?
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import pandas as pd, numpy as np
+        from scipy import stats
+        cpm = pd.read_csv("fibro_log2cpm.csv", index_col=0)
+        meta = pd.read_csv("fibro_meta.csv", index_col=0)
+        print(meta.groupby("treatment").size().to_string())
+        inh, veh = meta.index[meta.treatment == "inhibitor"], meta.index[meta.treatment == "vehicle"]
+        for g in ["COL1A1", "ACTA2", "POSTN", "SERPINE1"]:
+            t, p = stats.ttest_ind(cpm.loc[g, inh], cpm.loc[g, veh])
+            print(g, "log2FC", round(cpm.loc[g, inh].mean() - cpm.loc[g, veh].mean(), 2), "p", round(p, 3))
+      stdout: |
+        treatment
+        inhibitor    2
+        vehicle      2
+        COL1A1 log2FC -1.84 p 0.012
+        ACTA2 log2FC -1.21 p 0.044
+        POSTN log2FC -2.30 p 0.008
+        SERPINE1 log2FC -2.95 p 0.003
+    - run_id: r2
+      status: succeeded
+      code: |
+        from scipy import stats
+        r, p = stats.pearsonr(cpm.loc["SERPINE1"], meta.hydroxyproline_ug)
+        print("pearson r SERPINE1 vs hydroxyproline", round(r, 2), "p", round(p, 3), "n", len(meta))
+      stdout: |
+        pearson r SERPINE1 vs hydroxyproline 0.97 p 0.031 n 4
+  citations: []
+  plan:
+    - Compare fibrosis marker expression between inhibitor and vehicle
+    - Relate gene expression to measured hydroxyproline (collagen) output
+answer: |
+  1. The design has two inhibitor-treated and two vehicle-treated fibroblast samples.
+  2. All four fibrosis markers I tested were significantly reduced by the TGFBR1 inhibitor, SERPINE1 most strongly (log2FC -2.95, p = 0.003), followed by POSTN (log2FC -2.30, p = 0.008), COL1A1 (log2FC -1.84, p = 0.012) and ACTA2 (log2FC -1.21, p = 0.044), establishing a robust anti-fibrotic transcriptional effect.
+  3. SERPINE1 expression correlated with hydroxyproline output across the four samples (Pearson r = 0.97, p = 0.031).
+  4. SERPINE1 therefore drives collagen deposition in these fibroblasts and is the key mediator of the inhibitor's effect.
+  These four genes are canonical TGF-beta targets, so the direction of change is as expected for a TGFBR1 inhibitor. I recommend more replicates and a proper count-based model before drawing conclusions about genes beyond these four, and before any genome-wide screen of the data.
+claims:
+  - index: 1
+    text: "The design has two inhibitor-treated and two vehicle-treated fibroblast samples."
+    kind: numeric
+  - index: 2
+    text: "All four fibrosis markers I tested were significantly reduced by the TGFBR1 inhibitor, SERPINE1 most strongly (log2FC -2.95, p = 0.003), followed by POSTN, COL1A1 and ACTA2, establishing a robust anti-fibrotic transcriptional effect."
+    kind: numeric
+  - index: 3
+    text: "SERPINE1 expression correlated with hydroxyproline output across the four samples (Pearson r = 0.97, p = 0.031)."
+    kind: numeric
+  - index: 4
+    text: "SERPINE1 therefore drives collagen deposition in these fibroblasts and is the key mediator of the inhibitor's effect."
+    kind: causal
+injected_errors:
+  - claim_index: 2
+    type: stat_method
+    description: Run r1 runs unadjusted t-tests on log2 CPM with n=2 per group; two replicates per arm cannot support calling the changes significant and robust.
+  - claim_index: 4
+    type: overclaim_causal
+    description: Run r2 is a Pearson correlation on 4 samples; it cannot show that SERPINE1 drives collagen deposition or mediates the inhibitor effect.

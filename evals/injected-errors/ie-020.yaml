@@ -1,0 +1,65 @@
+id: ie-020
+scenario: C
+title: Dupilumab and type 2 inflammation in COPD
+question: |
+  What is the mechanistic and clinical evidence for IL-4R alpha blockade with dupilumab in COPD? Report which patients benefit.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.2001
+      title: IL-4 receptor alpha blockade in COPD with type 2 inflammation, a 52-week phase 3 trial
+      authors: Albrecht K, Nwosu P, Lindahl S
+      year: 2023
+      abstract: |
+        We enrolled 939 patients with moderate-to-severe COPD and blood eosinophils of at least 300 cells per microlitre.
+        Dupilumab reduced the annualised rate of moderate or severe exacerbations by 30% versus placebo (rate ratio 0.70)
+        and improved pre-bronchodilator FEV1 by 83 mL at week 12. Patients with lower eosinophil counts were not enrolled.
+    - key: c2
+      doi: 10.0000/bq.2002
+      title: IL-13 drives goblet cell metaplasia and mucus hypersecretion in human airway epithelium
+      authors: Okoro D, Brandvold T
+      year: 2017
+      abstract: |
+        In air-liquid interface cultures of primary bronchial epithelium from 14 COPD donors, IL-13 increased MUC5AC+
+        goblet cells 3.2-fold via STAT6; IL-4R alpha antibody blockade abolished the effect.
+    - key: c3
+      doi: 10.0000/bq.2003
+      title: Fractional exhaled nitric oxide as a marker of type 2 airway inflammation in COPD
+      authors: Haldane M, Sorensen J
+      year: 2019
+      abstract: |
+        In 512 COPD patients, FeNO correlated with blood eosinophils (r = 0.41) and sputum IL-13 levels. FeNO above 25 ppb
+        identified patients with sputum eosinophilia with 72% sensitivity.
+  plan:
+    - Summarise mechanistic evidence linking IL-4 and IL-13 to COPD pathology
+    - Summarise randomised clinical evidence
+    - Identify biomarkers that define responders
+    - Build evidence table
+answer: |
+  1. IL-13 signalling through IL-4R alpha and STAT6 increased MUC5AC+ goblet cells 3.2-fold in airway epithelium from COPD donors, and IL-4R alpha blockade abolished this [c2].
+  2. This provides a plausible link between type 2 cytokines and mucus hypersecretion in COPD [c2].
+  3. Clinically, dupilumab reduced moderate or severe exacerbations by 30% (rate ratio 0.70) in patients with moderate-to-severe COPD, regardless of blood eosinophil count [c1].
+  4. Lung function also improved, with pre-bronchodilator FEV1 83 mL higher than placebo at week 12 [c1].
+  5. FeNO correlates with blood eosinophils (r = 0.41) and sputum IL-13 and could help select patients; a cut-off of 25 ppb detected sputum eosinophilia with 72% sensitivity [c3].
+  Evidence table: c2 in vitro human epithelium, mechanistic; c1 phase 3 RCT, efficacy; c3 cross-sectional cohort, biomarker. Taken together, IL-4R alpha blockade has a coherent mechanism and phase 3 support in COPD.
+claims:
+  - index: 1
+    text: "IL-13 signalling through IL-4R alpha and STAT6 increased MUC5AC+ goblet cells 3.2-fold in airway epithelium from COPD donors, and IL-4R alpha blockade abolished this [c2]."
+    kind: citation
+  - index: 2
+    text: "This provides a plausible link between type 2 cytokines and mucus hypersecretion in COPD [c2]."
+    kind: citation
+  - index: 3
+    text: "Dupilumab reduced moderate or severe exacerbations by 30% (rate ratio 0.70) in patients with moderate-to-severe COPD, regardless of blood eosinophil count [c1]."
+    kind: citation
+  - index: 4
+    text: "Pre-bronchodilator FEV1 was 83 mL higher than placebo at week 12 [c1]."
+    kind: citation
+  - index: 5
+    text: "FeNO correlates with blood eosinophils (r = 0.41) and sputum IL-13; a cut-off of 25 ppb detected sputum eosinophilia with 72% sensitivity [c3]."
+    kind: citation
+injected_errors:
+  - claim_index: 3
+    type: citation_unsupported
+    description: c1 enrolled only patients with blood eosinophils of at least 300 cells per microlitre and explicitly excluded lower counts, so it cannot support efficacy regardless of eosinophil count.

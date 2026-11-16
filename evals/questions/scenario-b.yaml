@@ -1,0 +1,76 @@
+- id: q-B-01
+  scenario: B
+  difficulty: 1
+  question: |
+    Load pbmc3k with scanpy, compute QC metrics including mitochondrial fraction, filter low-quality cells, and report how many cells and genes remain.
+  requires:
+    - python_kernel
+    - scanpy
+  rubric:
+    - Calculates mitochondrial fraction using genes with the MT- prefix.
+    - States explicit filtering thresholds (fixed or MAD-based) for genes per cell, counts and/or mitochondrial fraction.
+    - Reports cell counts before (2,700) and after filtering, and the numbers in the answer match the run output.
+    - Shows a QC plot (violin or scatter) traceable to the run that produced it.
+  notes: The raw pbmc3k object has 2,700 cells and 32,738 genes. Cell counts after filtering depend on the thresholds chosen.
+
+- id: q-B-02
+  scenario: B
+  difficulty: 1
+  question: |
+    On pbmc3k, normalise, select highly variable genes, cluster with Leiden and annotate the major cell types using marker genes. Show a UMAP.
+  requires:
+    - python_kernel
+    - scanpy
+  rubric:
+    - Performs library-size normalisation and log transformation before HVG selection and PCA.
+    - Builds a neighbour graph and runs Leiden (or Louvain) clustering with a stated resolution.
+    - Annotates clusters using canonical markers, e.g. CD3E or IL7R (T cells), MS4A1 or CD79A (B cells), CD14 and LYZ (classical monocytes), FCGR3A (non-classical monocytes), NKG7 or GNLY (NK cells), FCER1A (dendritic cells) and PPBP (platelets).
+    - Produces a UMAP coloured by cluster or cell type, linked to the code that generated it.
+    - Every number in the answer (cluster count, cell counts) matches the run output.
+
+- id: q-B-03
+  scenario: B
+  difficulty: 2
+  question: |
+    In pbmc3k, find the genes that distinguish CD14+ classical monocytes from FCGR3A+ non-classical monocytes.
+  requires:
+    - python_kernel
+    - scanpy
+  rubric:
+    - Identifies the two monocyte populations using CD14/LYZ and FCGR3A/MS4A7 before testing.
+    - Uses a stated test (e.g. Wilcoxon) and reports multiple-testing adjusted p-values.
+    - Recovers the expected markers, e.g. CD14, LYZ, S100A8 or S100A9 up in classical monocytes, and FCGR3A, MS4A7 or LST1 up in non-classical monocytes.
+    - Notes that cell-level tests within a single donor rank markers but do not support population-level inference.
+
+- id: q-B-04
+  scenario: B
+  difficulty: 2
+  question: |
+    My h5ad has cells from several donors in two conditions (obs columns donor, condition, cell_type). Run differential expression between conditions within one cell type.
+  requires:
+    - python_kernel
+    - scanpy
+    - decoupler_or_pydeseq2
+  rubric:
+    - Aggregates raw counts into pseudobulk profiles per donor (and cell type), rather than testing individual cells.
+    - States a minimum cells-per-donor threshold and how many donors per condition remain.
+    - Uses a count-based model (edgeR-, DESeq2- or limma-voom-style) and reports FDR-adjusted results.
+    - Warns about low power, or declines to make strong claims, if any condition has fewer than 3 donors.
+    - Every reported gene count and statistic matches the run output.
+  notes: Graders should check that raw counts (not log-normalised values) are used for pseudobulk.
+
+- id: q-B-05
+  scenario: B
+  difficulty: 3
+  question: |
+    I have pbmc3k and a second PBMC h5ad from a different 10x chemistry. Integrate them, check whether batch effects were removed without losing cell types, and show the evidence.
+  requires:
+    - python_kernel
+    - scanpy
+    - harmony_or_scvi
+  rubric:
+    - Restricts to shared genes and records which dataset each cell came from as a batch key.
+    - Applies a named integration method (e.g. Harmony, scVI or BBKNN) and states its parameters.
+    - Shows before and after evidence of batch mixing (UMAP coloured by batch and/or a quantitative mixing metric such as LISI or kBET).
+    - Checks biological conservation, e.g. that canonical cell-type markers still separate clusters, or with a metric such as ARI or silhouette on cell-type labels.
+    - Avoids running differential expression on integrated or corrected values, or warns against it.

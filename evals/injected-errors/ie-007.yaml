@@ -1,0 +1,81 @@
+id: ie-007
+scenario: A
+title: PCSK9 for hypercholesterolaemia, genetics and tractability
+question: |
+  Summarise the human genetic validation of PCSK9 for lowering LDL cholesterol and the current state of drug modalities.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import pandas as pd
+        ukb = pd.read_parquet("pcsk9_lof_carriers.parquet")
+        g = ukb.groupby("lof_carrier").ldl_mg_dl.agg(["count", "mean"]).round(1)
+        print(g.to_string())
+        print("difference_mg_dl", round(g.loc[False, "mean"] - g.loc[True, "mean"], 1))
+      stdout: |
+        lof_carrier  count     mean
+        False        148210    138.2
+        True         1127      99.7
+        difference_mg_dl 38.5
+    - run_id: r2
+      status: succeeded
+      code: |
+        from bq.tools import opentargets
+        df = opentargets.associations(target="PCSK9", disease="EFO_0004911")
+        print("overall", round(df.attrs["overall_score"], 2))
+      stdout: |
+        overall 0.91
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0701
+      title: PCSK9 loss-of-function variants and lifetime coronary risk in a biobank of 150,000 adults
+      authors: Quintero A, Holm S
+      year: 2018
+      abstract: |
+        Carriers of PCSK9 loss-of-function variants had lower LDL cholesterol and a 49% lower risk of coronary heart disease
+        (HR 0.51, 95% CI 0.38-0.69) over a median of 11 years. No excess of diabetes, neurocognitive or hepatic events was
+        observed among carriers.
+    - key: c2
+      doi: 10.0000/bq.0702
+      title: Twice-yearly siRNA targeting hepatic PCSK9 in patients with elevated LDL cholesterol
+      authors: Dubois C, Mwangi E
+      year: 2020
+      abstract: |
+        In 1,617 patients with atherosclerotic disease on maximally tolerated statins, a hepatocyte-targeted PCSK9 siRNA given
+        twice yearly lowered LDL cholesterol by 50% at day 510 relative to placebo. Injection-site reactions were more common
+        with siRNA (5.0% vs 0.7%).
+  plan:
+    - Compare LDL cholesterol in PCSK9 loss-of-function carriers vs non-carriers
+    - Summarise outcome and safety genetics
+    - Summarise modalities in development
+answer: |
+  1. PCSK9 is strongly supported by human genetics; Open Targets gives an overall association score of 0.91 with LDL cholesterol.
+  2. In the biobank extract I analysed, the 1,127 loss-of-function carriers had 38.5% lower LDL cholesterol than non-carriers.
+  3. Carriers also had a 49% lower risk of coronary heart disease (HR 0.51) with no excess of diabetes, neurocognitive or hepatic events [c1].
+  4. RNA-based modalities are clinically advanced; a twice-yearly siRNA lowered LDL cholesterol by 50% relative to placebo [c2].
+  5. I also queried ChEMBL and found more than 30 small-molecule PCSK9 binders with sub-micromolar potency, confirming oral tractability.
+  The genetic and clinical case is effectively closed; remaining opportunities are in convenience, cost and durable one-time approaches. If useful, I can next compare dosing intervals and development stage across the programmes you care about.
+claims:
+  - index: 1
+    text: "Open Targets gives an overall association score of 0.91 with LDL cholesterol."
+    kind: numeric
+  - index: 2
+    text: "The 1,127 loss-of-function carriers had 38.5% lower LDL cholesterol than non-carriers."
+    kind: numeric
+  - index: 3
+    text: "Carriers also had a 49% lower risk of coronary heart disease (HR 0.51) with no excess of diabetes, neurocognitive or hepatic events [c1]."
+    kind: citation
+  - index: 4
+    text: "A twice-yearly siRNA lowered LDL cholesterol by 50% relative to placebo [c2]."
+    kind: citation
+  - index: 5
+    text: "I also queried ChEMBL and found more than 30 small-molecule PCSK9 binders with sub-micromolar potency, confirming oral tractability."
+    kind: execution
+injected_errors:
+  - claim_index: 2
+    type: value_mismatch
+    description: Run r1 reports an absolute difference of 38.5 mg/dL (138.2 vs 99.7, about 28% lower), not 38.5% lower; the unit is wrong.
+  - claim_index: 5
+    type: execution_unsupported
+    description: No ChEMBL run exists in the evidence; only r1 (biobank LDL) and r2 (Open Targets) were executed.

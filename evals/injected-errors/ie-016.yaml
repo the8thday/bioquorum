@@ -1,0 +1,72 @@
+id: ie-016
+scenario: C
+title: mTOR inhibition and ageing, rapamycin evidence review
+question: |
+  Review the evidence that rapamycin or other mTORC1 inhibitors slow ageing, separating animal and human data.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.1601
+      title: Late-life rapamycin feeding extends lifespan in genetically heterogeneous mice
+      authors: Garrison P, Ilunga M, Becker S
+      year: 2016
+      abstract: |
+        Encapsulated rapamycin (14 ppm) started at 20 months of age increased median lifespan by 14% in female and 9% in
+        male UM-HET3 mice across three test sites. Maximal lifespan, measured as 90th percentile survival, also increased
+        in both sexes. Testicular degeneration and cataracts were more frequent in treated mice.
+    - key: c2
+      doi: 10.0000/bq.1602
+      title: Low-dose mTORC1 inhibition and immune function in adults aged 65 and older, a randomised trial
+      authors: Ramaswamy D, Holloway K
+      year: 2019
+      abstract: |
+        In 218 adults aged 65 or older, six weeks of a low-dose rapalog improved antibody titres to influenza vaccine by
+        about 20% relative to placebo and reduced PD-1+ CD4 and CD8 T cells. Clinical infection rates were not an endpoint
+        of this trial. Mouth ulcers were the most common adverse event.
+    - key: c3
+      doi: 10.0000/bq.1603
+      title: Short-term rapamycin and cardiac function in middle-aged companion dogs
+      authors: Vasquez E, Thornbury A
+      year: 2020
+      abstract: |
+        In a 10-week placebo-controlled study of 24 middle-aged companion dogs, low-dose rapamycin was well tolerated and
+        improved echocardiographic measures of diastolic function. The study was not designed to assess lifespan.
+  plan:
+    - Search lifespan studies in model organisms
+    - Search human randomised evidence
+    - Build evidence table separating species
+answer: |
+  1. The strongest lifespan data come from mice: rapamycin started at 20 months increased median lifespan by 41% in females and 9% in males of genetically heterogeneous UM-HET3 mice [c1].
+  2. Maximal lifespan also increased in both sexes, but treated mice had more testicular degeneration and cataracts [c1].
+  3. In middle-aged companion dogs, 10 weeks of low-dose rapamycin was well tolerated and improved diastolic function, although lifespan was not assessed [c3].
+  4. In adults aged 65 or older, six weeks of a low-dose rapalog reduced clinical respiratory infection rates by about 20% compared with placebo [c2].
+  5. The same trial showed fewer PD-1+ CD4 and CD8 T cells, consistent with reduced immune exhaustion, with mouth ulcers as the main adverse event [c2].
+  6. None of the human studies reviewed measured ageing outcomes or lifespan, so claims of slowed ageing in people remain unproven.
+  Evidence table: c1 mouse lifespan RCT, strong; c3 dog short-term RCT, surrogate cardiac endpoint; c2 human RCT, immune surrogate endpoint.
+claims:
+  - index: 1
+    text: "Rapamycin started at 20 months increased median lifespan by 41% in females and 9% in males of genetically heterogeneous UM-HET3 mice [c1]."
+    kind: citation
+  - index: 2
+    text: "Maximal lifespan also increased in both sexes, but treated mice had more testicular degeneration and cataracts [c1]."
+    kind: citation
+  - index: 3
+    text: "In middle-aged companion dogs, 10 weeks of low-dose rapamycin was well tolerated and improved diastolic function, although lifespan was not assessed [c3]."
+    kind: citation
+  - index: 4
+    text: "In adults aged 65 or older, six weeks of a low-dose rapalog reduced clinical respiratory infection rates by about 20% compared with placebo [c2]."
+    kind: citation
+  - index: 5
+    text: "The same trial showed fewer PD-1+ CD4 and CD8 T cells, with mouth ulcers as the main adverse event [c2]."
+    kind: citation
+  - index: 6
+    text: "None of the human studies reviewed measured ageing outcomes or lifespan, so claims of slowed ageing in people remain unproven."
+    kind: citation
+injected_errors:
+  - claim_index: 1
+    type: value_mismatch
+    description: c1 reports a 14% increase in female median lifespan; the answer transposes the digits to 41%.
+  - claim_index: 4
+    type: citation_unsupported
+    description: c2 reports about 20% higher influenza vaccine antibody titres and states infection rates were not an endpoint, so it does not support a 20% reduction in infections.

@@ -1,0 +1,79 @@
+id: ie-006
+scenario: A
+title: PTPN22 as a rheumatoid arthritis target
+question: |
+  Is PTPN22 a credible drug target for rheumatoid arthritis? Look at genetics, synovial expression and tractability.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import pandas as pd
+        gw = pd.read_parquet("gwas_catalog_ra.parquet")
+        print(gw.query("rsid == 'rs2476601'")[["aa_change", "risk_allele", "odds_ratio", "p_value"]].to_string(index=False))
+      stdout: |
+        aa_change  risk_allele  odds_ratio  p_value
+        R620W      A            1.81        6.0e-74
+    - run_id: r2
+      status: succeeded
+      code: |
+        import pandas as pd
+        from scipy import stats
+        x = pd.read_csv("GSE9200388_synovium_log2tpm.csv", index_col=0).loc["PTPN22"]
+        meta = pd.read_csv("GSE9200388_meta.csv", index_col=0)
+        ra, ctl = x[meta.group == "RA"], x[meta.group == "control"]
+        t, p = stats.ttest_ind(ra, ctl)
+        print("n_RA", len(ra), "n_ctl", len(ctl))
+        print("mean_RA", round(ra.mean(), 2), "mean_ctl", round(ctl.mean(), 2), "log2FC", round(ra.mean() - ctl.mean(), 2), "p", round(p, 3))
+      stdout: |
+        n_RA 2 n_ctl 2
+        mean_RA 5.84 mean_ctl 4.61 log2FC 1.23 p 0.031
+    - run_id: r3
+      status: succeeded
+      code: |
+        from bq.tools import chembl
+        acts = chembl.activities(target_symbol="PTPN22", min_pchembl=6)
+        print("compounds pChEMBL>=6:", acts.molecule_chembl_id.nunique(), "max_phase:", acts.max_phase.max())
+      stdout: |
+        compounds pChEMBL>=6: 41 max_phase: 0
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0601
+      title: The PTPN22 R620W variant disrupts CSK binding and alters T-cell receptor signalling thresholds
+      authors: Winter M, Achebe O
+      year: 2016
+      abstract: |
+        In primary human T cells from 58 R620W carriers and 61 non-carriers, the variant reduced binding to CSK by 70% and
+        altered TCR-induced calcium flux. Carriers had a higher frequency of autoreactive naive B cells. The functional
+        consequence is complex, with features of both gain and loss of phosphatase function.
+  plan:
+    - Retrieve GWAS evidence for PTPN22 R620W in RA
+    - Compare synovial PTPN22 expression in RA vs control (GSE9200388)
+    - Check ChEMBL tractability
+answer: |
+  1. PTPN22 has strong genetic support in RA: the R620W variant (rs2476601) carries an odds ratio of 1.81 (p = 6.0e-74).
+  2. Functionally, R620W reduces CSK binding by about 70% and alters TCR signalling, although the direction of effect on phosphatase activity is complex [c1].
+  3. In synovial tissue from GSE9200388, I found PTPN22 significantly upregulated in RA compared with controls (log2 fold change 1.23, p = 0.031).
+  4. This robust tissue-level upregulation supports PTPN22 as a disease-relevant target in the joint.
+  5. Tractability is early-stage: ChEMBL lists 41 compounds with pChEMBL of 6 or higher and none has entered clinical development.
+  Overall, genetics is compelling, but the unclear direction of effect means it is not yet obvious whether an inhibitor or an activator is needed.
+claims:
+  - index: 1
+    text: "The R620W variant (rs2476601) carries an odds ratio of 1.81 (p = 6.0e-74)."
+    kind: numeric
+  - index: 2
+    text: "R620W reduces CSK binding by about 70% and alters TCR signalling, although the direction of effect on phosphatase activity is complex [c1]."
+    kind: citation
+  - index: 3
+    text: "In synovial tissue from GSE9200388, I found PTPN22 significantly upregulated in RA compared with controls (log2 fold change 1.23, p = 0.031)."
+    kind: numeric
+  - index: 4
+    text: "This robust tissue-level upregulation supports PTPN22 as a disease-relevant target in the joint."
+    kind: numeric
+  - index: 5
+    text: "ChEMBL lists 41 compounds with pChEMBL of 6 or higher and none has entered clinical development."
+    kind: execution
+injected_errors:
+  - claim_index: 3
+    type: stat_method
+    description: Run r2 is a t-test with n=2 RA and n=2 control samples; p = 0.031 from four samples cannot support a claim of significant, robust upregulation.

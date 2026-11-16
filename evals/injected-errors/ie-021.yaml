@@ -1,0 +1,79 @@
+id: ie-021
+scenario: A
+title: HSD17B13 as a target for chronic liver disease (clean control)
+question: |
+  Evaluate HSD17B13 as a target for MASH and alcohol-related liver disease. Cover genetics, expression and modality options.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import pandas as pd
+        gw = pd.read_parquet("gwas_liver.parquet")
+        sub = gw.query("rsid == 'rs72613567'")[["trait", "effect_allele", "odds_ratio", "p_value"]]
+        print(sub.to_string(index=False))
+      stdout: |
+        trait                          effect_allele  odds_ratio  p_value
+        alcohol-related liver disease  TA             0.58        1.2e-14
+        non-alcoholic cirrhosis        TA             0.74        3.9e-09
+    - run_id: r2
+      status: succeeded
+      code: |
+        from bq.tools import gtex
+        tpm = gtex.median_tpm("HSD17B13").sort_values(ascending=False)
+        print(tpm.head(3).round(1).to_string())
+      stdout: |
+        Liver                 182.4
+        Kidney_Cortex           3.1
+        Testis                  1.9
+    - run_id: r3
+      status: succeeded
+      code: |
+        from bq.tools import clinicaltrials
+        t = clinicaltrials.search(intervention_target="HSD17B13", status=["RECRUITING", "ACTIVE_NOT_RECRUITING"])
+        print("active trials:", len(t)); print(t.groupby("modality").size().to_string())
+      stdout: |
+        active trials: 6
+        modality
+        antisense      1
+        siRNA          4
+        small_molecule 1
+  citations:
+    - key: c1
+      doi: 10.0000/bq.2101
+      title: A splice variant in HSD17B13 produces a truncated, inactive enzyme and protects against chronic liver injury
+      authors: Ambrose T, Kalinowski D, Yamada H
+      year: 2018
+      abstract: |
+        The rs72613567 TA insertion causes aberrant splicing and a truncated protein lacking retinol dehydrogenase activity.
+        In 46,544 exome-sequenced participants, carriers had lower ALT and AST and a reduced risk of alcoholic and
+        non-alcoholic liver disease, with a gene-dosage effect. The variant did not reduce steatosis itself.
+  plan:
+    - Retrieve GWAS evidence for the HSD17B13 splice variant
+    - Summarise tissue expression from GTEx
+    - Summarise mechanism from the literature
+    - Count active clinical programmes by modality
+answer: |
+  1. Human genetics supports HSD17B13 inhibition. In the GWAS data I queried, the rs72613567 TA allele is associated with lower risk of alcohol-related liver disease (OR 0.58, p = 1.2e-14) and non-alcoholic cirrhosis (OR 0.74, p = 3.9e-09).
+  2. The TA insertion causes aberrant splicing and a truncated enzyme without retinol dehydrogenase activity, so the protective allele is a loss of function [c1].
+  3. Carriers have lower ALT and AST with a gene-dosage effect, but the variant does not reduce steatosis, suggesting it acts on progression to injury rather than fat accumulation [c1].
+  4. Expression is highly liver-restricted: GTEx median TPM is 182.4 in liver versus 3.1 in kidney cortex, the next highest tissue.
+  5. Liver-restricted expression favours hepatocyte-targeted oligonucleotides; of 6 active clinical programmes I found, 4 are siRNA, 1 antisense and 1 small molecule.
+  Overall, HSD17B13 has strong loss-of-function genetic support and a favourable expression profile. The field is competitive and dominated by siRNA, so a new programme would need a differentiated modality or patient selection strategy.
+claims:
+  - index: 1
+    text: "The rs72613567 TA allele is associated with lower risk of alcohol-related liver disease (OR 0.58, p = 1.2e-14) and non-alcoholic cirrhosis (OR 0.74, p = 3.9e-09)."
+    kind: numeric
+  - index: 2
+    text: "The TA insertion causes aberrant splicing and a truncated enzyme without retinol dehydrogenase activity, so the protective allele is a loss of function [c1]."
+    kind: citation
+  - index: 3
+    text: "Carriers have lower ALT and AST with a gene-dosage effect, but the variant does not reduce steatosis [c1]."
+    kind: citation
+  - index: 4
+    text: "GTEx median TPM is 182.4 in liver versus 3.1 in kidney cortex, the next highest tissue."
+    kind: numeric
+  - index: 5
+    text: "Of 6 active clinical programmes I found, 4 are siRNA, 1 antisense and 1 small molecule."
+    kind: execution
+injected_errors: []

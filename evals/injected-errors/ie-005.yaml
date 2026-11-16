@@ -1,0 +1,88 @@
+id: ie-005
+scenario: A
+title: KRAS G12C competitive landscape in NSCLC
+question: |
+  Give me a target dossier for KRAS G12C in non-small cell lung cancer with emphasis on prevalence, clinical efficacy and competition.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import pandas as pd
+        mut = pd.read_csv("nsclc_cohort_mutations.csv")
+        luad = mut[mut.histology == "LUAD"]
+        n = luad.sample_id.nunique()
+        g12c = luad.query("gene == 'KRAS' and protein_change == 'p.G12C'").sample_id.nunique()
+        print("LUAD samples", n, "G12C", g12c, "pct", round(100 * g12c / n, 1))
+      stdout: |
+        LUAD samples 4127 G12C 532 pct 12.9
+    - run_id: r2
+      status: succeeded
+      code: |
+        from bq.tools import clinicaltrials
+        t = clinicaltrials.search(condition="non-small cell lung cancer", keyword="KRAS G12C", status=["RECRUITING", "ACTIVE_NOT_RECRUITING"])
+        print("active trials:", len(t), "sponsors:", t.sponsor.nunique())
+        print(t.groupby("phase").size().to_string())
+      stdout: |
+        active trials: 14 sponsors: 9
+        phase
+        PHASE1     5
+        PHASE2     5
+        PHASE3     4
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0501
+      title: A covalent KRAS G12C inhibitor in previously treated KRAS G12C-mutant NSCLC, phase 2 results
+      authors: Romero V, Hargreaves P
+      year: 2021
+      abstract: |
+        In 126 patients with pretreated KRAS G12C NSCLC, the objective response rate was 37% and median progression-free
+        survival was 6.8 months. Grade 3 treatment-related adverse events, mainly transaminase elevations, occurred in 20%.
+    - key: c2
+      doi: 10.0000/bq.0502
+      title: EGFR feedback reactivation limits KRAS G12C inhibitor activity in colorectal cancer models
+      authors: Ishikawa T, Bauer F
+      year: 2020
+      abstract: |
+        In KRAS G12C colorectal cancer cell lines and xenografts, G12C inhibition induced rapid EGFR-dependent reactivation
+        of RAS-MAPK signalling. Combining a G12C inhibitor with an anti-EGFR antibody increased tumour regression in 7 of
+        8 colorectal xenograft models.
+  plan:
+    - Estimate KRAS G12C prevalence in lung adenocarcinoma from the cohort mutation file
+    - Summarise clinical efficacy of approved G12C inhibitors
+    - Summarise known resistance mechanisms
+    - Count active G12C trials in NSCLC
+answer: |
+  1. KRAS G12C is present in 12.9% of lung adenocarcinomas in the cohort I analysed (532 of 4,127 samples).
+  2. Covalent G12C inhibitors are clinically validated: in pretreated NSCLC, the objective response rate was 37% with median progression-free survival of 6.8 months [c1].
+  3. Grade 3 treatment-related adverse events, mostly transaminase elevations, occurred in 20% of patients [c1].
+  4. Responses in NSCLC are short-lived because co-occurring STK11 and KEAP1 mutations confer primary resistance in lung tumours [c2].
+  5. The landscape is crowded: I counted 42 active KRAS G12C trials in NSCLC from 9 sponsors, 4 of them already in phase 3.
+  6. The dossier therefore covers prevalence, efficacy, resistance and competition as planned.
+  The best remaining opportunities are likely rational combinations or differentiated next-generation inhibitors.
+claims:
+  - index: 1
+    text: "KRAS G12C is present in 12.9% of lung adenocarcinomas in the cohort I analysed (532 of 4,127 samples)."
+    kind: numeric
+  - index: 2
+    text: "In pretreated NSCLC, the objective response rate was 37% with median progression-free survival of 6.8 months [c1]."
+    kind: citation
+  - index: 3
+    text: "Grade 3 treatment-related adverse events, mostly transaminase elevations, occurred in 20% of patients [c1]."
+    kind: citation
+  - index: 4
+    text: "Responses in NSCLC are short-lived because co-occurring STK11 and KEAP1 mutations confer primary resistance in lung tumours [c2]."
+    kind: citation
+  - index: 5
+    text: "I counted 42 active KRAS G12C trials in NSCLC from 9 sponsors, 4 of them already in phase 3."
+    kind: numeric
+  - index: 6
+    text: "The dossier therefore covers prevalence, efficacy, resistance and competition as planned."
+    kind: plan
+injected_errors:
+  - claim_index: 4
+    type: fabricated_citation
+    description: c2 is about EGFR feedback in colorectal cancer models and says nothing about STK11 or KEAP1 co-mutations in lung tumours.
+  - claim_index: 5
+    type: value_mismatch
+    description: Run r2 reports 14 active trials, not 42 (sponsor and phase 3 counts match).

@@ -1,0 +1,93 @@
+id: ie-004
+scenario: A
+title: TL1A (TNFSF15) as an IBD target
+question: |
+  Assess TNFSF15 (TL1A) as a target for ulcerative colitis and Crohn's disease, using genetics, mucosal expression and clinical data.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        from bq.tools import opentargets
+        for d in ["EFO_0000729", "EFO_0000384"]:
+            df = opentargets.associations(target="TNFSF15", disease=d)
+            print(d, round(df.attrs["overall_score"], 2))
+      stdout: |
+        EFO_0000729 0.69
+        EFO_0000384 0.77
+    - run_id: r2
+      status: succeeded
+      code: |
+        import pandas as pd
+        from scipy import stats
+        cpm = pd.read_csv("GSE9100417_log2cpm.csv", index_col=0)
+        meta = pd.read_csv("GSE9100417_meta.csv", index_col=0)
+        g = cpm.loc["TNFSF15"]
+        for dx in ["UC", "CD"]:
+            inf = g[(meta.dx == dx) & meta.inflamed]; non = g[(meta.dx == dx) & ~meta.inflamed]
+            print(dx, "n_inf", len(inf), "n_non", len(non), "fold_change", round(2 ** (inf.mean() - non.mean()), 1))
+        rho, p = stats.spearmanr(g[meta.inflamed], meta.histo_score[meta.inflamed])
+        print("spearman rho vs histology", round(rho, 2), "p", f"{p:.1e}", "n", int(meta.inflamed.sum()))
+      stdout: |
+        UC n_inf 38 n_non 41 fold_change 2.4
+        CD n_inf 34 n_non 36 fold_change 1.3
+        spearman rho vs histology 0.46 p 4.3e-05 n 72
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0401
+      title: TNFSF15 risk haplotypes and Crohn's disease across ancestries
+      authors: Shimizu K, Adeyemi F, Larsen J
+      year: 2017
+      abstract: |
+        In 12,600 Crohn's disease cases from East Asian and European cohorts, the TNFSF15 risk haplotype was associated with
+        disease (OR 1.52 in East Asian, 1.21 in European ancestry). Risk carriers had higher TL1A release from monocytes after
+        immune-complex stimulation. The study is observational and does not establish direction of effect in the gut.
+    - key: c2
+      doi: 10.0000/bq.0402
+      title: Anti-TL1A monoclonal antibody for moderately to severely active ulcerative colitis, a phase 2 study
+      authors: Mendes R, Zhao Q
+      year: 2023
+      abstract: |
+        In 135 patients with active UC (NCT09990402), clinical remission at week 12 was 27% with anti-TL1A versus 5% with
+        placebo. In patients positive for a genetic-risk-based companion diagnostic, remission was 32% versus 11%.
+  plan:
+    - Pull Open Targets scores for TNFSF15 in UC and Crohn's disease
+    - Compare mucosal expression in inflamed vs non-inflamed tissue (GSE9100417)
+    - Summarise genetic and clinical literature
+answer: |
+  1. Open Targets associates TNFSF15 with both indications, scoring 0.69 for ulcerative colitis and 0.77 for Crohn's disease.
+  2. The TNFSF15 risk haplotype is associated with Crohn's disease, more strongly in East Asian (OR 1.52) than European (OR 1.21) cohorts [c1].
+  3. In GSE9100417, I found TNFSF15 was 2.4-fold higher in inflamed versus non-inflamed Crohn's disease mucosa, with a smaller increase in UC.
+  4. Among the 72 inflamed biopsies, TNFSF15 expression correlated with histological severity (Spearman rho 0.46, p = 4.3e-05).
+  5. This indicates that TL1A drives histological severity of mucosal inflammation, making it a disease-modifying rather than a bystander target.
+  6. Clinical proof of concept exists in UC: anti-TL1A achieved 27% clinical remission at week 12 versus 5% on placebo [c2].
+  TL1A is well supported genetically and clinically; the most differentiated opportunity is probably biomarker-selected patients, where remission was 32% versus 11% [c2].
+claims:
+  - index: 1
+    text: "Open Targets associates TNFSF15 with both indications, scoring 0.69 for ulcerative colitis and 0.77 for Crohn's disease."
+    kind: numeric
+  - index: 2
+    text: "The TNFSF15 risk haplotype is associated with Crohn's disease, more strongly in East Asian (OR 1.52) than European (OR 1.21) cohorts [c1]."
+    kind: citation
+  - index: 3
+    text: "In GSE9100417, I found TNFSF15 was 2.4-fold higher in inflamed versus non-inflamed Crohn's disease mucosa, with a smaller increase in UC."
+    kind: numeric
+  - index: 4
+    text: "Among the 72 inflamed biopsies, TNFSF15 expression correlated with histological severity (Spearman rho 0.46, p = 4.3e-05)."
+    kind: numeric
+  - index: 5
+    text: "This indicates that TL1A drives histological severity of mucosal inflammation, making it a disease-modifying rather than a bystander target."
+    kind: causal
+  - index: 6
+    text: "Anti-TL1A achieved 27% clinical remission at week 12 versus 5% on placebo [c2]."
+    kind: citation
+  - index: 7
+    text: "In biomarker-selected patients remission was 32% versus 11% [c2]."
+    kind: citation
+injected_errors:
+  - claim_index: 3
+    type: value_mismatch
+    description: The 2.4-fold change in run r2 is for UC; Crohn's disease shows only 1.3-fold, so the answer swaps the two disease groups.
+  - claim_index: 5
+    type: overclaim_causal
+    description: The only supporting evidence is a cross-sectional Spearman correlation (rho 0.46), which cannot show that TL1A drives severity.

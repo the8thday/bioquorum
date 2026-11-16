@@ -1,0 +1,67 @@
+id: ie-023
+scenario: C
+title: Finerenone in diabetic kidney disease (clean control)
+question: |
+  Summarise the mechanistic and clinical evidence for finerenone in chronic kidney disease with type 2 diabetes, with citations.
+evidence:
+  runs: []
+  citations:
+    - key: c1
+      doi: 10.0000/bq.2301
+      title: Non-steroidal mineralocorticoid receptor antagonism and kidney outcomes in type 2 diabetes with CKD
+      authors: Hartmann B, Oyelowo F, Strand K
+      year: 2020
+      abstract: |
+        In 5,734 patients with CKD and type 2 diabetes on maximal RAS blockade (NCT09992301), finerenone reduced the
+        composite of kidney failure, sustained 40% eGFR decline or renal death (HR 0.82, 95% CI 0.73-0.93) over a median
+        2.6 years. Hyperkalaemia leading to discontinuation occurred in 2.3% versus 0.9% on placebo.
+    - key: c2
+      doi: 10.0000/bq.2302
+      title: Finerenone reduces renal inflammation and fibrosis in a rat model of diabetic nephropathy
+      authors: Lemaire C, Abara N
+      year: 2018
+      abstract: |
+        In streptozotocin-diabetic uninephrectomised rats, finerenone reduced glomerular macrophage infiltration by 48%,
+        interstitial collagen by 39% and urinary albumin by 55% at doses that did not lower blood pressure, suggesting
+        effects beyond haemodynamics.
+    - key: c3
+      doi: 10.0000/bq.2303
+      title: Tissue distribution and binding mode of non-steroidal versus steroidal mineralocorticoid receptor antagonists
+      authors: Pruitt S, Valtonen E
+      year: 2017
+      abstract: |
+        Radiolabelled distribution studies in rodents showed balanced heart and kidney uptake of finerenone, whereas
+        spironolactone accumulated preferentially in kidney. Crystallography indicated a bulky binding mode that alters
+        co-regulator recruitment.
+  plan:
+    - Search mechanistic preclinical evidence
+    - Search randomised outcome trials
+    - Build evidence table with study type and caveats
+answer: |
+  1. In a randomised outcome trial of 5,734 patients with CKD and type 2 diabetes already on maximal RAS blockade, finerenone reduced the composite of kidney failure, sustained 40% eGFR decline or renal death (HR 0.82) over a median 2.6 years [c1].
+  2. The main safety issue is hyperkalaemia, which led to discontinuation in 2.3% of patients versus 0.9% on placebo [c1].
+  3. In diabetic rats, finerenone reduced glomerular macrophage infiltration by 48%, interstitial collagen by 39% and albuminuria by 55% at doses that did not lower blood pressure [c2].
+  4. This rat finding suggests anti-inflammatory and anti-fibrotic effects beyond haemodynamics, although it has not been directly demonstrated in human kidney tissue [c2].
+  5. Rodent distribution studies indicate balanced heart and kidney uptake for finerenone, compared with preferential kidney accumulation for spironolactone [c3].
+  6. Its bulky binding mode alters co-regulator recruitment, which may explain pharmacological differences from steroidal antagonists [c3].
+  Evidence table: c1 phase 3 RCT, kidney outcomes, hyperkalaemia caveat; c2 rat model, mechanism, species caveat; c3 rodent pharmacology and crystallography, mechanism. No contradictory findings were identified among these sources.
+claims:
+  - index: 1
+    text: "In a randomised outcome trial of 5,734 patients with CKD and type 2 diabetes already on maximal RAS blockade, finerenone reduced the composite of kidney failure, sustained 40% eGFR decline or renal death (HR 0.82) over a median 2.6 years [c1]."
+    kind: citation
+  - index: 2
+    text: "Hyperkalaemia led to discontinuation in 2.3% of patients versus 0.9% on placebo [c1]."
+    kind: citation
+  - index: 3
+    text: "In diabetic rats, finerenone reduced glomerular macrophage infiltration by 48%, interstitial collagen by 39% and albuminuria by 55% at doses that did not lower blood pressure [c2]."
+    kind: citation
+  - index: 4
+    text: "This rat finding suggests anti-inflammatory and anti-fibrotic effects beyond haemodynamics, although it has not been directly demonstrated in human kidney tissue [c2]."
+    kind: causal
+  - index: 5
+    text: "Rodent distribution studies indicate balanced heart and kidney uptake for finerenone, compared with preferential kidney accumulation for spironolactone [c3]."
+    kind: citation
+  - index: 6
+    text: "Its bulky binding mode alters co-regulator recruitment [c3]."
+    kind: citation
+injected_errors: []

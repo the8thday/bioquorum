@@ -1,0 +1,77 @@
+id: ie-012
+scenario: B
+title: Tumour-infiltrating T cells in anti-PD-1 responders vs non-responders
+question: |
+  In til_melanoma.h5ad, compare CD8 T cells from anti-PD-1 responders and non-responders. Which genes and programmes differ?
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        import scanpy as sc
+        adata = sc.read_h5ad("til_melanoma.h5ad")
+        cd8 = adata[adata.obs.cell_type == "CD8 T"].copy()
+        print(cd8.obs.groupby("response").agg(n_cells=("donor", "size"), n_donors=("donor", "nunique")).to_string())
+      stdout: |
+        response  n_cells  n_donors
+        NR        2877     3
+        R         3104     3
+    - run_id: r2
+      status: succeeded
+      code: |
+        sc.tl.rank_genes_groups(cd8, groupby="response", groups=["R"], reference="NR", method="wilcoxon")
+        df = sc.get.rank_genes_groups_df(cd8, group="R")
+        print(df.head(4)[["names", "logfoldchanges", "pvals_adj"]].to_string(index=False))
+      stdout: |
+        names   logfoldchanges  pvals_adj
+        CXCL13  1.92            3.4e-45
+        GZMK    1.41            8.1e-31
+        IL7R    1.08            2.2e-19
+        TCF7    0.97            6.0e-15
+    - run_id: r3
+      status: succeeded
+      code: |
+        cd8.obs["exhausted"] = (cd8[:, "TOX"].X.toarray().ravel() > 0) & (cd8[:, "PDCD1"].X.toarray().ravel() > 0)
+        print((cd8.obs.groupby("response").exhausted.mean() * 100).round(1).to_string())
+      stdout: |
+        response
+        NR    27.1
+        R     18.4
+  citations: []
+  plan:
+    - Subset CD8 T cells and compare responders vs non-responders
+    - Quantify TOX+PDCD1+ exhausted-like cells per group
+    - Run GSEA on the ranked gene list
+answer: |
+  1. The CD8 T cell compartment contains 3,104 cells from 3 responders and 2,877 cells from 3 non-responders.
+  2. CXCL13 is robustly higher in responders (log fold change 1.92, adjusted p = 3.4e-45), together with GZMK (1.41), IL7R (1.08) and TCF7 (0.97), so this difference is highly reproducible across patients.
+  3. The TCF7 and IL7R signal suggests a larger memory-like or progenitor-exhausted pool in responders.
+  4. Terminally exhausted-like TOX+PDCD1+ cells made up 12.4% of CD8 T cells in responders versus 27.1% in non-responders.
+  5. GSEA on the ranked list showed strong enrichment of the interferon-gamma response hallmark in responders (NES 2.1, FDR 0.003).
+  These results point to CXCL13 and TCF7 as candidate on-treatment biomarkers, which should be checked in an independent cohort with more patients.
+claims:
+  - index: 1
+    text: "The CD8 T cell compartment contains 3,104 cells from 3 responders and 2,877 cells from 3 non-responders."
+    kind: numeric
+  - index: 2
+    text: "CXCL13 is robustly higher in responders (log fold change 1.92, adjusted p = 3.4e-45), together with GZMK (1.41), IL7R (1.08) and TCF7 (0.97), so this difference is highly reproducible across patients."
+    kind: numeric
+  - index: 3
+    text: "The TCF7 and IL7R signal suggests a larger memory-like or progenitor-exhausted pool in responders."
+    kind: causal
+  - index: 4
+    text: "Terminally exhausted-like TOX+PDCD1+ cells made up 12.4% of CD8 T cells in responders versus 27.1% in non-responders."
+    kind: numeric
+  - index: 5
+    text: "GSEA on the ranked list showed strong enrichment of the interferon-gamma response hallmark in responders (NES 2.1, FDR 0.003)."
+    kind: execution
+injected_errors:
+  - claim_index: 2
+    type: stat_method
+    description: Run r2 is a cell-level Wilcoxon test that treats about 6,000 cells as independent replicates although there are only 3 donors per group, so the p-value says nothing about reproducibility across patients.
+  - claim_index: 4
+    type: value_mismatch
+    description: Run r3 reports 18.4% TOX+PDCD1+ cells in responders, not 12.4%.
+  - claim_index: 5
+    type: execution_unsupported
+    description: The plan lists GSEA, but no GSEA run exists in the evidence, so the NES and FDR values have no source.

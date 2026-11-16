@@ -1,0 +1,122 @@
+id: ie-001
+scenario: A
+title: IL23R as an inflammatory bowel disease target
+question: |
+  Evaluate IL23R as a therapeutic target for inflammatory bowel disease. Summarise genetics, expression, druggability and clinical validation.
+evidence:
+  runs:
+    - run_id: r1
+      status: succeeded
+      code: |
+        from bq.tools import opentargets
+        df = opentargets.associations(target="IL23R", disease="EFO_0003767")
+        print(df[["datatype", "score"]].to_string(index=False))
+        print("overall", round(df.attrs["overall_score"], 2))
+      stdout: |
+        datatype            score
+        genetic_association 0.88
+        literature          0.71
+        animal_model        0.52
+        known_drug          0.00
+        overall 0.81
+    - run_id: r2
+      status: succeeded
+      code: |
+        import pandas as pd
+        gw = pd.read_parquet("gwas_catalog_ibd.parquet")
+        hit = gw[(gw.rsid == "rs11209026") & (gw.trait == "Crohn's disease")]
+        print(hit[["rsid", "aa_change", "odds_ratio", "p_value", "n_cases"]].to_string(index=False))
+      stdout: |
+        rsid       aa_change  odds_ratio  p_value  n_cases
+        rs11209026 R381Q      0.42        3.1e-32  18240
+    - run_id: r3
+      status: succeeded
+      code: |
+        from bq.tools import gtex
+        tpm = gtex.median_tpm("IL23R").sort_values(ascending=False)
+        print(tpm.head(3).round(1).to_string())
+      stdout: |
+        Cells_EBV-transformed_lymphocytes  4.8
+        Small_Intestine_Terminal_Ileum     2.1
+        Spleen                             1.6
+    - run_id: r4
+      status: succeeded
+      code: |
+        from bq.tools import chembl
+        acts = chembl.activities(target_symbol="IL23R", min_pchembl=6)
+        print("compounds with pChEMBL>=6:", acts.molecule_chembl_id.nunique())
+      stdout: |
+        compounds with pChEMBL>=6: 0
+  citations:
+    - key: c1
+      doi: 10.0000/bq.0101
+      title: Il23r deficiency protects mice from T-cell transfer colitis
+      authors: Halvorsen T, Okafor N
+      year: 2019
+      abstract: |
+        We transferred naive CD4+ T cells from wild-type or Il23r-/- donors into Rag1-/- mice. Recipients of Il23r-/- cells
+        lost 4% body weight at week 6 versus 19% for wild-type transfers. Colonic histology scores fell by 62% and
+        IL-17A+IFN-gamma+ double-producing cells were reduced 5-fold. These data establish a T-cell-intrinsic role for
+        IL-23 receptor signalling in experimental colitis in mice.
+    - key: c2
+      doi: 10.0000/bq.0102
+      title: Fine-mapping of the IL23R locus in 24,000 inflammatory bowel disease cases
+      authors: Brandt L, Moreau P, Iqbal S
+      year: 2021
+      abstract: |
+        We performed Bayesian fine-mapping of the IL23R region using dense genotyping in 24,012 IBD cases and 31,550 controls.
+        The missense variant R381Q (rs11209026) had a posterior inclusion probability of 0.93 and was the only variant in the
+        95% credible set. The minor allele reduced IL-23-induced STAT3 phosphorylation by 47% in primary T cells.
+    - key: c3
+      doi: 10.0000/bq.0103
+      title: Anti-IL-23 p19 antibody induction therapy in moderate-to-severe Crohn's disease, a phase 2 trial
+      authors: Castellanos R, Whitfield A
+      year: 2020
+      abstract: |
+        In this randomised, placebo-controlled phase 2 trial (NCT09990101), 212 patients with moderate-to-severe Crohn's
+        disease received an anti-p19 antibody or placebo for 12 weeks. Clinical remission was reached by 38% of treated
+        patients versus 15% on placebo (p < 0.001). Endoscopic response was 31% versus 12%. Adverse events were similar.
+  plan:
+    - Pull Open Targets association scores for IL23R in IBD
+    - Retrieve GWAS evidence for the IL23R coding variant
+    - Summarise tissue expression from GTEx
+    - Check ChEMBL for tractable chemistry
+    - Summarise literature and clinical validation
+answer: |
+  1. Open Targets gives IL23R an overall association score of 0.81 with inflammatory bowel disease, driven mainly by genetic evidence (genetic association score 0.88).
+  2. The coding variant R381Q (rs11209026) is protective: in the GWAS summary I pulled, its odds ratio for Crohn's disease is 0.24 (p = 3.1e-32, 18,240 cases).
+  3. Fine-mapping places R381Q as the likely causal variant, with a posterior inclusion probability of 0.93 [c2].
+  4. IL23R expression in GTEx is low overall, highest in EBV-transformed lymphocytes and terminal ileum (median TPM 4.8 and 2.1).
+  5. Blocking IL-23 receptor signalling reduced intestinal inflammation in patients with colitis, with histology scores falling by 62% [c1].
+  6. Clinical validation exists at the ligand level: an anti-p19 antibody achieved clinical remission in 38% versus 15% on placebo in moderate-to-severe Crohn's disease [c3].
+  7. IL23R itself has no tractable small-molecule chemistry yet; ChEMBL returned 0 compounds with pChEMBL of 6 or higher.
+  Overall, IL23R is a genetically well-supported target, but the pathway is already validated and drugged via the p19 ligand, so the differentiation case for a receptor-directed agent would need to be made.
+claims:
+  - index: 1
+    text: "Open Targets gives IL23R an overall association score of 0.81 with inflammatory bowel disease, driven mainly by genetic evidence (genetic association score 0.88)."
+    kind: numeric
+  - index: 2
+    text: "The coding variant R381Q (rs11209026) is protective; in the GWAS summary I pulled, its odds ratio for Crohn's disease is 0.24 (p = 3.1e-32, 18,240 cases)."
+    kind: numeric
+  - index: 3
+    text: "Fine-mapping places R381Q as the likely causal variant, with a posterior inclusion probability of 0.93 [c2]."
+    kind: citation
+  - index: 4
+    text: "IL23R expression in GTEx is low overall, highest in EBV-transformed lymphocytes and terminal ileum (median TPM 4.8 and 2.1)."
+    kind: numeric
+  - index: 5
+    text: "Blocking IL-23 receptor signalling reduced intestinal inflammation in patients with colitis, with histology scores falling by 62% [c1]."
+    kind: citation
+  - index: 6
+    text: "An anti-p19 antibody achieved clinical remission in 38% versus 15% on placebo in moderate-to-severe Crohn's disease [c3]."
+    kind: citation
+  - index: 7
+    text: "ChEMBL returned 0 compounds with pChEMBL of 6 or higher for IL23R."
+    kind: execution
+injected_errors:
+  - claim_index: 2
+    type: value_mismatch
+    description: The answer reports an odds ratio of 0.24 for R381Q, but run r2 stdout shows odds_ratio 0.42.
+  - claim_index: 5
+    type: citation_unsupported
+    description: c1 is a mouse T-cell transfer colitis study; it reports no data in patients, so the claim of reduced inflammation in patients is unsupported.
