@@ -76,6 +76,7 @@ claims:
 injected_errors:
   - claim_index: 2
     type: plan_incomplete
+    also_affects: [7]  # "All planned steps are complete" is false for the same reason
     description: The approved plan requires Harmony integration, but run r2 builds neighbours directly on PCA with no Harmony step, while the answer claims integration was done.
   - claim_index: 4
     type: value_mismatch

@@ -45,7 +45,7 @@ claude mcp add bioquorum -- /data/Work/AgenticScience/.venv/bin/bq mcp serve -C 
 然后在 Claude Code 里让它用 `python_execute` 算点东西、用 `opentargets__search_entities` 查 IL23R。
 注意：项目分级是 internal / confidential 时，远端 MCP 工具会被分级策略拒绝（这是设计）；离线演示把 `url` 换成 `replay = "<cassette 路径>"`。
 
-## 2026-11-17 第三段：模型层（尚未 commit）
+## 2026-11-17 第三段：模型层（已提交 `8bf83a9`）
 - 依赖：`pydantic-ai-slim[openai]`（不是完整版 `pydantic-ai`，后者会带 logfire/OpenTelemetry 和用不到的 provider）。以后加 provider：`uv add "pydantic-ai-slim[openai,anthropic]"`。
 - `models/config.py`（provider/角色/评分配置）、`routing.py`（先按分级过滤再走回退链，违规抛 `PolicyViolation` 并审计）、`convert.py`（唯一的类型转换点）、`registry.py`（建 provider 客户端）、`cassette.py`（录制回放）、`client.py`（`ModelClient.complete()` 写 model_call 事件）。
 - 实测的 provider 约束写进了 ARCHITECTURE §6.1：DeepSeek 要回传 reasoning；OpenAI 新模型带工具要用 Responses API；我们的 ULID 可直接当 tool_call_id。
@@ -69,11 +69,18 @@ review_score = 94.4     # docs/research/reviewer-experiment.md static 模式
 review_score = 91.7
 ```
 
+## 2026-11-17 第四段：审查层（尚未 commit）
+- `review/evidence.py`（中立证据结构，`from_events` / `from_case`）、`text.py`（数字规范化、词干、专有名词）、`checks/`（4 个确定性检查 + `citation_supports`）、`claims.py`（reviewer 抽 Claim）、`service.py`（审查事件 + 状态机）。
+- 实测（docs/research/review-checks.md）：手写语料 21/24、零误报；从未看过的 deepseek-flash / gpt-5.4-mini 答案 58/62、370 条结论 1 条误报。抓不到的 3 类交给模型检查。
+- 语料改动：ie-010 加了 `also_affects: [7]`（"所有步骤都完成"被同一个错误连带变假），README 写明了含义。
+- `evals/review_eval.py`：语料评分 + `--heldout` 留出集评分（用对照实验的缓存，离线）。
+- 测试：单元 200、集成 6，全绿。
+
 ## 下一步（v0.1 剩余，按顺序）
-1. `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`；用 `evals/injected-errors/` 验证确定性检查 100%。
-2. `agent/` 最小循环；CLI `bq run`、`bq review`；权限卡片的 CLI 版 Asker。
+1. `agent/` 最小循环 + `bq run`（第一个 BioQuorum 自己的交互界面）；权限卡片的 CLI 版 Asker。
+2. `bq review`：审查会话里最后一条回答；也支持 `--answer-file`，审查 Claude Code 经 MCP 写出的回答（证据取自 `bq mcp serve` 的会话）。
 3. 验收：ROADMAP v0.1 的四条。
-4. 小项：模型调用的价格表（目前 `cost_usd` 需手工配 `prices`，默认 0）；图片给支持视觉的模型（目前转成占位文字）。
+4. 小项：`method_sanity` 模型检查；`citation_resolves` 在线解析（PubMed/Crossref）；模型调用的价格表（目前 `cost_usd` 需手工配 `prices`，默认 0）；图片给支持视觉的模型（目前转成占位文字）。
 
 ## 需要作者做的事
 1. API key 只在作者自己的终端里 export；从那个终端用 `claude --continue` 启动，Claude Code 才能读到。

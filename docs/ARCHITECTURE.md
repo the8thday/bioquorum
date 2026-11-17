@@ -380,6 +380,10 @@ ToolSpec(
 | `citation_supports` | **是** | reviewer 模型读摘要，判断是否支持结论 |
 | `method_sanity` | **是** | 常见统计错误，如未做多重检验校正、样本量过小 |
 
+   - 检查只看 `review/evidence.py` 的中立结构（`Evidence`：runs、citations、plan、answer；`ClaimInput`：文本、类型、显式 run 引用），不碰 storage 和 models。`Evidence.from_events()` 从会话事件构造（引用来自文献类工具返回里的 PMID/DOI），`Evidence.from_case()` 从评测语料构造，所以同一套检查在两处行为一致。
+   - 规则写成通用规则，不针对语料里的个案；实测与局限见 [research/review-checks.md](research/review-checks.md)。`tests/unit/review/test_corpus.py` 把语料上的结果固定为回归基线。
+   - 审查流程（`review/service.py`）：`review_started` → 每条 `claim_extracted` → 每条 `review_finding` → `review_finished` → 每条 `claim_status_changed`。确定性检查的 finding 记 `reviewer_model = "deterministic"`。模型检查出错不影响确定性检查的结果，错误单独返回。
+   - 发给 reviewer 的来源摘要是工具输出，按 ADR-007 用 `fence_untrusted()` 包裹。
    前四个是确定性检查，不消耗模型调用，v0.1 先做。评测报告要分别报告两组的召回率和误报率，不能混在一起。v0.0 对照实验在确定性可核实的错误上没有发现同家族盲区（docs/research/reviewer-experiment.md）；判断类检查上的家族差异在 v0.2 补测。
 3. **重跑**（可选）：关键 Run 在全新 kernel 里重新执行，走 §6.3 的 rerun。
 4. **输出**：`review_finding` 写入事件流。主 agent 在下一轮必须对每条 `error` 级 finding 作出回应；【承重】同一条 finding 的往返次数上限为 2，超过则保持 `disputed` 并交给用户。

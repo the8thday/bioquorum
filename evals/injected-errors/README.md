@@ -18,7 +18,7 @@ Do not treat any number in this corpus as a real finding.
 | `evidence.plan[]` | Approved plan steps. |
 | `answer` | The assistant's final answer. It cites sources with `[c1]`-style keys. |
 | `claims[]` | The answer split into checkable claims: `index`, `text`, `kind` (numeric, citation, execution, causal, plan). |
-| `injected_errors[]` | Ground truth: `claim_index`, `type`, `description`. Empty for clean controls. |
+| `injected_errors[]` | Ground truth: `claim_index`, `type`, `description`, optional `also_affects` (other claims the same error makes false, e.g. "all planned steps are complete" when a step was skipped; flagging them is correct, missing them is not penalised). Empty for clean controls. |
 
 The answer must be judged only against `evidence`. Apart from the injected errors, every case is internally consistent.
 
