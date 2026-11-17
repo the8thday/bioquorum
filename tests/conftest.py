@@ -14,3 +14,8 @@ def db() -> Database:
 @pytest.fixture
 def store(db: Database) -> EventStore:
     return EventStore(db)
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"

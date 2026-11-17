@@ -78,6 +78,10 @@ class ToolResultPart(_Part):
     trust: Trust = Trust.UNTRUSTED
     is_error: bool = False
 
+    def text(self) -> str:
+        """Concatenated text content (refs excluded)."""
+        return "\n".join(p.text for p in self.content if isinstance(p, TextPart))
+
 
 Part = Annotated[
     TextPart | ThinkingPart | ToolCallPart | ToolResultPart | ImageRefPart | DataRefPart,

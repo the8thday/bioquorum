@@ -12,6 +12,8 @@ dependencies = [
   "sqlalchemy>=2.0,<3",
   "typer>=0.12",
   "rich>=13",
+  "jupyter_client>=8.6,<9",  # Kernel protocol, runtime/ only (ADR-009)
+  "ipykernel>=6.29",          # default Python kernel until pixi envs (ROADMAP v0.2)
 ]
 
 [project.optional-dependencies]
@@ -148,3 +150,10 @@ source_modules = [
   "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
 ]
 forbidden_modules = ["jupyter_client"]
+
+[[tool.importlinter.contracts]]
+name = "Agent layer reaches runtime/connectors/mcp only via tools.invoke() (ADR-006)"
+type = "forbidden"
+allow_indirect_imports = true  # agent -> tools -> runtime is the intended path
+source_modules = ["bioquorum.agent", "bioquorum.review", "bioquorum.models"]
+forbidden_modules = ["bioquorum.runtime", "bioquorum.connectors", "bioquorum.mcp"]

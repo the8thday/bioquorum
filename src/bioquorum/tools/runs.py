@@ -1,0 +1,160 @@
+"""Turn one kernel execution into a recorded Run (ARCHITECTURE.md §5.5, §5.6, §6.2).
+
+Lives in tools/ because it needs runtime (kernel), provenance (CAS) and storage (events)
+together, and those sibling layers may not import each other.
+"""
+
+from __future__ import annotations
+
+import base64
+import re
+from dataclasses import dataclass, field
+
+from bioquorum.core import events as ev
+from bioquorum.core.enums import Actor, DataKind, OutputStream
+from bioquorum.core.hashing import code_hash, run_key
+from bioquorum.core.ids import new_id
+from bioquorum.core.messages import ImageRefPart, ResultContent, TextPart
+from bioquorum.core.refs import DataRef
+from bioquorum.runtime import summarize
+from bioquorum.runtime.kernel import EndStatus, ExecutionEnd, KernelError, KernelOutput
+from bioquorum.tools.context import ToolContext
+
+EVENT_TEXT_LIMIT = 20_000  # per run_output event; the full stdout goes to the CAS
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_BINARY_IMAGES = {"image/png", "image/jpeg"}
+
+
+@dataclass
+class RunRecord:
+    run_id: str
+    status: EndStatus
+    outputs: list[DataRef] = field(default_factory=list)
+    stdout_ref: DataRef | None = None
+    content: list[ResultContent] = field(default_factory=list)
+    error: str | None = None
+
+
+def strip_ansi(text: str) -> str:
+    return _ANSI.sub("", text)
+
+
+async def execute_run(
+    ctx: ToolContext, code: str, *, language: str = "python", timeout: float | None = None
+) -> RunRecord:
+    kernels, cas = ctx.require_kernels(), ctx.require_cas()
+    store, sid = ctx.store, ctx.session_id
+    run_id = new_id()
+    chash = code_hash(code)
+
+    async with kernels.lock(sid):
+        kernel = await kernels.get(sid, language)
+        started = store.append(
+            ev.RunStarted(
+                run_id=run_id,
+                kernel_id=kernel.kernel_id,
+                language=language,
+                code=code,
+                code_hash=chash,
+                env_lock_hash=ctx.env_lock_hash,
+            ),
+            session_id=sid,
+            actor=Actor.TOOL,
+            causation_id=ctx.requested_event_id,
+        )
+
+        outputs: list[KernelOutput] = []
+        figures: list[DataRef] = []
+        labels: dict[int, str] = {}
+        image_parts: list[ImageRefPart] = []
+        stdout: list[str] = []
+        end = ExecutionEnd(status=EndStatus.ERROR)
+
+        try:
+            async for item in kernel.execute(code, timeout=timeout):
+                if isinstance(item, ExecutionEnd):
+                    end = item
+                    break
+                idx = len(outputs)
+                outputs.append(item)
+                mime = summarize.image_mime(item)
+                if mime is not None:
+                    payload = item.data[mime]
+                    raw = (
+                        base64.b64decode(payload)
+                        if mime in _BINARY_IMAGES
+                        else payload.encode("utf-8")
+                    )
+                    ref = cas.put_bytes(raw, kind=DataKind.FIGURE)
+                    figures.append(ref)
+                    image_parts.append(ImageRefPart(ref=ref, mime=mime))
+                    labels[idx] = f"[figure {len(figures)}: {mime}, {ref.uri}]"
+                    store.append(
+                        ev.RunOutput(run_id=run_id, stream=OutputStream.DISPLAY, ref=ref),
+                        session_id=sid,
+                        actor=Actor.TOOL,
+                        causation_id=started.id,
+                    )
+                    continue
+                text = summarize.output_text(item)
+                if text is None:
+                    continue
+                if item.stream is not OutputStream.STDERR:
+                    stdout.append(text)
+                store.append(
+                    ev.RunOutput(
+                        run_id=run_id,
+                        stream=item.stream,
+                        text=summarize.truncate(text, EVENT_TEXT_LIMIT),
+                    ),
+                    session_id=sid,
+                    actor=Actor.TOOL,
+                    causation_id=started.id,
+                )
+        except Exception as exc:  # kernel died or protocol error: still end the Run
+            end = ExecutionEnd(
+                status=EndStatus.ERROR,
+                error=KernelError(ename=type(exc).__name__, evalue=str(exc)),
+            )
+        except BaseException:  # task cancelled: record it, then propagate
+            store.append(
+                ev.RunCancelled(run_id=run_id),
+                session_id=sid,
+                actor=Actor.TOOL,
+                causation_id=started.id,
+            )
+            raise
+
+    stdout_ref = (
+        cas.put_bytes("".join(stdout).encode("utf-8"), kind=DataKind.OTHER) if stdout else None
+    )
+    record = RunRecord(run_id=run_id, status=end.status, outputs=figures, stdout_ref=stdout_ref)
+    end_payload: ev.EventPayload
+    if end.status is EndStatus.OK:
+        key = run_key(chash, ctx.env_lock_hash, [])
+        end_payload = ev.RunFinished(
+            run_id=run_id, outputs=figures, stdout_ref=stdout_ref, run_key=key
+        )
+    elif end.status is EndStatus.CANCELLED:
+        end_payload = ev.RunCancelled(run_id=run_id)
+        record.error = "cancelled"
+    elif end.status is EndStatus.TIMED_OUT:
+        end_payload = ev.RunTimedOut(run_id=run_id, timeout_s=end.timeout_s or 0.0)
+        record.error = f"timed out after {end.timeout_s}s"
+    else:
+        err = end.error
+        detail = ""
+        if err is not None:
+            tb = strip_ansi("\n".join(err.traceback[-3:]))
+            detail = err.short() + (f"\n{tb}" if tb else "")
+        record.error = detail or "execution failed"
+        end_payload = ev.RunFailed(run_id=run_id, error=record.error)
+    store.append(end_payload, session_id=sid, actor=Actor.TOOL, causation_id=started.id)
+
+    summary = summarize.summarize_outputs(outputs, image_labels=labels)
+    header = f"run_id: {run_id}\nstatus: {end.status.value}"
+    body = summary or "(no output)"
+    if record.error:
+        body += f"\nerror: {record.error}"
+    record.content = [TextPart(text=f"{header}\n{body}"), *image_parts]
+    return record

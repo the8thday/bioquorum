@@ -79,6 +79,16 @@ class ObjectHash(NamedTuple):
 
 
 Serializer = Callable[[Any], bytes]
+
+# Canonical DataFrame form (ARCHITECTURE.md §5.6): columns sorted by name, parquet with fixed
+# options. Kept here as plain data so provenance/ (in-process) and runtime/ (kernel-side
+# snippet) serialise identically without importing each other.
+DATAFRAME_PARQUET_KWARGS: dict[str, Any] = {
+    "engine": "pyarrow",
+    "compression": "zstd",
+    "compression_level": 3,
+    "index": True,
+}
 _SERIALIZERS: list[tuple[str, Callable[[Any], bool], Serializer]] = []
 
 
