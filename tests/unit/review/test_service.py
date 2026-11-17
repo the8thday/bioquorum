@@ -175,3 +175,30 @@ async def test_evidence_from_events(store):
         cit is not None and cit.title == "APOE4 and risk" and cit.doi == "10.1007/s00125-017-4342-z"
     )
     assert e.citation("doi:10.1007/S00125-017-4342-Z") is not None
+
+
+async def test_full_record_beats_search_list(store):
+    sid = "S"
+    listing = (
+        "# Articles\n| Identifier | Title |\n|PMID 11111111|Paper one|\n|PMID 22222222|Paper two|"
+    )
+    full = "# Paper two\nPMID: 22222222\nDOI: 10.1000/two\nAbstract: drug X lowers glucose in mice."
+    full_json = (
+        '{"pmid": "22222222", "title": "Paper two", "sections": "Full text: X inhibits complex I."}'
+    )
+    for i, text in enumerate([listing, full, full_json]):
+        store.append(
+            ev.ToolCallFinished(
+                call_id=f"C{i}",
+                tool="biomcp__get",
+                result=ToolResultPart(call_id=f"C{i}", content=[TextPart(text=text)]),
+            ),
+            session_id=sid,
+            actor=Actor.TOOL,
+        )
+    e = Evidence.from_events(store.read(sid))
+    two = e.citation("PMID:22222222")
+    assert two is not None and two.title == "Paper two"
+    assert "lowers glucose in mice" in two.abstract and "inhibits complex I" in two.abstract
+    one = e.citation("PMID:11111111")
+    assert one is not None and one.abstract == "|PMID 11111111|Paper one|"  # only its own line

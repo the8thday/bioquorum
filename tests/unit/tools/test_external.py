@@ -50,7 +50,7 @@ async def test_internal_project_cannot_reach_public_server(fake_ot, ctx, store):
         await register_external(reg, conn)
         part = await invoke(reg.get("ot__target_info"), {"symbol": "IL23R"}, ctx)
     assert part.is_error and "classification" in part.text()
-    assert [e.type for e in store.read("S")] == ["error"]
+    assert [e.type for e in store.read("S")] == ["error", "tool_call_failed"]
 
 
 async def test_local_server_allowed_for_confidential(fake_ot, ctx):  # noqa: F811

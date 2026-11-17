@@ -1,3 +1,5 @@
+"""Fixtures shared by tool, MCP and agent tests: a ToolContext over a FakeKernel."""
+
 from __future__ import annotations
 
 import pytest

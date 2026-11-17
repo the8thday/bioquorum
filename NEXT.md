@@ -2,100 +2,50 @@
 
 > 更新：2026-11-17。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 
-## 现在的状态：v0.1 进行中，科学层地基已完成
-- v0.0 已 commit 并推送（`846bc9e`）。
-- **对照实验已完成（2026-11-17）**：GPT-5.5 / GPT-6.1-sol / DeepSeek-v4-pro 两轮交叉，可核实错误上同家族 89.5% vs 跨家族 88.7%，没有发现同家族盲区。ADR-011 被 **ADR-013** 取代：reviewer 按审查能力选择，`prefer_different_family` 可选，同家族不再警告。报告见 `docs/research/reviewer-experiment.md`。实验脚本修了两处：OpenAI 兼容模型看不到 JSON schema；删 run 产生的连带结论被误算成误报。
-- 2026-11-16/17 会话新增的 v0.1 代码：
-  - `runtime/`：`Kernel` Protocol（`kernel.py`）、`FakeKernel`（`fake.py`，可脚本化超时/中断/报错）、`JupyterKernel`（`jupyter.py`）、`KernelManager`（每会话一个 kernel，会话内串行）、`summarize.py`（截断、图像占位、DataFrame/AnnData 摘要）。
-  - `provenance/`：`ContentStore`（CAS，写入/读取都校验 hash）、DataFrame/AnnData 规范序列化器注册进 `core.hashing`、`build_manifest()`（从事件纯函数生成 manifest v0）。
-  - `policy/`：`PermissionPolicy`（按 once/session/project/global 记住授权，无 asker 时默认拒绝）、`classification.check()` + `PolicyViolation`、`secrets.redact()`。
-  - `tools/`：`ToolSpec`、`ToolRegistry`（`definitions()` 是 agent 和 MCP 两个出口的唯一来源）、`invoke()` 咽喉、`runs.py`（一次执行 → Run 事件 + 图进 CAS）、内置工具 `python_execute` / `read_file` / `list_files`。
-  - 新增 import-linter 契约：agent/review/models 不得直接 import runtime/connectors/mcp（落实 ADR-006）。共 7 条。
-  - 新依赖：`jupyter_client`、`ipykernel`（已写入 pyproject 和 uv.lock）。
-- 质量：116 个单元测试 + 5 个真实 kernel 集成测试（`uv run pytest -m integration`）全绿；ruff、pyright、lint-imports 通过。
-- ARCHITECTURE §6.2、§6.4 补充了接口细节（`ExecutionEnd` 终止帧、`shutdown()`、`classification_floor` 的确切含义、invoke 不抛异常、远端工具禁止 trusted）。没有新增事件类型。
+## 现在的状态：v0.1 代码完成，等作者做两项验收
+v0.1 的全部模块都已实现并测试（单元 210、集成 6、live 4，ruff / pyright / 8 条 import-linter 契约全绿）：
 
-## 2026-11-17 第二段：MCP + Open Targets + BioMCP（已提交 `791e9c4`）
-- `mcp/client.py`（`McpConnection`、`ServerConfig`）、`mcp/server.py`（`build_server` 从注册表定义生成 MCP Server）、`mcp/replay.py`（cassette 录制/回放）。
-- `tools/external.py`（外部工具 → ToolSpec，命名空间 `<server>__<tool>`）、`tools/exits.py`（MCP 出口经 `invoke()`，untrusted 文本加隔离标记）。
-- `core.messages.fence_untrusted()`：工具输出里伪造的结束标签会被中和。
-- `cli/workspace.py` + 新命令：`bq project init|show`、`bq tools`、`bq mcp serve`、`bq mcp record`。项目状态在 `<项目>/.bioquorum/`，配置在 `<项目>/bioquorum.toml`。
-- Jupyter kernel 改用私有目录（0700）里的 IPC socket，不再走未加密的本机 TCP；kernel 工作目录固定为项目根目录。
-- Open Targets 官方远程 MCP（`https://mcp.platform.opentargets.org/mcp`）已接通，真实响应录在 `tests/fixtures/mcp/opentargets.json`；`uv run pytest -m live` 检查上游漂移。
-- 第 8 条 import-linter 契约：`mcp` SDK 只在 `mcp/` 内。
-- BioMCP 0.9.3（作者已 `uv tool install biomcp-cli`）已接通，样本在 `tests/fixtures/mcp/biomcp.json`（二甲双胍机制文献、deucravacitinib 试验、PMID 28776086）。BioMCP 在 MCP SDK 默认的 `auto` 协商下空闲后会崩，所以 stdio 服务器默认 `protocol = "legacy"`。它在本机运行但查询发往公共 API，分级必须标 `public`。
-- 录制的 cassette 只记命令名，不记绝对路径（避免用户名进仓库）。
-- 测试：单元 146、集成 6、live 2，全绿。
+| 层 | 内容 |
+|---|---|
+| `runtime/` | `Kernel` 接口、`FakeKernel`、`JupyterKernel`（私有目录 IPC socket，工作目录 = 项目根）、`KernelManager`、输出摘要 |
+| `provenance/` | CAS、DataFrame/AnnData 规范哈希、manifest v0 |
+| `policy/` | 权限（once/session/project/global，无 asker 默认拒绝）、分级检查、密钥打码与 `env:` 引用解析 |
+| `tools/` | `ToolSpec`、注册表、`invoke()` 咽喉（每个调用 ID 必有结果事件）、`python_execute` / `read_file` / `list_files`、外部 MCP 包装、MCP 出口 |
+| `mcp/` | 客户端、服务端、cassette 录制回放；Open Targets 官方远程 + BioMCP 已接通，样本在 `tests/fixtures/mcp/` |
+| `models/` | `pydantic-ai-slim[openai]`；配置、按分级路由 + 回退链、唯一转换点、录制回放、`ModelClient`；OpenAI（Responses）+ DeepSeek |
+| `review/` | 4 个确定性检查 + `citation_supports` + Claim 抽取 + 审查事件；实测见 `docs/research/review-checks.md` |
+| `agent/` | 无状态循环，上下文每步从事件重建 |
+| `cli/` | `bq project init/show`、`bq models`、`bq tools`、`bq run`、`bq review [--answer-file]`、`bq sessions`、`bq mcp serve/record`、`bq db ...` |
 
-### 在 Claude Code 里验证 MCP 出口（作者操作）
-```bash
-mkdir -p ~/bq-demo && cd ~/bq-demo && /data/Work/AgenticScience/.venv/bin/bq project init --classification public
-# 可选：接 Open Targets 和 BioMCP
-cat > bioquorum.toml <<'TOML'
-[mcp.servers.opentargets]
-url = "https://mcp.platform.opentargets.org/mcp"
+ROADMAP v0.1 验收：
+- [x] `bq run` 跑通简化版场景 C（真实 GPT-6.1-sol + BioMCP + Jupyter，DeepSeek 审查）
+- [x] `bq review` 抓出假引用
+- [ ] **作者**：在 Claude Code 里通过 MCP 跑通（`docs/demo-v0.1.md` 第 4 步）
+- [ ] **作者**：录终端演示（`docs/demo-v0.1.md` 第 5 步）
 
-[mcp.servers.biomcp]
-command = "biomcp"
-args = ["serve"]
-clearance = "public"
-TOML
-claude mcp add bioquorum -- /data/Work/AgenticScience/.venv/bin/bq mcp serve -C ~/bq-demo
-```
-然后在 Claude Code 里让它用 `python_execute` 算点东西、用 `opentargets__search_entities` 查 IL23R。
-注意：项目分级是 internal / confidential 时，远端 MCP 工具会被分级策略拒绝（这是设计）；离线演示把 `url` 换成 `replay = "<cassette 路径>"`。
+## v0.1 验收中发现、尚未解决的问题（v0.2 优先处理）
+1. **没有沙箱，kernel 可以自己联网**：worker 在 `python_execute` 里用 `requests` 下载了全文，绕过了网络权限和分级检查。confidential 项目在沙箱（v0.5）之前不能视为隔离。现在只有提示词软约束。v0.2 的 SECURITY.md 必须写清楚；可考虑提前做"kernel 禁网"的最小版本（例如启动 kernel 时去掉代理 / 用网络命名空间），需要一个 ADR。
+2. **审查只看得到会话检索到的内容**：worker 在 kernel 里读的全文 reviewer 看不到，相关结论会被判 disputed。方案：把 run 输出里出现的 PMID/DOI 文本也纳入证据，或者要求全文走工具。
+3. **数值"出现即通过"**：证据很长时，编造的数字可能碰巧在别处出现（验收时 "48 trials"、"62%" 没被单独标出）。方案：数字需与结论中的实体同句/同行共现。
+4. 外部 MCP 服务器中途断开不会自动重连。
+5. `citation_resolves` 还没有在线解析（PubMed / Crossref）；`method_sanity` 模型检查未做；费用表需手工配置；图片给模型时是占位文字。
+6. `storage/` 仍用 `create_all`，第一次改表结构前补 Alembic。
+7. `evals/injected-errors/` 里 A 场景代码用的是假想的 `bq.tools.*` 接口（只影响语料可读性，不影响评测）。
 
-## 2026-11-17 第三段：模型层（已提交 `8bf83a9`）
-- 依赖：`pydantic-ai-slim[openai]`（不是完整版 `pydantic-ai`，后者会带 logfire/OpenTelemetry 和用不到的 provider）。以后加 provider：`uv add "pydantic-ai-slim[openai,anthropic]"`。
-- `models/config.py`（provider/角色/评分配置）、`routing.py`（先按分级过滤再走回退链，违规抛 `PolicyViolation` 并审计）、`convert.py`（唯一的类型转换点）、`registry.py`（建 provider 客户端）、`cassette.py`（录制回放）、`client.py`（`ModelClient.complete()` 写 model_call 事件）。
-- 实测的 provider 约束写进了 ARCHITECTURE §6.1：DeepSeek 要回传 reasoning；OpenAI 新模型带工具要用 Responses API；我们的 ULID 可直接当 tool_call_id。
-- `policy/secrets.resolve_secret()`：只接受 `env:NAME`；配置里写明文 key 会报错。
-- `bq models`：显示当前项目分级下各角色用哪个模型。全局配置 `~/.bioquorum/config.toml`（测试里用 `BQ_CONFIG` 隔离）。
-- import-linter：`openai`、`anthropic` SDK 也只允许在 `models/` 内。
-- 测试：单元 169、集成 6、live 4（含 DeepSeek-v4-pro 与 GPT-6.1-sol 的真实两轮工具调用），全绿。
-
-### 作者的全局模型配置示例（`~/.bioquorum/config.toml`）
-```toml
-[providers.openai]      # 读 OPENAI_API_KEY
-[providers.deepseek]    # 读 DEEPSEEK_API_KEY
-
-[roles]
-worker = ["openai:gpt-6.1-sol", "deepseek:deepseek-v4-pro"]   # 第二个是回退
-reviewer = "auto"
-
-[models."deepseek:deepseek-v4-pro"]
-review_score = 94.4     # docs/research/reviewer-experiment.md static 模式
-[models."openai:gpt-6.1-sol"]
-review_score = 91.7
-```
-
-## 2026-11-17 第四段：审查层（尚未 commit）
-- `review/evidence.py`（中立证据结构，`from_events` / `from_case`）、`text.py`（数字规范化、词干、专有名词）、`checks/`（4 个确定性检查 + `citation_supports`）、`claims.py`（reviewer 抽 Claim）、`service.py`（审查事件 + 状态机）。
-- 实测（docs/research/review-checks.md）：手写语料 21/24、零误报；从未看过的 deepseek-flash / gpt-5.4-mini 答案 58/62、370 条结论 1 条误报。抓不到的 3 类交给模型检查。
-- 语料改动：ie-010 加了 `also_affects: [7]`（"所有步骤都完成"被同一个错误连带变假），README 写明了含义。
-- `evals/review_eval.py`：语料评分 + `--heldout` 留出集评分（用对照实验的缓存，离线）。
-- 测试：单元 200、集成 6，全绿。
-
-## 下一步（v0.1 剩余，按顺序）
-1. `agent/` 最小循环 + `bq run`（第一个 BioQuorum 自己的交互界面）；权限卡片的 CLI 版 Asker。
-2. `bq review`：审查会话里最后一条回答；也支持 `--answer-file`，审查 Claude Code 经 MCP 写出的回答（证据取自 `bq mcp serve` 的会话）。
-3. 验收：ROADMAP v0.1 的四条。
-4. 小项：`method_sanity` 模型检查；`citation_resolves` 在线解析（PubMed/Crossref）；模型调用的价格表（目前 `cost_usd` 需手工配 `prices`，默认 0）；图片给支持视觉的模型（目前转成占位文字）。
+## 下一步：v0.2 开发者预览（见 ROADMAP）
+建议顺序：先处理上面第 1–3 条（安全与审查可信度是卖点），再做 ROADMAP v0.2 的场景 A/C 完整、Plan 模式、研究包导出、`pip install bioquorum`、README 与评测报告。开工前和作者确认顺序。
 
 ## 需要作者做的事
-1. API key 只在作者自己的终端里 export；从那个终端用 `claude --continue` 启动，Claude Code 才能读到。
-2. 以后加依赖：自动模式会拦截安装命令，请用 `! uv add ...` 自己运行。
-3. 注册 PyPI 名 `bioquorum`。
+1. 完成上面两项验收（`docs/demo-v0.1.md`）。
+2. API key 只在自己的终端里 export；从那个终端用 `claude --continue` 启动，Claude Code 才能读到。
+3. 加依赖时请用 `! uv add ...` 自己运行（自动模式会拦截安装命令）。
+4. 注册 PyPI 名 `bioquorum`。
 
 ## 回来后对 Claude Code 说的话
-> 继续 BioQuorum。先读 NEXT.md、docs/ARCHITECTURE.md 和 docs/adr/，然后接着做 v0.1 的下一步。
+> 继续 BioQuorum。先读 NEXT.md、docs/ARCHITECTURE.md 和 docs/adr/，然后开始 v0.2。
 
-## 已知的偏差和待办
-- `storage/` 仍用 `metadata.create_all`，还没接 Alembic；第一次改表结构前补上。
-- `evals/injected-errors/` 里 A 场景代码调用了假想的 `bq.tools.*` 接口；工具名现已定为 `python_execute` / `read_file` / `list_files`，连接器定名后一起改。
-- 对照实验 `self` 模式只注入三类机械错误；判断类错误的补测排在 v0.2（ADR-013）。
-- 外部 MCP 服务器中途断开后不会自动重连（后续调用记为 `tool_call_failed`）；v0.2 加重连。
-- 权限授权目前只在内存里；project/global 级授权的持久化随配置文件一起做。
-- Run 的 `inputs` 目前为空（`run_key` 只含 code + env），血缘 hook 在 v0.3。
-- AnnData 的 h5ad 规范序列化未验证字节级确定性（环境里没装 anndata）；场景 B 前补测试。
-- `env_lock_hash` 为 None，pixi 锁定从 v0.2 起强制。
+## 文档地图
+- 架构（最高约束）：`docs/ARCHITECTURE.md`；决定：`docs/adr/`（ADR-011 已被 ADR-013 取代）
+- 路线图：`ROADMAP.md`；产品：`docs/PRODUCT.md`
+- 实验与评测：`docs/research/reviewer-experiment.md`（跨家族假设）、`docs/research/review-checks.md`（确定性检查）
+- 演示：`docs/demo-v0.1.md`

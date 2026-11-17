@@ -61,9 +61,9 @@ async def test_classification_violation_rejected_and_audited(ctx, store):
     part = await invoke(spec(), {"q": "x"}, ctx)
     assert part.is_error and "classification" in part.text()
     assert len(calls) == before  # handler never ran
-    assert types(store) == ["error"]
-    (audit,) = snapshot(store.db)["audit_entries"]
-    assert audit["policy_violation"]
+    assert types(store) == ["error", "tool_call_failed"]  # every call id gets a result event
+    audit = snapshot(store.db)["audit_entries"]
+    assert any(a["policy_violation"] for a in audit)
 
 
 async def test_invalid_args_fail_before_permission(ctx, store):
@@ -76,8 +76,8 @@ async def test_permission_denied_without_asker(ctx, store):
     ctx.permissions = PermissionPolicy()
     part = await invoke(spec(), {"q": "x"}, ctx)
     assert part.is_error and "denied" in part.text()
-    assert types(store) == ["permission_requested", "permission_decided"]
-    assert store.read("S")[-1].parsed().granted is False
+    assert types(store) == ["permission_requested", "permission_decided", "tool_call_failed"]
+    assert store.read("S")[1].parsed().granted is False
 
 
 async def test_asked_permission_recorded_then_remembered(ctx, store):
@@ -114,5 +114,6 @@ async def test_handler_exception_becomes_failed_event_with_secrets_redacted(ctx,
 
 
 async def test_unknown_tool_refused(ctx, store):
-    part = await invoke_by_name(ToolRegistry(), "nope", {}, ctx)
-    assert part.is_error and types(store) == []
+    part = await invoke_by_name(ToolRegistry(), "nope", {}, ctx, call_id="C9")
+    assert part.is_error and types(store) == ["tool_call_failed"]
+    assert store.read("S")[0].payload["call_id"] == "C9"

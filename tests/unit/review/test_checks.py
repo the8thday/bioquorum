@@ -167,3 +167,8 @@ async def test_marked_steps_and_honest_gaps():
     )
     e2 = ev(plan=[PlanStep("Fit a Cox model with lifelines", done=True)])
     assert await flags(PlanComplete(), claim("Every step is complete.", K.PLAN), e2) == []
+
+
+async def test_citation_identifiers_are_not_values():
+    c = claim("Shown in mice [PMID:31415926; DOI:10.1000/xyz.2019] and humans [c12].")
+    assert await flags(ValueMatch(), c, ev()) == []

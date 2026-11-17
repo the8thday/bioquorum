@@ -111,7 +111,7 @@ class Evidence:
             elif isinstance(p, ev.ToolCallFinished) and p.tool != "python_execute":
                 text = "\n".join(c.text for c in p.result.content if isinstance(c, TextPart))
                 for cit in citations_in_text(text):
-                    citations.setdefault(cit.key, cit)
+                    citations[cit.key] = _richer(citations.get(cit.key), cit)
             elif isinstance(p, ev.PlanProposed):
                 plan[p.plan_id] = list(p.steps)
             elif isinstance(p, ev.PlanStepDone):
@@ -185,22 +185,55 @@ def cited_keys(text: str) -> list[str]:
     return keys
 
 
+_JSON_PMID = re.compile(r'"pmid"\s*:\s*"?(\d{5,9})"?', re.I)
+_JSON_DOI = re.compile(r'"doi"\s*:\s*"(10\.\d{4,9}/[^"]+)"', re.I)
+_JSON_TITLE = re.compile(r'"title"\s*:\s*"([^"]{5,400})"')
+_MAX_BODY = 6000
+
+
+def _richer(old: CitationEvidence | None, new: CitationEvidence) -> CitationEvidence:
+    """Keep the most informative record per identifier: a full record beats a search-list
+    line; two full records (e.g. summary + full text) are merged."""
+    if old is None:
+        return new
+    if bool(new.title) != bool(old.title):
+        return new if new.title else old
+    if not new.title:  # two list lines: keep the longer
+        return new if len(new.abstract) > len(old.abstract) else old
+    if new.abstract in old.abstract:
+        return old
+    merged = f"{old.abstract}\n\n{new.abstract}"[:_MAX_BODY]
+    return CitationEvidence(old.key, old.title, merged, old.doi or new.doi, old.pmid or new.pmid)
+
+
 def citations_in_text(text: str) -> list[CitationEvidence]:
-    """Literature records in a tool result: one per PMID/DOI, with the text as context."""
-    found: list[CitationEvidence] = []
-    pmids = set(_PMID.findall(text))
-    dois = {d.rstrip(".") for d in _DOI.findall(text)}
-    title = next((ln.lstrip("# ").strip() for ln in text.splitlines() if ln.startswith("#")), "")
-    body = text[:4000]
-    if len(pmids) == 1 and len(dois) <= 1:  # one record: link PMID and DOI
-        pmid = next(iter(pmids))
-        doi = next(iter(dois), None)
-        found.append(CitationEvidence(f"PMID:{pmid}", title, body, doi, pmid))
+    """Literature records in a tool result.
+
+    One record (a single PMID, as from ``get article``): title + the text as context, keyed
+    by PMID and DOI. Several (a search list): one entry per identifier whose context is only
+    the line it appears on, so one paper's abstract is never another paper's evidence."""
+    pmids = list(dict.fromkeys([*_PMID.findall(text), *_JSON_PMID.findall(text)]))
+    dois = list(
+        dict.fromkeys(d.rstrip(".") for d in [*_DOI.findall(text), *_JSON_DOI.findall(text)])
+    )
+    if len(pmids) == 1 and len(dois) <= 1:
+        pmid, doi = pmids[0], (dois[0] if dois else None)
+        title = next(
+            (ln.lstrip("# ").strip() for ln in text.splitlines() if ln.startswith("#")), ""
+        )
+        if not title:
+            m = _JSON_TITLE.search(text)
+            title = m.group(1) if m else ""
+        body = text[:_MAX_BODY]
+        found = [CitationEvidence(f"PMID:{pmid}", title, body, doi, pmid)]
         if doi:
             found.append(CitationEvidence(f"DOI:{doi.lower()}", title, body, doi, pmid))
         return found
-    for pmid in pmids:  # a result list: identifiers only
-        found.append(CitationEvidence(f"PMID:{pmid}", "", body, None, pmid))
-    for doi in dois:
-        found.append(CitationEvidence(f"DOI:{doi.lower()}", "", body, doi, None))
+    lines = text.splitlines()
+
+    def line_of(ident: str) -> str:
+        return next((ln.strip() for ln in lines if ident in ln), "")[:500]
+
+    found = [CitationEvidence(f"PMID:{p}", "", line_of(p), None, p) for p in pmids]
+    found += [CitationEvidence(f"DOI:{d.lower()}", "", line_of(d), d, None) for d in dois]
     return found

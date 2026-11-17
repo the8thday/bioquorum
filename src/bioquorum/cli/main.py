@@ -19,7 +19,8 @@ from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.mcp.client import McpConnection
 from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
-from bioquorum.models import ConfigError, Router
+from bioquorum.models import ConfigError, ModelUnavailableError, Router
+from bioquorum.policy.classification import PolicyViolation
 from bioquorum.storage.db import Database, default_db_path
 from bioquorum.storage.events import EventStore
 from bioquorum.storage.rebuild import rebuild as _rebuild
@@ -151,6 +152,97 @@ def models_show(project: ProjectDir = Path(".")) -> None:
             routes[0].family if routes else "",
         )
     console.print(f"classification: {ws.classification}")
+    console.print(table)
+
+
+# ----------------------------------------------------------------- run & review
+
+
+@app.command("run")
+def run_cmd(
+    question: Annotated[str, typer.Argument(help="What to investigate")],
+    project: ProjectDir = Path("."),
+    session: Annotated[str | None, typer.Option(help="Continue this session")] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Grant every permission")] = False,
+    review: Annotated[bool, typer.Option(help="Review the answer afterwards")] = True,
+    max_steps: Annotated[int, typer.Option(help="Model calls before forcing an answer")] = 12,
+) -> None:
+    """Ask a question: the worker model plans, runs tools, answers; then the answer is reviewed."""
+    from bioquorum.cli.runner import run_question
+
+    ws = _load(project)
+    try:
+        code = asyncio.run(
+            run_question(
+                ws,
+                question,
+                console=console,
+                err=err,
+                session_id=session,
+                yes=yes,
+                review=review,
+                max_steps=max_steps,
+            )
+        )
+    except (ConfigError, PolicyViolation, ModelUnavailableError) as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
+
+
+@app.command("review")
+def review_cmd(
+    session: Annotated[str | None, typer.Argument(help="Session id (default: the latest)")] = None,
+    project: ProjectDir = Path("."),
+    answer_file: Annotated[
+        Path | None, typer.Option(help="Review this answer text instead of the last one")
+    ] = None,
+    model_checks: Annotated[
+        bool, typer.Option(help="Also run citation_supports with the reviewer model")
+    ] = True,
+) -> None:
+    """Review the last answer of a session claim by claim."""
+    from bioquorum.cli.runner import print_review, review_session
+    from bioquorum.review import NothingToReviewError
+
+    ws = _load(project)
+    sid = session or _latest_session(ws)
+    if sid is None:
+        err.print("[red]no sessions in this project[/red]")
+        raise typer.Exit(1)
+    try:
+        result = asyncio.run(
+            review_session(
+                ws,
+                console=console,
+                session_id=sid,
+                answer_file=answer_file,
+                model_checks=model_checks,
+            )
+        )
+    except (NothingToReviewError, ConfigError, PolicyViolation, ModelUnavailableError) as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[dim]session {sid}[/]")
+    print_review(console, result)
+
+
+def _latest_session(ws: wsp.Workspace) -> str | None:
+    from bioquorum.storage.rebuild import snapshot
+
+    rows = sorted(snapshot(ws.database())["sessions"], key=lambda r: r["id"])
+    return rows[-1]["id"] if rows else None
+
+
+@app.command("sessions")
+def sessions_cmd(project: ProjectDir = Path(".")) -> None:
+    """List this project's sessions, newest last."""
+    from bioquorum.storage.rebuild import snapshot
+
+    ws = _load(project)
+    table = Table("id", "created", "title")
+    for r in sorted(snapshot(ws.database())["sessions"], key=lambda r: r["id"]):
+        table.add_row(r["id"], r["created_at"][:19], r["title"])
     console.print(table)
 
 

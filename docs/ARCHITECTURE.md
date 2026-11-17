@@ -396,6 +396,8 @@ ToolSpec(
 - Compaction：上下文接近上限时用 summarizer 压缩早期历史，写 `context_compacted`。被压缩的只是模型看到的上下文，原始事件全部保留。
 - Prompt 结构对缓存友好：系统提示、工具列表、skill 目录保持固定顺序；时间戳等易变内容放末尾。
 - Prompt 中 untrusted 内容用固定分隔符包裹，系统提示明确说明分隔符内的指令不得执行。
+- 实现要点（v0.1，`agent/loop.py`）：每一步都用 `agent/context.conversation()` 从事件重建上下文；工具调用一律 `invoke_by_name()`；没有工具调用的 assistant 消息即为回答；到达步数上限时不带工具再问一次，保证用户拿到回答。`invoke()` 保证每个调用 ID 都以 `tool_call_finished` / `tool_call_failed` 结束（拒绝也算），否则重建的历史里会有没有结果的工具调用，provider 会拒绝。
+- 入口：`bq run` 提问 → 循环 → 回答 → 自动审查（`review.review_answer`）；`bq review [--answer-file]` 审查会话最后一条回答，或审查外部（例如 Claude Code 经 MCP）写出的回答，证据都取自会话事件。
 
 ### 6.7 策略层 `policy/`
 
@@ -437,6 +439,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 
 - 威胁：模型生成的代码误删或篡改数据；prompt injection 经工具返回内容导致数据外泄；第三方依赖或 MCP 服务器被投毒。
 - 从 v0.1 起的防护：权限卡片 + 目录授权 + 审计 + untrusted 标记 + 分级路由硬拒绝。**明确告知用户此时没有 OS 沙箱。**
+  - v0.1 验收中实测到：worker 会在 `python_execute` 里用 `requests` 自己联网（下载全文）。kernel 里的代码不经过 `invoke()` 的网络权限和分级检查，所以 **confidential 项目在沙箱就位前不能视为隔离**。目前只有提示词层面的软约束（要求联网走工具），它不是安全控制。
 - 沙箱（bubblewrap / sandbox-exec / Docker，网络白名单代理，外部 MCP 进程隔离）在路线图上单列版本；它是 `runtime/` 内部的实现替换，不改变其他层的接口。
 
 ---

@@ -112,6 +112,7 @@ def _evidence_numbers(evidence: Evidence) -> list[Number]:
     return [n for t in texts for n in numbers(normalise(t))]
 
 
+_CITATION_MARKER = re.compile(r"\[(?:[^\[\]]*?(?:PMID|DOI|doi|pmid|\bc\d+)[^\[\]]*)\]")
 _COMPARISON = re.compile(
     r"(?:[<>≤≥]=?|\b(?:below|above|under|over|less than|more than|fewer than|greater than|at least|at most))\s*$",
     re.I,
@@ -132,7 +133,9 @@ class ValueMatch:
         rows = _rows(evidence)
         findings: list[Finding] = []
         for claim in claims:
-            text = normalise(claim.text)
+            # citation markers ([PMID:123], [c2], [DOI:10.1/x]) are identifiers, not values;
+            # they are citation_resolves' business
+            text = _CITATION_MARKER.sub(lambda m: " " * len(m.group(0)), normalise(claim.text))
             for n in numbers(text):
                 if _skippable(n):
                     continue

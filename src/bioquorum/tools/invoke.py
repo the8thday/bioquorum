@@ -12,6 +12,10 @@ Fixed order:
 
 invoke never raises for tool-level problems: the caller (agent loop or MCP server) always
 gets a ToolResultPart, with ``is_error=True`` when something was refused or failed.
+
+Every call ID ends in exactly one ``tool_call_finished`` or ``tool_call_failed`` event,
+refusals included, so the conversation rebuilt from events never has a tool call without
+a result (providers reject such histories).
 """
 
 from __future__ import annotations
@@ -43,6 +47,18 @@ def _refusal(call_id: str, text: str) -> ToolResultPart:
     )
 
 
+def _refuse(
+    ctx: ToolContext, call_id: str, tool: str, text: str, causation_id: str | None
+) -> ToolResultPart:
+    ctx.store.append(
+        ev.ToolCallFailed(call_id=call_id, tool=tool, error=redact(text)[:_MAX_ERROR]),
+        session_id=ctx.session_id,
+        actor=Actor.SYSTEM,
+        causation_id=causation_id,
+    )
+    return _refusal(call_id, text)
+
+
 async def invoke(
     spec: ToolSpec,
     args: dict[str, Any],
@@ -58,7 +74,7 @@ async def invoke(
     try:
         classification.check(ctx.classification, spec.classification_floor, what=spec.name)
     except classification.PolicyViolation as exc:
-        store.append(
+        err = store.append(
             ev.ErrorOccurred(
                 where=f"tools.invoke:{spec.name}", error=str(exc), policy_violation=True
             ),
@@ -66,7 +82,9 @@ async def invoke(
             actor=Actor.SYSTEM,
             causation_id=causation_id,
         )
-        return _refusal(call_id, f"Refused by data classification policy: {exc}")
+        return _refuse(
+            ctx, call_id, spec.name, f"Refused by data classification policy: {exc}", err.id
+        )
 
     # 2. arguments
     try:
@@ -111,7 +129,13 @@ async def invoke(
             causation_id=asked.id,
         )
     if not decision.granted:
-        return _refusal(call_id, f"Permission '{spec.permission}' denied for {target}")
+        return _refuse(
+            ctx,
+            call_id,
+            spec.name,
+            f"Permission '{spec.permission}' denied for {target}",
+            causation_id,
+        )
 
     # 4. requested
     requested = store.append(
@@ -162,5 +186,5 @@ async def invoke_by_name(
     """Convenience for callers holding a registry. Unknown tools are refused, not raised."""
     if name not in registry:
         call_id = kw.get("call_id") or new_id()
-        return _refusal(call_id, f"Unknown tool '{name}'")
+        return _refuse(ctx, call_id, name, f"Unknown tool '{name}'", kw.get("causation_id"))
     return await invoke(registry.get(name), args, ctx, **kw)

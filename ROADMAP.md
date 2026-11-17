@@ -19,8 +19,12 @@
 - [x] `mcp/`：客户端接 2 个现成数据库 MCP（Open Targets 官方、BioMCP 或 ToolUniverse）；服务端暴露科学层——另有录制回放
 - [x] `models/`：2 家 provider（1 个 Anthropic 或 OpenAI，1 个 OpenAI 兼容本地或 DeepSeek/Qwen），worker 和 reviewer 两个角色，cassette 录制回放——OpenAI（Responses）+ DeepSeek
 - [x] `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`——实测见 docs/research/review-checks.md
-- [ ] `agent/` 最小循环；CLI：`bq run`、`bq review`
+- [x] `agent/` 最小循环；CLI：`bq run`、`bq review`（另有 `bq sessions`、`bq models`、`bq project`、`bq mcp serve|record`）
 - **验收**：`bq run` 跑通简化版场景 C；`bq review` 抓出一条假引用；在 Claude Code 里通过 MCP 用同一套工具跑通；录一段终端演示
+  - [x] `bq run` 跑通简化版场景 C（2026-11-17，GPT-6.1-sol + BioMCP，9 步 13 次工具调用，DeepSeek 审查 25 条结论）
+  - [x] `bq review` 抓出一条假引用（`citation_resolves`，`--answer-file`）
+  - [ ] 在 Claude Code 里通过 MCP 跑通——`bq mcp serve` 已用官方 MCP 客户端经 stdio 验证；需作者在 Claude Code 里确认（docs/demo-v0.1.md 第 4 步）
+  - [ ] 录终端演示——作者操作（docs/demo-v0.1.md 第 5 步）
 
 ## v0.2 · 开发者预览（第 8 到 20 天）★ 第一次公开发布
 - [ ] 场景 A 和 C 完整；场景 B 用 pbmc3k 规模的小数据集
