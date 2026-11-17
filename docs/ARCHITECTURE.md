@@ -289,6 +289,14 @@ reviewer = "local:<model>"              # 按审查评测成绩选择，可与 w
 - 【承重】路由 `routing.py`：先按项目分级过滤 provider，再取角色配置，不可用时走回退链。违反分级的调用抛出 `PolicyViolation` 并写审计，不降级。
 - 【承重】`convert.py` 是规范消息格式与 Pydantic AI 类型之间唯一的转换点。
 - 【可调】tool call JSON 出错时修复或重试一次；重试仍失败则写 `model_call_failed`。
+- 实现要点（v0.1）：
+  - 只用 Pydantic AI 的底层 `Model.request()` 作 provider 适配器，不用它的 `Agent`：循环、事件、`invoke()` 都是我们自己的。依赖用 `pydantic-ai-slim[按需 provider]`，不装遥测组件。
+  - 工具调用 ID：响应进来时给每个调用分配 ULID，后续轮次直接把 ULID 当 provider 的 tool_call_id 发回去（DeepSeek chat、OpenAI Responses 实测可行，前提是不回传服务端条目 ID），所以映射不需要持久化。
+  - Thinking：按产生它的**家族**保存在 `ThinkingPart.provider`，`opaque` 存 provider 回放所需的元数据，只回放给同一家族，其余丢弃。DeepSeek 思考模式缺少上一轮 reasoning_content 时会直接拒绝请求。
+  - OpenAI 新模型带工具必须走 Responses API（`api = "responses"`，openai 的默认值）；其他 OpenAI 兼容服务走 chat。
+  - provider 默认分级：远端 provider 只允许 `public`、`internal`；`base_url` 指向本机的允许全部分级；可用 `allowed_classifications` 覆盖。密钥只写引用 `env:NAME`，配置里写明文密钥会被拒绝；解析后的值登记到 `policy/secrets` 以便打码。
+  - 配置来源：`~/.bioquorum/config.toml`（或 `$BQ_CONFIG`）与项目 `bioquorum.toml` 合并，项目覆盖全局。`bq models` 显示当前分级下每个角色的模型链。
+  - `ModelClient.complete()` 写 `model_call_started/finished/failed`，沿回退链重试；它不写 `assistant_message`，那是调用方（agent / review）的事。
 
 ### 6.2 执行层 `runtime/`
 
@@ -397,7 +405,7 @@ ToolSpec(
 | 层 | 方式 | 联网 | 真实模型 | 真实 kernel |
 |---|---|---|---|---|
 | `core/` | 纯单元测试；投影重建一致性 | 否 | 否 | 否 |
-| `models/` | 录制的 provider 响应（cassette）回放；本地加 `--record` 重录 | 否 | 否 | 否 |
+| `models/` | 录制的 provider 响应（cassette）回放；键由规范请求算出并把 ULID 替换为占位符；`live` 测试走真实 provider | 否 | 否 | 否 |
 | `runtime/` | 单元测试用 `FakeKernel`；`JupyterKernel` 测试标记 `integration` | 否 | 否 | 标记后是 |
 | `connectors/` | 固定的真实响应样本；`live` 标记的测试每晚跑一次 | 标记后是 | 否 | 否 |
 | `review/` | `evals/injected-errors/` 注入错误语料；确定性检查必须 100% 通过 | 否 | cassette | 否 |

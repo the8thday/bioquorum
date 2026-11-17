@@ -15,6 +15,7 @@ dependencies = [
   "jupyter_client>=8.6,<9",  # Kernel protocol, runtime/ only (ADR-009)
   "ipykernel>=6.29",          # default Python kernel until pixi envs (ROADMAP v0.2)
   "mcp>=2.3,<3",               # official MCP SDK, mcp/ only (ARCHITECTURE.md §4)
+  "pydantic-ai-slim[openai]>=2.68,<3",  # models/ only (ADR-003); slim: no telemetry deps
 ]
 
 [project.optional-dependencies]
@@ -120,7 +121,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "pydantic_ai only inside models/ (ADR-003)"
+name = "pydantic_ai and provider SDKs only inside models/ (ADR-003)"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
@@ -128,7 +129,7 @@ source_modules = [
   "bioquorum.provenance", "bioquorum.connectors", "bioquorum.skills", "bioquorum.mcp",
   "bioquorum.tools", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
 ]
-forbidden_modules = ["pydantic_ai"]
+forbidden_modules = ["pydantic_ai", "openai", "anthropic"]  # provider SDKs too
 
 [[tool.importlinter.contracts]]
 name = "sqlalchemy only inside storage/ (ARCHITECTURE.md §2)"

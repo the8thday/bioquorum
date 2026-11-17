@@ -15,7 +15,7 @@
 - 质量：116 个单元测试 + 5 个真实 kernel 集成测试（`uv run pytest -m integration`）全绿；ruff、pyright、lint-imports 通过。
 - ARCHITECTURE §6.2、§6.4 补充了接口细节（`ExecutionEnd` 终止帧、`shutdown()`、`classification_floor` 的确切含义、invoke 不抛异常、远端工具禁止 trusted）。没有新增事件类型。
 
-## 2026-11-17 第二段：MCP + Open Targets + BioMCP（尚未 commit）
+## 2026-11-17 第二段：MCP + Open Targets + BioMCP（已提交 `791e9c4`）
 - `mcp/client.py`（`McpConnection`、`ServerConfig`）、`mcp/server.py`（`build_server` 从注册表定义生成 MCP Server）、`mcp/replay.py`（cassette 录制/回放）。
 - `tools/external.py`（外部工具 → ToolSpec，命名空间 `<server>__<tool>`）、`tools/exits.py`（MCP 出口经 `invoke()`，untrusted 文本加隔离标记）。
 - `core.messages.fence_untrusted()`：工具输出里伪造的结束标签会被中和。
@@ -45,15 +45,39 @@ claude mcp add bioquorum -- /data/Work/AgenticScience/.venv/bin/bq mcp serve -C 
 然后在 Claude Code 里让它用 `python_execute` 算点东西、用 `opentargets__search_entities` 查 IL23R。
 注意：项目分级是 internal / confidential 时，远端 MCP 工具会被分级策略拒绝（这是设计）；离线演示把 `url` 换成 `replay = "<cassette 路径>"`。
 
+## 2026-11-17 第三段：模型层（尚未 commit）
+- 依赖：`pydantic-ai-slim[openai]`（不是完整版 `pydantic-ai`，后者会带 logfire/OpenTelemetry 和用不到的 provider）。以后加 provider：`uv add "pydantic-ai-slim[openai,anthropic]"`。
+- `models/config.py`（provider/角色/评分配置）、`routing.py`（先按分级过滤再走回退链，违规抛 `PolicyViolation` 并审计）、`convert.py`（唯一的类型转换点）、`registry.py`（建 provider 客户端）、`cassette.py`（录制回放）、`client.py`（`ModelClient.complete()` 写 model_call 事件）。
+- 实测的 provider 约束写进了 ARCHITECTURE §6.1：DeepSeek 要回传 reasoning；OpenAI 新模型带工具要用 Responses API；我们的 ULID 可直接当 tool_call_id。
+- `policy/secrets.resolve_secret()`：只接受 `env:NAME`；配置里写明文 key 会报错。
+- `bq models`：显示当前项目分级下各角色用哪个模型。全局配置 `~/.bioquorum/config.toml`（测试里用 `BQ_CONFIG` 隔离）。
+- import-linter：`openai`、`anthropic` SDK 也只允许在 `models/` 内。
+- 测试：单元 169、集成 6、live 4（含 DeepSeek-v4-pro 与 GPT-6.1-sol 的真实两轮工具调用），全绿。
+
+### 作者的全局模型配置示例（`~/.bioquorum/config.toml`）
+```toml
+[providers.openai]      # 读 OPENAI_API_KEY
+[providers.deepseek]    # 读 DEEPSEEK_API_KEY
+
+[roles]
+worker = ["openai:gpt-6.1-sol", "deepseek:deepseek-v4-pro"]   # 第二个是回退
+reviewer = "auto"
+
+[models."deepseek:deepseek-v4-pro"]
+review_score = 94.4     # docs/research/reviewer-experiment.md static 模式
+[models."openai:gpt-6.1-sol"]
+review_score = 91.7
+```
+
 ## 下一步（v0.1 剩余，按顺序）
-1. `models/`：Pydantic AI，2 家 provider（OpenAI + DeepSeek），worker/reviewer 角色，reviewer 按配置里的审查成绩选择（ADR-013），`convert.py`，cassette 录制回放。需要作者运行 `! uv add pydantic-ai`。
-2. `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`；用 `evals/injected-errors/` 验证确定性检查 100%。
-3. `agent/` 最小循环；CLI `bq run`、`bq review`；权限卡片的 CLI 版 Asker。
-4. 验收：ROADMAP v0.1 的四条。
+1. `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`；用 `evals/injected-errors/` 验证确定性检查 100%。
+2. `agent/` 最小循环；CLI `bq run`、`bq review`；权限卡片的 CLI 版 Asker。
+3. 验收：ROADMAP v0.1 的四条。
+4. 小项：模型调用的价格表（目前 `cost_usd` 需手工配 `prices`，默认 0）；图片给支持视觉的模型（目前转成占位文字）。
 
 ## 需要作者做的事
 1. API key 只在作者自己的终端里 export；从那个终端用 `claude --continue` 启动，Claude Code 才能读到。
-2. 下一步要加 `mcp`、`pydantic-ai` 依赖：自动模式会拦截安装命令，届时请用 `! uv add ...` 自己运行。
+2. 以后加依赖：自动模式会拦截安装命令，请用 `! uv add ...` 自己运行。
 3. 注册 PyPI 名 `bioquorum`。
 
 ## 回来后对 Claude Code 说的话

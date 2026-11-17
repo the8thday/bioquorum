@@ -109,3 +109,18 @@ def test_redact_known_and_patterned_secrets():
     ):
         assert leaked not in out
     assert "auth failed" in out
+
+
+def test_resolve_secret(monkeypatch):
+    from bioquorum.policy.secrets import SecretError, resolve_secret
+
+    monkeypatch.setenv("BQ_TEST_KEY", "value-of-the-test-key")
+    assert resolve_secret("env:BQ_TEST_KEY") == "value-of-the-test-key"
+    assert redact("boom value-of-the-test-key") == "boom ***"
+    assert resolve_secret("none") is None
+    monkeypatch.delenv("BQ_TEST_KEY")
+    with pytest.raises(SecretError) as info:
+        resolve_secret("env:BQ_TEST_KEY")
+    assert "BQ_TEST_KEY" in str(info.value)
+    with pytest.raises(SecretError):
+        resolve_secret("sk-literal")

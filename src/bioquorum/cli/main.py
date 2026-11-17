@@ -15,10 +15,11 @@ from rich.table import Table
 
 from bioquorum import __version__
 from bioquorum.cli import workspace as wsp
-from bioquorum.core.enums import Classification, PermissionClass
+from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.mcp.client import McpConnection
 from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
+from bioquorum.models import ConfigError, Router
 from bioquorum.storage.db import Database, default_db_path
 from bioquorum.storage.events import EventStore
 from bioquorum.storage.rebuild import rebuild as _rebuild
@@ -130,6 +131,27 @@ def project_show(project: ProjectDir = Path(".")) -> None:
     console.print(f"root            {ws.root}")
     for s in ws.mcp_servers():
         console.print(f"mcp server      {s.name} (clearance: {s.clearance or 'local'})")
+
+
+@app.command("models")
+def models_show(project: ProjectDir = Path(".")) -> None:
+    """Show which model each role uses under this project's classification."""
+    ws = _load(project)
+    try:
+        router = Router(ws.models_config())
+    except ConfigError as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    table = Table("role", "model chain (first is used)", "family")
+    for role in ModelRole:
+        routes = router.chain(role, ws.classification)
+        table.add_row(
+            role.value,
+            " -> ".join(str(r.spec) for r in routes) or "[red]none allowed[/red]",
+            routes[0].family if routes else "",
+        )
+    console.print(f"classification: {ws.classification}")
+    console.print(table)
 
 
 # ----------------------------------------------------------------- tools & mcp

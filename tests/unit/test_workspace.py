@@ -3,7 +3,7 @@ from typer.testing import CliRunner
 
 from bioquorum.cli import workspace as wsp
 from bioquorum.cli.main import app
-from bioquorum.core.enums import Classification, PermissionClass
+from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.policy.permissions import PermissionRequest
 from bioquorum.storage.events import EventStore
 from bioquorum.storage.rebuild import snapshot
@@ -81,3 +81,31 @@ def test_cli_project_init_and_show(tmp_path):
 def test_cli_tools_lists_builtins():
     r = runner.invoke(app, ["tools"])
     assert r.exit_code == 0 and "python_execute" in r.output
+
+
+def test_global_config_merged_under_project(tmp_path, monkeypatch):
+    g = tmp_path / "global.toml"
+    g.write_text(
+        '[providers.deepseek]\n[providers.openai]\n[roles]\nworker = "deepseek:deepseek-v4-pro"\n'
+    )
+    monkeypatch.setenv("BQ_CONFIG", str(g))
+    proj = tmp_path / "p"
+    proj.mkdir()
+    wsp.init_project(proj, classification=Classification.PUBLIC)
+    (proj / "bioquorum.toml").write_text('[roles]\nreviewer = "openai:gpt-6.1-sol"\n')
+    cfg = wsp.load(proj).models_config()
+    assert set(cfg.providers) == {"deepseek", "openai"}
+    assert [str(s) for s in cfg.roles[ModelRole.WORKER]] == ["deepseek:deepseek-v4-pro"]
+    assert [str(s) for s in cfg.roles[ModelRole.REVIEWER]] == ["openai:gpt-6.1-sol"]
+    r = runner.invoke(app, ["models", "-C", str(proj)])
+    assert r.exit_code == 0 and "deepseek:deepseek-v4-pro" in r.output
+
+
+def test_models_command_shows_confidential_block(tmp_path, monkeypatch):
+    g = tmp_path / "global.toml"
+    g.write_text('[providers.deepseek]\n[roles]\nworker = "deepseek:deepseek-v4-pro"\n')
+    monkeypatch.setenv("BQ_CONFIG", str(g))
+    (tmp_path / "c").mkdir()
+    wsp.init_project(tmp_path / "c", classification=Classification.CONFIDENTIAL)
+    r = runner.invoke(app, ["models", "-C", str(tmp_path / "c")])
+    assert r.exit_code == 0 and "none allowed" in r.output

@@ -13,6 +13,7 @@ Only the CLI (top layer) assembles these pieces, so every lower layer stays inje
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, PermissionClass, PermissionScope
 from bioquorum.core.ids import new_id
 from bioquorum.mcp.client import ServerConfig
+from bioquorum.models.config import ModelsConfig
 from bioquorum.policy.permissions import PermissionPolicy
 from bioquorum.provenance.cas import ContentStore
 from bioquorum.runtime.manager import KernelFactory, KernelManager, jupyter_factory
@@ -31,6 +33,19 @@ from bioquorum.tools.context import ToolContext
 
 STATE_DIR = ".bioquorum"
 CONFIG_FILE = "bioquorum.toml"
+
+
+def global_config_path() -> Path:
+    """``$BQ_CONFIG`` if set (tests point it elsewhere), else ``~/.bioquorum/config.toml``."""
+    env = os.environ.get("BQ_CONFIG")
+    return Path(env) if env else Path.home() / ".bioquorum" / "config.toml"
+
+
+def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
 
 
 class WorkspaceError(Exception):
@@ -65,6 +80,9 @@ class Workspace:
                 data["replay"] = str((self.root / data["replay"]).resolve())
             out.append(ServerConfig.from_dict(name, data))
         return out
+
+    def models_config(self) -> ModelsConfig:
+        return ModelsConfig.from_dict(self.config)
 
     def readable_roots(self) -> list[Path]:
         return [self.root, *self.data_dirs]
@@ -109,15 +127,18 @@ def init_project(
     return ws
 
 
-def load(start: Path) -> Workspace:
+def load(start: Path, *, global_config: Path | None = None) -> Workspace:
     root = find_root(start)
     if root is None:
         raise WorkspaceError(f"no BioQuorum project at or above {start}; run `bq project init`")
     meta = json.loads((root / STATE_DIR / "project.json").read_text(encoding="utf-8"))
     config: dict[str, Any] = {}
+    global_config = global_config or global_config_path()
+    if global_config.is_file():
+        config = tomllib.loads(global_config.read_text(encoding="utf-8"))
     cfg = root / CONFIG_FILE
-    if cfg.is_file():
-        config = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    if cfg.is_file():  # project settings override global ones
+        config = _merge(config, tomllib.loads(cfg.read_text(encoding="utf-8")))
     project = config.get("project", {})
     data_dirs = [(root / d).resolve() for d in project.get("data_dirs", [])]
     return Workspace(

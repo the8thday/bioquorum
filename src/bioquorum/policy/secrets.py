@@ -6,6 +6,7 @@ applied to every error string before it is written to the event log.
 
 from __future__ import annotations
 
+import os
 import re
 
 _KNOWN: set[str] = set()
@@ -29,3 +30,26 @@ def redact(text: str) -> str:
     text = _PATTERNS[1].sub(lambda m: f"{m.group(1)}{m.group(2)}{MASK}", text)
     text = _PATTERNS[2].sub(lambda m: f"{m.group(1)}{MASK}", text)
     return text
+
+
+class SecretError(Exception):
+    """A secret reference could not be resolved. The message never contains the value."""
+
+
+def resolve_secret(ref: str) -> str | None:
+    """Resolve ``env:NAME`` (or ``none``) to the secret and register it for redaction.
+
+    ``keyring:`` references are reserved for the config work (ARCHITECTURE.md §6.7).
+    """
+    if ref == "none":
+        return None
+    if ref.startswith("env:"):
+        name = ref[4:]
+        value = os.environ.get(name)
+        if not value:
+            raise SecretError(f"environment variable {name} is not set")
+        register_secret(value)
+        return value
+    if ref.startswith("keyring:"):
+        raise SecretError("keyring: references are not supported yet; use env:NAME")
+    raise SecretError("secret references must look like env:NAME")
