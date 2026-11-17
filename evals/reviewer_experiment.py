@@ -159,6 +159,8 @@ class LLM:
         return data
 
     def _call(self, system: str, user: str, schema: dict[str, Any]) -> str:
+        if os.environ.get("BQ_EVAL_OFFLINE"):
+            raise SystemExit(f"BQ_EVAL_OFFLINE is set but {self.spec} has no cached response")
         for attempt in range(4):
             try:
                 if self._anthropic is not None:
@@ -174,13 +176,26 @@ class LLM:
                     return next(b.text for b in resp.content if b.type == "text")
                 assert self._openai is not None
                 kwargs: dict[str, Any] = {}
-                if attempt == 0:
-                    kwargs["response_format"] = {"type": "json_object"}
+                if attempt < 2:
+                    if self.spec.provider == "openai":
+                        # Native structured outputs: the schema is enforced server-side.
+                        kwargs["response_format"] = {
+                            "type": "json_schema",
+                            "json_schema": {"name": "result", "schema": schema, "strict": True},
+                        }
+                    else:
+                        kwargs["response_format"] = {"type": "json_object"}
+                # Every OpenAI-compatible model also sees the schema in the prompt, so models
+                # without schema enforcement get the same instructions (fair comparison).
+                schema_hint = (
+                    "\n\nReturn only JSON that matches this JSON Schema exactly:\n"
+                    + json.dumps(schema, ensure_ascii=False)
+                )
                 resp = self._openai.chat.completions.create(
                     model=self.spec.model,
                     messages=[
                         {"role": "system", "content": system},
-                        {"role": "user", "content": user + "\n\nReturn only JSON."},
+                        {"role": "user", "content": user + schema_hint},
                     ],
                     **kwargs,
                 )
@@ -335,6 +350,8 @@ def worker_answer(llm: LLM, case: dict[str, Any]) -> list[dict[str, Any]]:
     data = llm.json(WORKER_SYSTEM, user, WORKER_SCHEMA)
     claims = []
     for i, c in enumerate(data.get("claims", []), start=1):
+        if isinstance(c, str):  # tolerate models that return bare strings
+            c = {"text": c}
         claims.append(
             {
                 "index": i,
@@ -406,11 +423,21 @@ def inject(
             target = next(r for r in c["run_ids"] if r in run_ids)
             evidence["runs"] = [r for r in evidence["runs"] if r["run_id"] != target]
             run_ids.discard(target)
+            # Every other claim that relies on the removed run is now unsupported too.
+            # Flagging those is correct, so they must not count as false positives.
+            mention = re.compile(rf"\b{re.escape(target)}\b")
+            collateral = [
+                o["index"]
+                for o in claims
+                if o["index"] != c["index"]
+                and (target in o["run_ids"] or mention.search(o["text"]))
+            ]
             errors.append(
                 {
                     "claim_index": c["index"],
                     "type": kind,
                     "description": f"run {target} removed from evidence",
+                    "collateral": collateral,
                 }
             )
     return claims, evidence, errors
@@ -429,6 +456,7 @@ class Score:
     hit_lenient: int = 0  # right claim, any type
     findings: int = 0
     false_positives: int = 0  # findings on claims without an injected error
+    collateral_flagged: int = 0  # findings on claims made unsupported as a side effect
     clean_cases: int = 0
     clean_cases_flagged: int = 0
     by_type: dict[str, list[int]] = field(
@@ -452,7 +480,11 @@ class Score:
             if any(f["type"] == e["type"] for f in matching):
                 self.hit_strict += 1
                 self.by_type[e["type"]][0] += 1
-        self.false_positives += sum(1 for f in findings if f["claim_index"] not in bad_idx)
+        collateral = {i for e in injected for i in e.get("collateral", [])} - bad_idx
+        self.collateral_flagged += sum(1 for f in findings if f["claim_index"] in collateral)
+        self.false_positives += sum(
+            1 for f in findings if f["claim_index"] not in bad_idx | collateral
+        )
 
     def summary(self) -> dict[str, Any]:
         def pct(a: int, b: int) -> float | None:
@@ -467,6 +499,7 @@ class Score:
             "recall_lenient_pct": pct(self.hit_lenient, self.injected),
             "precision_pct": pct(self.findings - self.false_positives, self.findings),
             "false_positives": self.false_positives,
+            "collateral_flagged": self.collateral_flagged,
             "clean_cases_flagged": f"{self.clean_cases_flagged}/{self.clean_cases}",
             "recall_by_type_pct": {t: pct(h, n) for t, (h, n) in self.by_type.items() if n},
         }
@@ -554,12 +587,12 @@ def to_markdown(result: dict[str, Any]) -> str:
         "",
         f"Ran: {result['ran_at']} · cases: {result['n_cases']} · worker: `{result['worker']}` · seed: {result['seed']}",
         "",
-        "| reviewer | same family as worker | injected | recall (strict) | recall (lenient) | precision | false positives | clean cases flagged |",
-        "|---|---|---|---|---|---|---|---|",
+        "| reviewer | same family as worker | injected | recall (strict) | recall (lenient) | precision | false positives | collateral flagged | clean cases flagged |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for s in result["scores"]:
         lines.append(
-            f"| `{s['reviewer']}` | {s['same_family_as_worker']} | {s['injected_errors']} | {s['recall_strict_pct']} | {s['recall_lenient_pct']} | {s['precision_pct']} | {s['false_positives']} | {s['clean_cases_flagged']} |"
+            f"| `{s['reviewer']}` | {s['same_family_as_worker']} | {s['injected_errors']} | {s['recall_strict_pct']} | {s['recall_lenient_pct']} | {s['precision_pct']} | {s['false_positives']} | {s.get('collateral_flagged', '-')} | {s['clean_cases_flagged']} |"
         )
     lines += [
         "",
@@ -576,6 +609,7 @@ def to_markdown(result: dict[str, Any]) -> str:
     lines += [
         "",
         "Strict = right claim and right error type; lenient = right claim, any type. Precision = findings on genuinely bad claims / all findings.",
+        "Collateral = other claims that relied on a run removed by an `execution_unsupported` injection; flagging them is correct and is not counted as a false positive.",
         "In `self` mode only `value_mismatch`, `fabricated_citation` and `execution_unsupported` are injected (programmatically), so other columns are `-`.",
     ]
     return "\n".join(lines) + "\n"

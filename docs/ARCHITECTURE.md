@@ -279,11 +279,11 @@ allowed_classifications = ["public", "internal", "confidential"]
 
 [roles]
 worker   = "anthropic:<model>"
-reviewer = "local:<model>"              # 默认要求与 worker 不同家族
+reviewer = "local:<model>"              # 按审查评测成绩选择，可与 worker 同家族（ADR-013）
 # planner 和 summarizer 可选，缺省回退到 worker
 ```
 
-- 【承重】角色集合为 `worker`、`reviewer`、`planner`、`summarizer`；v0.1 只要求前两个。`reviewer` 与 `worker` 同家族时启动给出警告，配置 `allow_same_family = true` 才允许。
+- 【承重】角色集合为 `worker`、`reviewer`、`planner`、`summarizer`；v0.1 只要求前两个。`reviewer` 默认取审查评测成绩最好的模型，缺省回退到 worker；可选 `prefer_different_family = true`，成绩相近时优先不同家族（ADR-013，取代 ADR-011）。
 - 【可调】能力矩阵 `capabilities.py`：上下文长度、并行 tool call、thinking、视觉、缓存方式、单价。初始数据取自 models.dev 快照，用户可覆盖。
 - 【承重】路由 `routing.py`：先按项目分级过滤 provider，再取角色配置，不可用时走回退链。违反分级的调用抛出 `PolicyViolation` 并写审计，不降级。
 - 【承重】`convert.py` 是规范消息格式与 Pydantic AI 类型之间唯一的转换点。
@@ -294,11 +294,14 @@ reviewer = "local:<model>"              # 默认要求与 worker 不同家族
 【承重】接口：
 ```python
 class Kernel(Protocol):
-    async def execute(self, code: str, *, timeout: float | None) -> AsyncIterator[RunOutput]
+    kernel_id: str; language: str
+    def execute(self, code: str, *, timeout: float | None) -> AsyncIterator[KernelOutput | ExecutionEnd]
     async def interrupt(self) -> None
     async def restart(self) -> None
     async def snapshot_variables(self) -> dict[str, DataRef]
+    async def shutdown(self) -> None
 ```
+`execute` 产出若干 `KernelOutput`，最后**恰好一个** `ExecutionEnd(status=ok|error|cancelled|timed_out)`；超时和中断也必须正常结束流。把一次执行记成 Run 事件（`run_started` … `run_finished`）的是 `tools/runs.py`，因为它同时需要 runtime、provenance 和 storage，而这三者是同层兄弟，互不 import。
 两个实现：`JupyterKernel`（生产）和 `FakeKernel`（测试，按预设脚本返回输出）。除 `runtime/` 自身的集成测试外，所有测试用 `FakeKernel`。
 
 - `KernelManager`：每个 Session 一个 Python kernel，按需 R kernel；跑在项目的 pixi 环境里；空闲超时回收，回收前可快照变量。
@@ -340,8 +343,14 @@ ToolSpec(
     classification_floor: "public" | "internal" | "confidential" | None,  # 该工具会把数据发到哪一级
 )
 ```
+- `classification_floor` 的含义：该工具的目的地**最多能接收哪一级项目的数据**。`None` 表示数据不出本机，任何项目都可用；`public` 表示只有 public 项目可用；以此类推。项目分级高于它即拒绝。
+- `target(args, ctx)` 给出权限针对的对象（解析后的绝对路径、主机名等），必须与 handler 实际触碰的对象一致；文件工具先 `resolve()`（跟随符号链接）再做权限检查。
 - `registry.py` 持有所有 ToolSpec。agent 的工具列表和 `mcp/server.py` 的工具列表都由它生成，不允许手写第二份。
 - 【承重】`invoke(spec, args, ctx)` 是唯一执行入口，顺序固定：分级检查 → 权限检查（可能挂起等待用户决定）→ 写 `tool_call_requested` → 执行 → 写审计 → 包装为 `ToolResultPart(trust=spec.output_trust)` → 写 `tool_call_finished` 或 `tool_call_failed`。
+  - 参数校验在分级检查之后、权限检查之前，失败写 `tool_call_failed`。
+  - 审计由 `tool_call_finished` / `tool_call_failed` / `error(policy_violation)` 事件投影到 `audit_entries`，不另写。
+  - `invoke` 对工具层面的问题（拒绝、参数错、handler 抛异常）不抛异常，一律返回 `is_error=True` 的 `ToolResultPart`；拒绝文本是 BioQuorum 自己生成的，标 `trusted`。错误文本写入事件前经 `policy/secrets.redact()`。
+  - 输出可能来自远端（`network` / `connector` / `external_mcp`）的工具，`ToolSpec` 构造时禁止声明 `output_trust=trusted`。
 - 外部 MCP 服务器的工具自动包装为 ToolSpec，`permission=external_mcp`，`output_trust=untrusted`。
 
 ### 6.5 审查层 `review/`
@@ -358,7 +367,7 @@ ToolSpec(
 | `citation_supports` | **是** | reviewer 模型读摘要，判断是否支持结论 |
 | `method_sanity` | **是** | 常见统计错误，如未做多重检验校正、样本量过小 |
 
-   前四个是确定性检查，不消耗模型调用，v0.1 先做。跨家族模型的价值体现在后两个和共识模式；评测报告要分别报告两组的召回率和误报率，不能混在一起。
+   前四个是确定性检查，不消耗模型调用，v0.1 先做。评测报告要分别报告两组的召回率和误报率，不能混在一起。v0.0 对照实验在确定性可核实的错误上没有发现同家族盲区（docs/research/reviewer-experiment.md）；判断类检查上的家族差异在 v0.2 补测。
 3. **重跑**（可选）：关键 Run 在全新 kernel 里重新执行，走 §6.3 的 rerun。
 4. **输出**：`review_finding` 写入事件流。主 agent 在下一轮必须对每条 `error` 级 finding 作出回应；【承重】同一条 finding 的往返次数上限为 2，超过则保持 `disputed` 并交给用户。
 5. 【可调】共识模式见 §10。
@@ -454,5 +463,6 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 008 | ULID 作为 ID，SHA-256 作为哈希，Run 身份由 code、env、inputs 三者决定 |
 | 009 | Jupyter 协议作为 kernel 实现，但以 `Kernel` 接口隔离 |
 | 010 | 研究包 manifest 从 v0.1 起存在，字段只增不删 |
-| 011 | reviewer 默认与 worker 不同家族 |
+| 011 | ~~reviewer 默认与 worker 不同家族~~（被 013 取代） |
 | 012 | Web UI 推后，CLI 与 MCP Server 为首批入口 |
+| 013 | reviewer 按审查能力选择，家族多样性改为可选 |
