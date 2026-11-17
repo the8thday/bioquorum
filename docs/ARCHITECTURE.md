@@ -1,6 +1,9 @@
 # BioQuorum 架构设计
 
-> 状态：**v0.2（2026-11-13）**。v0.1 存档于 [archive/ARCHITECTURE-v0.1-2026-11-11.md](archive/ARCHITECTURE-v0.1-2026-11-11.md)。
+> 状态：**v0.3（2026-11-17）**，对应代码 v0.1.0。旧版存档：[v0.2](archive/ARCHITECTURE-v0.2-2026-11-13.md)、[v0.1](archive/ARCHITECTURE-v0.1-2026-11-11.md)。
+>
+> v0.3 相对 v0.2 的改动（全部是实现中补充的细节，没有改动承重决定，唯一的决定变更走了 ADR-013）：
+> §6.1 模型层实现要点（底层 `Model.request()`、调用 ID、thinking 按家族回放、Responses API、provider 默认分级、配置合并）与 reviewer 选择规则（ADR-013 取代 ADR-011）；§6.2 `Kernel` 接口加 `ExecutionEnd` 终止帧和 `shutdown()`；§6.4 `classification_floor` 的确切含义、`target(args, ctx)`、`invoke()` 不抛异常且每个调用都有结果事件、外部 MCP 包装与分层、录制回放；§6.5 证据结构与审查流程；§6.6 agent 循环与入口；§6.8 models 的 cassette 键；§8 kernel 可直接联网的实测风险；§3 用户项目目录布局。import-linter 契约从 6 条增至 8 条（ADR-006 的 agent 限制、mcp SDK 只在 mcp/）。
 > 产品定义见 [PRODUCT.md](PRODUCT.md)，调研见 [research/landscape-2026-11.md](research/landscape-2026-11.md)，路线图见 [../ROADMAP.md](../ROADMAP.md)。
 >
 > 本文是项目的最高约束。代码和文档冲突时，先改文档再改代码；改动承重决定必须新增一条 ADR（见 §11）。
@@ -448,8 +451,8 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 
 架构只写在文档里是守不住的，以下机制和代码一起进第一个 commit：
 
-1. **`CLAUDE.md`**：指向本文和 `docs/adr/`；列出 §1 的全部承重原则；要求新模块先写测试；要求改动承重决定先写 ADR。
-2. **import-linter 契约**写在 `pyproject.toml`，覆盖 §2 的全部规则；pre-commit 和 CI 都跑。
+1. **`AGENTS.md`**（`CLAUDE.md` 用 `@AGENTS.md` 引用它，所有 AI 协作者共用一份）：指向本文和 `docs/adr/`；列出 §1 的全部承重原则；要求新模块先写测试；要求改动承重决定先写 ADR；记录环境约束、踩过的坑和评测纪律。
+2. **import-linter 契约**写在 `pyproject.toml`，覆盖 §2 的全部规则（v0.1 起共 8 条）；pre-commit 和 CI 都跑。
 3. **`core/` 先于一切功能实现**，§5 的每个模型都有测试；投影重建一致性测试从第一天起存在。
 4. **`docs/adr/NNN-title.md`**：每条不超过一页，格式为"背景 / 决定 / 后果"。已决定的事不在会话中重新争论，要改就新增 ADR。
 5. **pre-commit**：ruff、pyright、import-linter、pytest 的快速子集。

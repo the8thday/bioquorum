@@ -1,0 +1,23 @@
+# Changelog
+
+Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
+
+## 0.1.0 — 2026-11-17
+
+First end-to-end version (ROADMAP v0.1).
+
+- **runtime**: `Kernel` protocol with a guaranteed `ExecutionEnd`; `FakeKernel`; `JupyterKernel` over private IPC sockets, started in the project root; per-session `KernelManager`; output summaries.
+- **provenance**: content-addressed store with hash verification; canonical DataFrame/AnnData hashing; manifest v0 from events.
+- **policy**: permission grants by scope (deny by default without an asker); classification checks; secret redaction and `env:` references.
+- **tools**: `ToolSpec`, single registry, `invoke()` chokepoint (every call ends in a result event); `python_execute`, `read_file`, `list_files`; external MCP tools wrapped as untrusted specs; the MCP exit.
+- **mcp**: client, server, cassette record/replay; Open Targets official remote server and BioMCP connected.
+- **models**: `pydantic-ai-slim[openai]`; provider/role config, classification-first routing with fallbacks, single conversion point, model cassettes; OpenAI (Responses API) and DeepSeek.
+- **review**: deterministic checks `execution_evidence`, `value_match`, `citation_resolves`, `plan_complete`; model check `citation_supports`; claim extraction; review events and verification status. Measured in `docs/research/review-checks.md`.
+- **agent**: stateless loop, context rebuilt from events each step.
+- **cli**: `bq project`, `bq models`, `bq tools`, `bq run`, `bq review`, `bq sessions`, `bq mcp serve|record`, `bq db`.
+- **decisions**: ADR-013 supersedes ADR-011 after the reviewer control experiment (`docs/research/reviewer-experiment.md`).
+- **known gaps**: no sandbox (kernel code can reach the network); review sees only what tools retrieved in the session; see NEXT.md.
+
+## 0.0.1 — 2026-11-13
+
+Foundations: `core/` domain model, event store and projections, ADRs 001–012, eval corpus, reviewer experiment script.

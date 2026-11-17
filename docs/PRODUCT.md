@@ -1,6 +1,6 @@
 # BioQuorum 产品定义
 
-> 状态：**v0.2（2026-11-13）**，与 [ARCHITECTURE.md](ARCHITECTURE.md) v0.2 和 [ROADMAP.md](../ROADMAP.md) 同步。v0.1 存档于 archive/。
+> 状态：**v0.3（2026-11-17）**，与 [ARCHITECTURE.md](ARCHITECTURE.md) v0.3 和 [ROADMAP.md](../ROADMAP.md) 同步。v0.3 的改动：对照实验后按 ADR-013 改写支柱 2 和竞品对比中关于跨家族审查的表述。旧版存档于 archive/。
 > 名称 **BioQuorum** 已确认。PyPI 和 GitHub 上暂无同名项目，商标还没有查。
 > 寓意：生物学里的 *quorum sensing*（群体感应），加上"多个模型达成共识（quorum）才算可信"。
 

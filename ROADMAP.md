@@ -1,18 +1,18 @@
 # BioQuorum 路线图
 
-> 2026-11-13 · 架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（最高约束）· 产品定义见 [docs/PRODUCT.md](docs/PRODUCT.md) · 上一版存档于 docs/archive/
+> 2026-11-13，2026-11-17 更新（v0.0、v0.1 完成）· 架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（最高约束）· 产品定义见 [docs/PRODUCT.md](docs/PRODUCT.md) · 上一版存档于 docs/archive/
 >
 > 分工：Claude Code 负责设计、写代码、写测试、跑测试和写文档，以较高自主权限运行；作者负责定方向、每天跑一次演示场景、判断科学结论是否正确、验收。
 > 时间按作者全天在场估算，单位是工作日。**每个版本结束时都必须能跑起来、能演示。** 路线图服从架构：顺序可以调，架构的承重决定不能为赶进度破例。
 
-## v0.0 · 地基 + 假设验证（第 1 到 2 天）
+## v0.0 · 地基 + 假设验证（第 1 到 2 天）✅ 2026-11-17
 - [x] 仓库骨架：uv、ruff、pyright、pytest、import-linter 契约、pre-commit、CI、Apache-2.0、CLAUDE.md、docs/adr/
 - [x] `core/`：ID、事件信封、事件类型、规范消息格式、实体、哈希规则、状态机，全部带测试
 - [x] `storage/`：事件表 + 投影 + `bq rebuild` 一致性测试
 - [x] **对照实验**：20 份注入错误的分析记录，同家族 vs 跨家族 reviewer 的召回率和误报率；结果决定 ADR-011 是否成立 → 未发现同家族盲区，ADR-011 被 ADR-013 取代（docs/research/reviewer-experiment.md）
 - [x] 三个北极星场景各 5 道评测题
 
-## v0.1 · Demo：kernel + 审查 + MCP（第 3 到 7 天）★ 一周 Demo
+## v0.1 · Demo：kernel + 审查 + MCP（第 3 到 7 天）★ 一周 Demo ✅ 代码完成 2026-11-17（两项验收待作者）
 - [x] `runtime/`：`Kernel` 接口、`FakeKernel`、`JupyterKernel`、输出摘要
 - [x] `tools/`：注册表、`invoke()` 咽喉、内置工具（kernel、文件、连接器）——数据库连接器全部经外部 MCP 接入，`connectors/` 暂空
 - [x] `provenance/`：CAS、Run 记录、manifest v0
@@ -27,6 +27,11 @@
   - [ ] 录终端演示——作者操作（docs/demo-v0.1.md 第 5 步）
 
 ## v0.2 · 开发者预览（第 8 到 20 天）★ 第一次公开发布
+- [ ] **v0.1 遗留，优先**（详见 NEXT.md）：
+  - [ ] kernel 网络隔离的最小版本（kernel 代码目前可绕过 `invoke()` 直接联网；需新 ADR）；SECURITY.md 写清楚现状
+  - [ ] 审查证据纳入 run 输出里出现的文献内容，或要求全文走工具
+  - [ ] `value_match` 要求数字与结论中的实体共现，降低长证据下的巧合命中
+  - [ ] 外部 MCP 断线重连；`citation_resolves` 在线解析；`method_sanity`
 - [ ] 场景 A 和 C 完整；场景 B 用 pbmc3k 规模的小数据集
 - [ ] Plan 模式；compaction；权限卡片（CLI 交互版）
 - [ ] 第 3 家 provider；能力矩阵；费用显示
