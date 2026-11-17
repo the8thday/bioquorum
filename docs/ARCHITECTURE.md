@@ -79,6 +79,7 @@ tools  →  runtime, provenance, connectors, skills, mcp  →  policy, storage  
 ```
 bioquorum/
 ├── pyproject.toml            # uv；一个 Python 包；import-linter 契约写在这里
+│   （用户的项目目录：bioquorum.toml 配置 + .bioquorum/{project.json, bioquorum.db, cas/}，数据跟着项目走）
 ├── uv.lock
 ├── CLAUDE.md                 # 给 AI 协作者的约束，指向本文和 docs/adr/
 ├── src/bioquorum/
@@ -352,6 +353,10 @@ ToolSpec(
   - `invoke` 对工具层面的问题（拒绝、参数错、handler 抛异常）不抛异常，一律返回 `is_error=True` 的 `ToolResultPart`；拒绝文本是 BioQuorum 自己生成的，标 `trusted`。错误文本写入事件前经 `policy/secrets.redact()`。
   - 输出可能来自远端（`network` / `connector` / `external_mcp`）的工具，`ToolSpec` 构造时禁止声明 `output_trust=trusted`。
 - 外部 MCP 服务器的工具自动包装为 ToolSpec，`permission=external_mcp`，`output_trust=untrusted`。
+  - 名字加命名空间 `<server>__<tool>`；`classification_floor` 取该服务器在配置里的 `clearance`，远端服务器缺省 `public`，只有标为 `local` 的才对所有分级可用；权限目标是 `mcp:<server>`。
+  - 分层：`mcp/` 在 `tools/` 之下，不能 import 工具层。所以 `mcp/client.py` 和 `mcp/server.py` 只做协议转换，输入输出都是中立类型；包装成 ToolSpec 在 `tools/external.py`，MCP 出口接到 `invoke()` 在 `tools/exits.py`，组装在 `cli/`。`mcp` SDK 只允许在 `mcp/` 内 import（import-linter）。
+  - MCP 出口返回的 untrusted 文本用 `core.messages.fence_untrusted()` 包裹，agent 出口用同一套分隔符；服务器的 `instructions` 说明分隔符的含义。
+  - 录制与回放（`mcp/replay.py`）：`bq mcp record` 把真实服务器的工具列表和调用结果存为 cassette，配置里写 `replay = "<path>"` 就改用进程内回放，不联网。测试默认用回放，`live` 测试每晚检查上游是否漂移。
 
 ### 6.5 审查层 `review/`
 

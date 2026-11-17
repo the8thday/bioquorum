@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from bioquorum.runtime.kernel import Kernel
 
@@ -11,16 +12,21 @@ KernelFactory = Callable[[str], Awaitable[Kernel]]
 """``language -> started kernel``."""
 
 
-async def jupyter_factory(language: str) -> Kernel:
-    from bioquorum.runtime.jupyter import JupyterKernel  # lazy: jupyter_client is heavy
+def jupyter_factory(cwd: str | Path | None = None) -> KernelFactory:
+    """Factory for real Jupyter kernels started in ``cwd`` (the project root)."""
 
-    kernel_name = {"python": "python3", "r": "ir"}.get(language, language)
-    return await JupyterKernel(kernel_name=kernel_name, language=language).start()
+    async def make(language: str) -> Kernel:
+        from bioquorum.runtime.jupyter import JupyterKernel  # lazy: jupyter_client is heavy
+
+        kernel_name = {"python": "python3", "r": "ir"}.get(language, language)
+        return await JupyterKernel(kernel_name=kernel_name, language=language, cwd=cwd).start()
+
+    return make
 
 
 class KernelManager:
-    def __init__(self, factory: KernelFactory = jupyter_factory) -> None:
-        self._factory = factory
+    def __init__(self, factory: KernelFactory | None = None) -> None:
+        self._factory = factory or jupyter_factory()
         self._kernels: dict[tuple[str, str], Kernel] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._starting = asyncio.Lock()

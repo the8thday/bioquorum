@@ -1,0 +1,812 @@
+{
+  "format": 1,
+  "server": "biomcp",
+  "source": "biomcp serve",
+  "recorded_at": "2026-11-17T01:07:33+00:00",
+  "tools": [
+    {
+      "name": "biomcp",
+      "description": "Run one read-only BioMCP command. Prefer typed tools. Use `biomcp list <entity>` for discovery or `biomcp skill list` for workflows. Set `json` for structured output. Binary downloads and mutations are rejected.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "json": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "ShellCommand",
+        "type": "object"
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search a biomedical entity with typed, bounded inputs.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "all_species": {
+            "type": "boolean"
+          },
+          "article_type": {
+            "enum": [
+              "research-article",
+              "review",
+              "case-reports",
+              "meta-analysis"
+            ]
+          },
+          "author": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "biomarker": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "chromosome": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "condition": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "consequence": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cpic_level": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "criteria": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "date_from": {
+            "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$",
+            "type": "string"
+          },
+          "date_to": {
+            "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$",
+            "type": "string"
+          },
+          "disease": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "maxLength": 256,
+            "minItems": 1,
+            "minLength": 1,
+            "type": [
+              "string",
+              "array"
+            ],
+            "uniqueItems": true
+          },
+          "drug": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "maxLength": 256,
+            "minItems": 1,
+            "minLength": 1,
+            "type": [
+              "string",
+              "array"
+            ],
+            "uniqueItems": true
+          },
+          "entity": {
+            "enum": [
+              "author",
+              "gene",
+              "pgx",
+              "gwas",
+              "article",
+              "trial",
+              "variant",
+              "protein"
+            ],
+            "type": "string"
+          },
+          "existence": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "gene": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "gene_type": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "hgvsp": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "intervention": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "journal": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "json": {
+            "default": false,
+            "type": "boolean"
+          },
+          "keyword": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 25,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_frequency": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "mutation": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "no_preprints": {
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "open_access": {
+            "type": "boolean"
+          },
+          "p_value": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "type": "number"
+          },
+          "phase": {
+            "enum": [
+              "NA",
+              "N/A",
+              "n/a",
+              "EARLY_PHASE1",
+              "early_phase1",
+              "early1",
+              "PHASE1",
+              "1",
+              "I",
+              "PHASE2",
+              "2",
+              "II",
+              "PHASE3",
+              "3",
+              "III",
+              "PHASE4",
+              "4",
+              "IV",
+              "PHASE1/PHASE2",
+              "1/2",
+              "I_II",
+              "PHASE2/PHASE3",
+              "2/3",
+              "II_III"
+            ]
+          },
+          "query": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "region": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revel_min": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "review_status": {
+            "enum": [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "none",
+              "criteria_provided",
+              "expert_panel"
+            ]
+          },
+          "reviewed": {
+            "type": "boolean"
+          },
+          "significance": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sort": {
+            "enum": [
+              "date",
+              "citations",
+              "relevance"
+            ]
+          },
+          "source": {
+            "enum": [
+              "semanticscholar",
+              "all",
+              "pubtator",
+              "europepmc",
+              "pubmed",
+              "litsense2",
+              "ctgov",
+              "nci"
+            ]
+          },
+          "status": {
+            "enum": [
+              "recruiting",
+              "not_yet_recruiting",
+              "enrolling_by_invitation",
+              "active_not_recruiting",
+              "completed",
+              "suspended",
+              "terminated",
+              "withdrawn"
+            ]
+          },
+          "trait": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "title": "TypedSearch",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get",
+      "description": "Get one biomedical record with typed inputs. Binary assets are CLI-only.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "assembly": {
+            "enum": [
+              "grch37",
+              "hg19",
+              "grch38",
+              "hg38"
+            ]
+          },
+          "entity": {
+            "enum": [
+              "gene",
+              "variant",
+              "article",
+              "author",
+              "trial",
+              "diagnostic",
+              "drug",
+              "disease",
+              "pgx",
+              "pathway",
+              "cell-line",
+              "protein",
+              "adverse-event"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "json": {
+            "default": false,
+            "type": "boolean"
+          },
+          "pdf": {
+            "default": false,
+            "type": "boolean"
+          },
+          "sections": {
+            "items": {
+              "enum": [
+                "pathways",
+                "ontology",
+                "diseases",
+                "diagnostics",
+                "protein",
+                "go",
+                "interactions",
+                "civic",
+                "expression",
+                "hpa",
+                "druggability",
+                "clingen",
+                "gencc",
+                "constraint",
+                "disgenet",
+                "funding",
+                "all",
+                "predict",
+                "predictions",
+                "clinvar",
+                "population",
+                "population-details",
+                "conservation",
+                "cosmic",
+                "cgi",
+                "cbioportal",
+                "gwas",
+                "annotations",
+                "fulltext",
+                "tldr",
+                "indexing",
+                "assets",
+                "eligibility",
+                "contacts",
+                "locations",
+                "outcomes",
+                "arms",
+                "references",
+                "genes",
+                "conditions",
+                "methods",
+                "regulatory",
+                "label",
+                "safety",
+                "shortage",
+                "targets",
+                "indications",
+                "approvals",
+                "cell_lines",
+                "phenotypes",
+                "variants",
+                "models",
+                "prevalence",
+                "survival",
+                "clinical_features",
+                "recommendations",
+                "frequencies",
+                "guidelines",
+                "events",
+                "enrichment",
+                "xrefs",
+                "chembl",
+                "drug_response",
+                "domains",
+                "complexes",
+                "structures",
+                "reactions",
+                "concomitant",
+                "guidance"
+              ]
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "source": {
+            "default": "ctgov",
+            "enum": [
+              "ctgov",
+              "nci"
+            ]
+          }
+        },
+        "required": [
+          "entity",
+          "id"
+        ],
+        "title": "TypedGet",
+        "type": "object"
+      }
+    },
+    {
+      "name": "variant_normalize_car",
+      "description": "Normalize 1-50 RefSeq HGVS values with ClinGen Allele Registry.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "inputs"
+        ],
+        "title": "TypedVariantCar",
+        "type": "object"
+      }
+    },
+    {
+      "name": "variant_erepo",
+      "description": "Get ClinGen ERepo expert assertions by CAid or gene.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "assertion_id": {
+            "type": "string"
+          },
+          "caid": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "caids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "detail": {
+            "type": "boolean"
+          },
+          "gene": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "default": 25,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "title": "TypedVariantErepo",
+        "type": "object"
+      }
+    },
+    {
+      "name": "gene_cspec",
+      "description": "Get ClinGen CSpec manifests, pages, or attachment metadata.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "capture_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "files": {
+            "default": false,
+            "type": "boolean"
+          },
+          "gene": {
+            "type": "string"
+          },
+          "limit": {
+            "default": 25,
+            "format": "uint",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version_iri": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "gene"
+        ],
+        "title": "TypedGeneCspec",
+        "type": "object"
+      }
+    },
+    {
+      "name": "variant_articles",
+      "description": "Get compact literature shortlists for 1-10 variant identities.",
+      "input_schema": {
+        "$defs": {
+          "VariantArticleRequest": {
+            "additionalProperties": false,
+            "properties": {
+              "accession": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "alt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "build": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coding": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gene": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "genomic": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "protein": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rsid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "transcript": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "confirmed_only": {
+            "default": false,
+            "type": "boolean"
+          },
+          "debug_plan": {
+            "default": false,
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/VariantArticleRequest"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "limit": {
+            "default": 10,
+            "format": "uint",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "strategy": {
+            "default": "union",
+            "enum": [
+              "union",
+              "annotation",
+              "exact",
+              "lexical"
+            ],
+            "type": "string"
+          },
+          "verify_identity": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TypedVariantArticles",
+        "type": "object"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "search",
+      "args": {
+        "entity": "article",
+        "keyword": "metformin mechanism glucose lowering",
+        "limit": 5
+      },
+      "result": {
+        "items": [
+          {
+            "text": "# Articles: keyword=metformin mechanism glucose lowering, exclude_retracted=true, sort=relevance, ranking_mode=hybrid, ranking_policy=hybrid relevance (score = 0.4*semantic + 0.3*lexical + 0.2*citations + 0.1*position)\n\n\n> Warning: The top result has partial lexical query coverage. Check the Why column or full ranking metadata before citing it.\n\n\nSource plan: candidates [PubTator3, Europe PMC, PubMed, Semantic Scholar]; enrichment [Semantic Scholar, PubTator3, Europe PMC]\n\nSemantic Scholar source status: unavailable (Semantic Scholar enrichment unavailable)\nRetry: `biomcp search article --keyword \"metformin mechanism glucose lowering\" --exclude-retracted --sort relevance --source semanticscholar --limit 5 --offset 0`\n\n\nFound 5 articles\n\n\nSemantic Scholar: enabled\n\nRanking: hybrid relevance (score = 0.4*semantic + 0.3*lexical + 0.2*citations + 0.1*position)\n\n\n| Identifier | Title | Source(s) | Date | Why | Cit. |\n|---|---|---|---|---|---|\n|PMID 42653759|Special Issue \"Metformin: Mechanism and Application 2023\".|Europe PMC|2026-08-11|hybrid 0.15 + title 2/4|0|\n|PMID 38617792|Understanding the action mechanisms of metformin in the gast…|PubTator3|2024-03-28|hybrid 0.125 + title 1/4|none|\n|PMID 42939411|Beyond the Liver: Brain Rap1 Signaling in Metformin's Antidi…|Europe PMC|2026-10-10|hybrid 0.125 + title 1/4|0|\n|PMID 33807522|Multifaceted Mechanisms of Action of Metformin Which Have Be…|PubTator3|2021-03-05|hybrid 0.075 + title 1/4|none|\n|PMID 43035269|[Hemolytic anemia due to G6PD deficiency induced by glycemic…|PubMed|2026-11-01|hybrid 0.05|0|\n\n\n\nNewest indexed: 2026-11-15 (2 days ago)\n\n\nUse `get article <identifier>` for details when the row has a PMID, PMCID, or DOI.\nFilters: [query], -k/-q <keyword>, -g <gene>, -d <disease>, --drug <name>, -a <author>, --date-from/--date-to <YYYY|YYYY-MM|YYYY-MM-DD> (alias: --since/--until), --type <research-article|research|review|case-reports|meta-analysis>, --open-access, --exclude-retracted, --sort <date|citations|relevance>, --source <all|pubtator|europepmc|pubmed|semanticscholar|litsense2>\n\n\nSee also:\n  biomcp get article 42653759\n  biomcp search article -k \"metformin mechanism glucose lowering\" --year-min 2021 --year-max 2026 --limit 5   - refine this search to the visible publication-year range\n\n\n\nShowing 5 results (total unknown). Use --offset 5 for more.\n\n"
+          }
+        ],
+        "is_error": false
+      }
+    },
+    {
+      "tool": "search",
+      "args": {
+        "entity": "trial",
+        "condition": "psoriasis",
+        "intervention": "deucravacitinib",
+        "limit": 5
+      },
+      "result": {
+        "items": [
+          {
+            "text": "# Trial Search Results\n\nResults: 5 of 54\n\nQuery: condition=psoriasis, intervention=deucravacitinib\n\n\n|NCT ID|Title|Status|Phase|Conditions|\n|---|---|---|---|---|\n|NCT04908202|A Study to Determine the…|ACTIVE_NOT_RECRUITING|3|Psoriatic Arthritis|\n|NCT05570955|Deucravacitinib Adherence…|ACTIVE_NOT_RECRUITING|NA|Psoriasis|\n|NCT03924427|An Investigational Study…|COMPLETED|3|Psoriasis|\n|NCT04036435|Long-Term Study That Meas…|COMPLETED|3|Psoriasis|\n|NCT06333860|A Study to Learn How Safe…|COMPLETED|4|Moderate Plaque Psoriasis|\n\n\nUse `get trial <nct_id>` for details.\nFilters: -c <condition>, -i <intervention>, --facility <name>, --age <years>, --sex <female|male|all>, -s <status>, -p <phase>, --mutation <text>, --criteria <text>, --sponsor-type <nih|industry|fed|other>, --lat <N> --lon <N> --distance <mi>, --results-available, --count-only\n\n\nShowing 1-5 of 54 results. Use --offset 5 for more. (--next-page is also supported.)\n\n"
+          }
+        ],
+        "is_error": false
+      }
+    },
+    {
+      "tool": "get",
+      "args": {
+        "entity": "article",
+        "id": "28776086"
+      },
+      "result": {
+        "items": [
+          {
+            "text": "# The mechanisms of action of metformin.\n\nPMID: 28776086\nPMCID: PMC5552828\nDOI: 10.1007/s00125-017-4342-z\nJournal: Diabetologia\nDate: 2017-09-01\nCitations: 1680\nType: research support, non-u.s. gov't\nOpen Access: Yes\n[PubMed](https://pubmed.ncbi.nlm.nih.gov/28776086/)\nSource: PubMed / Europe PMC\n\n## Authors (PubTator3)\n\nRena G, Hardie DG, Pearson ER\nAuthorship: complete (3 returned; PubTator3)\n## Abstract (PubMed / Europe PMC)\n\nMetformin is a widely-used drug that results in clear benefits in relation to glucose metabolism and diabetes-related complications. The mechanisms underlying these benefits are complex and still not fully understood. Physiologically, metformin has been shown to reduce hepatic glucose production, yet not all of its effects can be explained by this mechanism and there is increasing evidence of a key role for the gut. At the molecular level the findings vary depending on the doses of metformin used and duration of treatment, with clear differences between acute and chronic administration. Metformin has been shown to act via both AMP-activated protein kinase (AMPK)-dependent and AMPK-independent mechanisms; by inhibition of mitochondrial respiration but also perhaps by inhibition of mitochondrial glycerophosphate dehydrogenase, and a mechanism involving the lysosome. In the last 10 years, we have moved from a simple picture, that metformin improves glycaemia by acting on the liver via AMPK activation, to a much more complex picture reflecting its multiple modes of action. More work is required to truly understand how this drug works in its target population: individuals with type 2 diabetes.\n## Semantic Scholar\n\nPaper ID: 70925d1af1358fd113f54765e29603a957b5074b\nTLDR: Physiologically, metformin has been shown to reduce hepatic glucose production, yet not all of its effects can be explained by this mechanism and there is increasing evidence of a key role for the gut.\nCitations: 2148\nInfluential citations: 58\nReferences: 65\nOpen access: Yes\nOpen-access PDF: https://link.springer.com/content/pdf/10.1007/s00125-017-4342-z.pdf\nPDF status: HYBRID\nPDF license: CCBY\nMore:\n  biomcp get article 28776086 annotations   - PubTator normalized entity mentions\n  biomcp get article 28776086 fulltext   - cached full text when available\n  biomcp get article 28776086 tldr   - Semantic Scholar summary and influence\nAll:\n  biomcp get article 28776086 all\nSee also:\n  biomcp article entities 28776086   - standardized entity extraction from this article\n  biomcp search gene -q AMPK\n  biomcp search gene -q \"AMP-activated protein kinase\"\n  biomcp search disease --query diabetes\n  biomcp search disease --query glycaemia\n  biomcp search drug -q metformin\n  biomcp search drug -q glucose\n  biomcp article references 28776086 --limit 3   - background evidence this paper builds on; use if the primary paper lacks context\n  biomcp article citations 28776086 --limit 3   - later papers that cite this article; use only if the primary paper lacks your answer\n  biomcp article recommendations 28776086 --limit 3   - related papers to broaden coverage; use only if the primary paper lacks your answer\n\n[PubMed](https://pubmed.ncbi.nlm.nih.gov/28776086/) | [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC5552828/)\n\n\n## Sources\n- Bibliography: PubMed, Europe PMC\n- Authors: PubTator3\n- Abstract: PubMed, Europe PMC\n- PubTator Annotations: PubTator3\n- Semantic Scholar: Semantic Scholar\n\n## Next commands\n- `biomcp article entities 28776086`\n- `biomcp search gene -q AMPK`\n- `biomcp search gene -q \"AMP-activated protein kinase\"`\n- `biomcp search disease --query diabetes`\n- `biomcp search disease --query glycaemia`\n- `biomcp search drug -q metformin`\n- `biomcp search drug -q glucose`\n- `biomcp article references 28776086 --limit 3`\n- `biomcp article citations 28776086 --limit 3`\n- `biomcp article recommendations 28776086 --limit 3`"
+          }
+        ],
+        "is_error": false
+      }
+    }
+  ]
+}

@@ -14,9 +14,9 @@
 
 ## v0.1 · Demo：kernel + 审查 + MCP（第 3 到 7 天）★ 一周 Demo
 - [x] `runtime/`：`Kernel` 接口、`FakeKernel`、`JupyterKernel`、输出摘要
-- [ ] `tools/`：注册表、`invoke()` 咽喉、内置工具（kernel、文件、连接器）——除连接器外已完成
+- [x] `tools/`：注册表、`invoke()` 咽喉、内置工具（kernel、文件、连接器）——数据库连接器全部经外部 MCP 接入，`connectors/` 暂空
 - [x] `provenance/`：CAS、Run 记录、manifest v0
-- [ ] `mcp/`：客户端接 2 个现成数据库 MCP（Open Targets 官方、BioMCP 或 ToolUniverse）；服务端暴露科学层
+- [x] `mcp/`：客户端接 2 个现成数据库 MCP（Open Targets 官方、BioMCP 或 ToolUniverse）；服务端暴露科学层——另有录制回放
 - [ ] `models/`：2 家 provider（1 个 Anthropic 或 OpenAI，1 个 OpenAI 兼容本地或 DeepSeek/Qwen），worker 和 reviewer 两个角色，cassette 录制回放
 - [ ] `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`
 - [ ] `agent/` 最小循环；CLI：`bq run`、`bq review`

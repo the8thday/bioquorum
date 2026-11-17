@@ -7,8 +7,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
+import sys
+import tempfile
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from jupyter_client.manager import AsyncKernelManager
@@ -54,15 +59,44 @@ del __bq_snapshot
 """.replace("__BQ_KW__", repr(DATAFRAME_PARQUET_KWARGS))
 
 
+_MAX_SOCKET_PATH = 90  # AF_UNIX paths are limited to ~104-108 bytes; leave room for "-k-N"
+
+
+def _socket_dir() -> str:
+    d = tempfile.mkdtemp(prefix="bq-")  # mode 0700
+    if len(d) > _MAX_SOCKET_PATH:  # long $TMPDIR (e.g. macOS): fall back to /tmp
+        os.rmdir(d)
+        d = tempfile.mkdtemp(prefix="bq-", dir="/tmp")
+    return d
+
+
 def _mime_payload(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 
 class JupyterKernel:
-    def __init__(self, *, kernel_name: str = "python3", language: str = "python") -> None:
+    def __init__(
+        self,
+        *,
+        kernel_name: str = "python3",
+        language: str = "python",
+        cwd: str | Path | None = None,
+    ) -> None:
         self._id = new_id()
         self._language = language
-        self._km = AsyncKernelManager(kernel_name=kernel_name)
+        self._cwd = str(cwd) if cwd is not None else None
+        # IPC (Unix sockets, user-only permissions) instead of unencrypted localhost TCP,
+        # which any local user could connect to and run code through.
+        self._sock_dir: str | None = None
+        if sys.platform == "win32":
+            self._km = AsyncKernelManager(kernel_name=kernel_name)
+        else:
+            # Absolute socket path in a 0700 dir: the kernel runs in `cwd`, the client does
+            # not, so a relative path would point at two different places.
+            self._sock_dir = _socket_dir()
+            self._km = AsyncKernelManager(
+                kernel_name=kernel_name, transport="ipc", ip=os.path.join(self._sock_dir, "k")
+            )
         self._kc: Any = None
         self._cancel_requested = False
 
@@ -75,7 +109,7 @@ class JupyterKernel:
         return self._language
 
     async def start(self, *, ready_timeout: float = 60.0) -> JupyterKernel:
-        await self._km.start_kernel()
+        await self._km.start_kernel(cwd=self._cwd) if self._cwd else await self._km.start_kernel()
         self._kc = self._km.client()
         self._kc.start_channels()
         await self._kc.wait_for_ready(timeout=ready_timeout)
@@ -174,3 +208,5 @@ class JupyterKernel:
         if self._kc is not None:
             self._kc.stop_channels()
         await self._km.shutdown_kernel(now=True)
+        if self._sock_dir is not None:
+            shutil.rmtree(self._sock_dir, ignore_errors=True)

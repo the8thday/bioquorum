@@ -14,6 +14,7 @@ dependencies = [
   "rich>=13",
   "jupyter_client>=8.6,<9",  # Kernel protocol, runtime/ only (ADR-009)
   "ipykernel>=6.29",          # default Python kernel until pixi envs (ROADMAP v0.2)
+  "mcp>=2.3,<3",               # official MCP SDK, mcp/ only (ARCHITECTURE.md §4)
 ]
 
 [project.optional-dependencies]
@@ -157,3 +158,14 @@ type = "forbidden"
 allow_indirect_imports = true  # agent -> tools -> runtime is the intended path
 source_modules = ["bioquorum.agent", "bioquorum.review", "bioquorum.models"]
 forbidden_modules = ["bioquorum.runtime", "bioquorum.connectors", "bioquorum.mcp"]
+
+[[tool.importlinter.contracts]]
+name = "MCP SDK only inside mcp/ (ARCHITECTURE.md §4, §6.4)"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+  "bioquorum.core", "bioquorum.storage", "bioquorum.policy", "bioquorum.runtime",
+  "bioquorum.provenance", "bioquorum.connectors", "bioquorum.skills", "bioquorum.tools",
+  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
+]
+forbidden_modules = ["mcp", "mcp_types"]

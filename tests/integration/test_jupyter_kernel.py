@@ -63,3 +63,23 @@ async def test_snapshot_variables_hashes_dataframes_like_provenance(kernel):
     local = pd.DataFrame({"b": [1, 2], "a": [0.5, 1.5]})
     assert snap["df"].content_hash == hash_object(local).hash
     assert snap["s"].content_hash == hash_object("abc").hash
+
+
+async def test_kernel_runs_in_given_cwd_over_private_ipc(tmp_path):
+    import os
+    import stat
+
+    from bioquorum.runtime.jupyter import JupyterKernel
+
+    (tmp_path / "x.txt").write_text("here")
+    k = await JupyterKernel(cwd=tmp_path).start()
+    try:
+        assert k._km.transport == "ipc"
+        sock_dir = k._sock_dir
+        assert sock_dir and stat.S_IMODE(os.stat(sock_dir).st_mode) == 0o700
+        outs = [e async for e in k.execute("print(open('x.txt').read())", timeout=30)]
+        first = outs[0]
+        assert isinstance(first, KernelOutput) and first.text == "here\n"
+    finally:
+        await k.shutdown()
+    assert not os.path.exists(sock_dir)

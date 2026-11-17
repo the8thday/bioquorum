@@ -15,13 +15,41 @@
 - 质量：116 个单元测试 + 5 个真实 kernel 集成测试（`uv run pytest -m integration`）全绿；ruff、pyright、lint-imports 通过。
 - ARCHITECTURE §6.2、§6.4 补充了接口细节（`ExecutionEnd` 终止帧、`shutdown()`、`classification_floor` 的确切含义、invoke 不抛异常、远端工具禁止 trusted）。没有新增事件类型。
 
+## 2026-11-17 第二段：MCP + Open Targets + BioMCP（尚未 commit）
+- `mcp/client.py`（`McpConnection`、`ServerConfig`）、`mcp/server.py`（`build_server` 从注册表定义生成 MCP Server）、`mcp/replay.py`（cassette 录制/回放）。
+- `tools/external.py`（外部工具 → ToolSpec，命名空间 `<server>__<tool>`）、`tools/exits.py`（MCP 出口经 `invoke()`，untrusted 文本加隔离标记）。
+- `core.messages.fence_untrusted()`：工具输出里伪造的结束标签会被中和。
+- `cli/workspace.py` + 新命令：`bq project init|show`、`bq tools`、`bq mcp serve`、`bq mcp record`。项目状态在 `<项目>/.bioquorum/`，配置在 `<项目>/bioquorum.toml`。
+- Jupyter kernel 改用私有目录（0700）里的 IPC socket，不再走未加密的本机 TCP；kernel 工作目录固定为项目根目录。
+- Open Targets 官方远程 MCP（`https://mcp.platform.opentargets.org/mcp`）已接通，真实响应录在 `tests/fixtures/mcp/opentargets.json`；`uv run pytest -m live` 检查上游漂移。
+- 第 8 条 import-linter 契约：`mcp` SDK 只在 `mcp/` 内。
+- BioMCP 0.9.3（作者已 `uv tool install biomcp-cli`）已接通，样本在 `tests/fixtures/mcp/biomcp.json`（二甲双胍机制文献、deucravacitinib 试验、PMID 28776086）。BioMCP 在 MCP SDK 默认的 `auto` 协商下空闲后会崩，所以 stdio 服务器默认 `protocol = "legacy"`。它在本机运行但查询发往公共 API，分级必须标 `public`。
+- 录制的 cassette 只记命令名，不记绝对路径（避免用户名进仓库）。
+- 测试：单元 146、集成 6、live 2，全绿。
+
+### 在 Claude Code 里验证 MCP 出口（作者操作）
+```bash
+mkdir -p ~/bq-demo && cd ~/bq-demo && /data/Work/AgenticScience/.venv/bin/bq project init --classification public
+# 可选：接 Open Targets 和 BioMCP
+cat > bioquorum.toml <<'TOML'
+[mcp.servers.opentargets]
+url = "https://mcp.platform.opentargets.org/mcp"
+
+[mcp.servers.biomcp]
+command = "biomcp"
+args = ["serve"]
+clearance = "public"
+TOML
+claude mcp add bioquorum -- /data/Work/AgenticScience/.venv/bin/bq mcp serve -C ~/bq-demo
+```
+然后在 Claude Code 里让它用 `python_execute` 算点东西、用 `opentargets__search_entities` 查 IL23R。
+注意：项目分级是 internal / confidential 时，远端 MCP 工具会被分级策略拒绝（这是设计）；离线演示把 `url` 换成 `replay = "<cassette 路径>"`。
+
 ## 下一步（v0.1 剩余，按顺序）
-1. `connectors/` + `mcp/client.py`：接 Open Targets 官方 MCP 和 BioMCP（或 ToolUniverse），外部工具自动包装为 `ToolSpec(permission=external_mcp, output_trust=untrusted)`；每个连接器存固定响应样本，测试离线。需要依赖 `mcp`。
-2. `mcp/server.py`：从 `ToolRegistry.definitions()` 生成 MCP Server，`bq mcp serve`；在 Claude Code 里验证。
-3. `models/`：Pydantic AI，2 家 provider（作者手上有 OpenAI + DeepSeek 的 key），worker/reviewer 角色，reviewer 按配置里的审查成绩选择（ADR-013），`convert.py`，cassette 录制回放。需要依赖 `pydantic-ai`。
-4. `review/`：Claim 抽取 + 4 个确定性检查（`execution_evidence`、`value_match`、`citation_resolves`、`plan_complete`）+ `citation_supports`；用 `evals/injected-errors/` 验证确定性检查 100%。
-5. `agent/` 最小循环；CLI `bq run`、`bq review`；权限卡片的 CLI 版 Asker。
-6. 验收：ROADMAP v0.1 的四条。
+1. `models/`：Pydantic AI，2 家 provider（OpenAI + DeepSeek），worker/reviewer 角色，reviewer 按配置里的审查成绩选择（ADR-013），`convert.py`，cassette 录制回放。需要作者运行 `! uv add pydantic-ai`。
+2. `review/`：Claim 抽取 + 4 个确定性检查 + `citation_supports`；用 `evals/injected-errors/` 验证确定性检查 100%。
+3. `agent/` 最小循环；CLI `bq run`、`bq review`；权限卡片的 CLI 版 Asker。
+4. 验收：ROADMAP v0.1 的四条。
 
 ## 需要作者做的事
 1. API key 只在作者自己的终端里 export；从那个终端用 `claude --continue` 启动，Claude Code 才能读到。
@@ -35,6 +63,7 @@
 - `storage/` 仍用 `metadata.create_all`，还没接 Alembic；第一次改表结构前补上。
 - `evals/injected-errors/` 里 A 场景代码调用了假想的 `bq.tools.*` 接口；工具名现已定为 `python_execute` / `read_file` / `list_files`，连接器定名后一起改。
 - 对照实验 `self` 模式只注入三类机械错误；判断类错误的补测排在 v0.2（ADR-013）。
+- 外部 MCP 服务器中途断开后不会自动重连（后续调用记为 `tool_call_failed`）；v0.2 加重连。
 - 权限授权目前只在内存里；project/global 级授权的持久化随配置文件一起做。
 - Run 的 `inputs` 目前为空（`run_key` 只含 code + env），血缘 hook 在 v0.3。
 - AnnData 的 h5ad 规范序列化未验证字节级确定性（环境里没装 anndata）；场景 B 前补测试。
