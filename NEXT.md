@@ -6,7 +6,7 @@
 ## 一句话现状
 **v0.1.0 加上 v0.2 的第一步**：`bq run` 提问 → kernel 和数据库工具 → 回答 → 逐条审查；`bq mcp serve`；没有 Web UI。**kernel 已经在 bubblewrap 沙箱里运行**（2026-11-18，ADR-017）。
 **设计在 2026-11-17 重新定了方向**：作者把项目交给 AI 当 owner，作者已读过并认可 `docs/DESIGN.md`。决定记为 ADR-014 至 018，ARCHITECTURE / PRODUCT 升到 v0.4，ROADMAP 从 v0.2 起重排。
-**工作区里有两批没有 commit 的改动**：设计文档，和 kernel 隔离的代码。等作者说"commit"。
+**已合进 `main` 并 push（2026-11-18）。** 以后的 commit / push 仍然只在作者明确要求时做。
 
 方向的要点（细节看 DESIGN.md）：
 1. 结论在写出时绑定证据，数字从 run 输出里取，引用带逐字原话（ADR-014）。
@@ -44,7 +44,7 @@
 
 ## 需要作者做的事
 1. ~~读 `docs/DESIGN.md`~~ 已读，已认可（2026-11-18）。
-2. 说一声"commit"，AI 把设计文档和 kernel 隔离分两个 commit 提交。
+2. ~~commit / push~~ 已完成（2026-11-18）。
 2a. 在自己的终端里跑一次 `docs/demo-v0.1.md` 第 2 步的 `bq run`（要花几美分），看模型在沙箱里是否正常工作，把看到的问题告诉 AI。
 3. v0.1 遗留的一项验收（可选，5 分钟）：在 Claude Code 里 `claude mcp add bioquorum -- …/bq mcp serve -C ~/bq-demo`，步骤在 `docs/demo-v0.1.md` 第 4 步。终端录屏那一项取消了。
 4. 决定第 3 家模型用哪个（有 Anthropic key，还是用开源模型）。
