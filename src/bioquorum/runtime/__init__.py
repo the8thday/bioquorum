@@ -10,16 +10,20 @@ from bioquorum.runtime.kernel import (
     KernelOutput,
 )
 from bioquorum.runtime.manager import KernelFactory, KernelManager
+from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable, SandboxSpec
 
 __all__ = [
     "EndStatus",
     "ExecutionEnd",
     "FakeKernel",
+    "Isolation",
+    "IsolationUnavailable",
     "Kernel",
     "KernelError",
     "KernelEvent",
     "KernelFactory",
     "KernelManager",
     "KernelOutput",
+    "SandboxSpec",
     "Script",
 ]

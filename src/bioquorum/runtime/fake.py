@@ -68,6 +68,10 @@ class FakeKernel:
     def language(self) -> str:
         return self._language
 
+    @property
+    def isolation(self) -> str:
+        return "none"  # nothing runs, so there is nothing to isolate
+
     # ------------------------------------------------------------- scripting
 
     def on(self, match: str | Matcher, script: Script) -> FakeKernel:

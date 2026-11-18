@@ -27,6 +27,7 @@ from bioquorum.models.config import ModelsConfig
 from bioquorum.policy.permissions import PermissionPolicy
 from bioquorum.provenance.cas import ContentStore
 from bioquorum.runtime.manager import KernelFactory, KernelManager, jupyter_factory
+from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_available, choose_isolation
 from bioquorum.storage.db import Database
 from bioquorum.storage.events import EventStore
 from bioquorum.tools.context import ToolContext
@@ -86,6 +87,42 @@ class Workspace:
 
     def readable_roots(self) -> list[Path]:
         return [self.root, *self.data_dirs]
+
+    # ---------------------------------------------------------- kernel isolation (ADR-017)
+
+    @property
+    def isolation_required(self) -> bool:
+        """Only public projects may ever run code outside the sandbox."""
+        return self.classification is not Classification.PUBLIC
+
+    def kernel_network(self) -> bool:
+        """``[kernel] network = true``: the user's explicit choice, public projects only."""
+        wanted = bool(self.config.get("kernel", {}).get("network", False))
+        if wanted and self.isolation_required:
+            raise WorkspaceError(
+                f"[kernel] network = true is only allowed in public projects; this project is "
+                f"{self.classification.value}. Kernel code reaches the network through tools."
+            )
+        return wanted
+
+    def kernel_sandbox(self) -> SandboxSpec:
+        """Project dir read-write; data dirs read-only. The kernel must not touch BioQuorum's
+        own state (event log, CAS) or the files that decide what runs outside the sandbox
+        next time (MCP server commands in the config, git hooks)."""
+        protected = [self.root / CONFIG_FILE, self.root / ".git"]
+        return SandboxSpec(
+            workdir=self.root,
+            read_only=(*self.data_dirs, *protected),
+            hidden=(self.state_dir,),
+            network=self.kernel_network(),
+        )
+
+    def kernel_isolation(self) -> Isolation:
+        """What kernels of this project will get here. Raises ``IsolationUnavailable`` when the
+        project requires isolation and this machine cannot provide it."""
+        return choose_isolation(
+            self.kernel_sandbox(), available=bwrap_available(), required=self.isolation_required
+        )
 
 
 def find_root(start: Path) -> Path | None:
@@ -191,6 +228,13 @@ def tool_context(
     *,
     kernel_factory: KernelFactory | None = None,
 ) -> ToolContext:
+    if kernel_factory is None:
+        # A read-only mount needs an existing file; without one, kernel code could create
+        # the config itself and plant an MCP server command for the next start.
+        (ws.root / CONFIG_FILE).touch(exist_ok=True)
+        kernel_factory = jupyter_factory(
+            ws.root, sandbox=ws.kernel_sandbox(), require_isolation=ws.isolation_required
+        )
     return ToolContext(
         store=store,
         session_id=session_id,
@@ -198,6 +242,6 @@ def tool_context(
         project_id=ws.project_id,
         classification=ws.classification,
         cas=ws.cas(),
-        kernels=KernelManager(kernel_factory or jupyter_factory(ws.root)),
+        kernels=KernelManager(kernel_factory),
         workdir=ws.root,
     )

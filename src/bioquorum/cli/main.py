@@ -21,6 +21,7 @@ from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
 from bioquorum.models import ConfigError, ModelUnavailableError, Router
 from bioquorum.policy.classification import PolicyViolation
+from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
 from bioquorum.storage.db import Database, default_db_path
 from bioquorum.storage.events import EventStore
 from bioquorum.storage.rebuild import rebuild as _rebuild
@@ -64,6 +65,25 @@ def _load(project: Path) -> wsp.Workspace:
     except wsp.WorkspaceError as exc:
         err.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+def _check_isolation(ws: wsp.Workspace) -> None:
+    """Say how kernel code will be isolated before anything runs; refuse if it must be and
+    cannot (ADR-017)."""
+    try:
+        mode = ws.kernel_isolation()
+    except (IsolationUnavailable, wsp.WorkspaceError) as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    if mode is Isolation.NONE:
+        err.print(
+            "[yellow]warning: kernel isolation is not available on this machine. Code the "
+            "model writes can read your files and reach the network. See SECURITY.md.[/yellow]"
+        )
+    elif mode is Isolation.BWRAP_NET:
+        err.print(
+            "[yellow]kernel network access is enabled for this project ([kernel] network = true)[/yellow]"
+        )
 
 
 @app.command()
@@ -171,6 +191,7 @@ def run_cmd(
     from bioquorum.cli.runner import run_question
 
     ws = _load(project)
+    _check_isolation(ws)
     try:
         code = asyncio.run(
             run_question(
@@ -271,6 +292,7 @@ def mcp_serve(
 ) -> None:
     """Serve BioQuorum tools over stdio MCP (for Claude Code, opencode, ...)."""
     ws = _load(project)
+    _check_isolation(ws)
     asyncio.run(_serve(ws, allow or [], external))
 
 

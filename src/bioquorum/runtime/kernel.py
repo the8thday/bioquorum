@@ -66,6 +66,11 @@ class Kernel(Protocol):
     @property
     def language(self) -> str: ...
 
+    @property
+    def isolation(self) -> str:
+        """How the kernel is isolated: a ``runtime.sandbox.Isolation`` value (ADR-017)."""
+        ...
+
     def execute(self, code: str, *, timeout: float | None = None) -> AsyncIterator[KernelEvent]:
         """Run ``code``. Yields outputs, then exactly one ExecutionEnd."""
         ...

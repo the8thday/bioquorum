@@ -109,3 +109,70 @@ def test_models_command_shows_confidential_block(tmp_path, monkeypatch):
     wsp.init_project(tmp_path / "c", classification=Classification.CONFIDENTIAL)
     r = runner.invoke(app, ["models", "-C", str(tmp_path / "c")])
     assert r.exit_code == 0 and "none allowed" in r.output
+
+
+# ------------------------------------------------------------ kernel isolation (ADR-017)
+
+
+def _project(tmp_path, classification, toml=""):
+    from bioquorum.cli import workspace as wsp
+
+    wsp.init_project(tmp_path, classification=classification)
+    (tmp_path / "bioquorum.toml").write_text(toml)
+    return wsp.load(tmp_path, global_config=tmp_path / "no-global.toml")
+
+
+def test_sandbox_protects_state_config_and_data(tmp_path):
+    from bioquorum.core.enums import Classification
+
+    (tmp_path / "raw").mkdir()
+    ws = _project(tmp_path, Classification.INTERNAL, '[project]\ndata_dirs = ["raw"]\n')
+    spec = ws.kernel_sandbox()
+    assert spec.workdir == ws.root and spec.network is False
+    assert ws.state_dir in spec.hidden
+    assert ws.root / "bioquorum.toml" in spec.read_only
+    assert ws.root / ".git" in spec.read_only
+    assert (tmp_path / "raw").resolve() in spec.read_only
+
+
+def test_only_public_projects_may_run_unisolated(tmp_path, monkeypatch):
+    import pytest
+
+    from bioquorum.cli import workspace as wsp
+    from bioquorum.core.enums import Classification
+    from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
+
+    monkeypatch.setattr(wsp, "bwrap_available", lambda: False)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    public = _project(tmp_path / "a", Classification.PUBLIC)
+    assert public.kernel_isolation() is Isolation.NONE
+    for level in (Classification.INTERNAL, Classification.CONFIDENTIAL):
+        d = tmp_path / level.value
+        d.mkdir()
+        with pytest.raises(IsolationUnavailable):
+            _project(d, level).kernel_isolation()
+
+    monkeypatch.setattr(wsp, "bwrap_available", lambda: True)
+    assert (
+        _project(tmp_path / "b", Classification.CONFIDENTIAL).kernel_isolation() is Isolation.BWRAP
+    )
+
+
+def test_kernel_network_is_a_public_only_choice(tmp_path, monkeypatch):
+    import pytest
+
+    from bioquorum.cli import workspace as wsp
+    from bioquorum.core.enums import Classification
+    from bioquorum.runtime.sandbox import Isolation
+
+    monkeypatch.setattr(wsp, "bwrap_available", lambda: True)
+    toml = "[kernel]\nnetwork = true\n"
+    (tmp_path / "pub").mkdir()
+    (tmp_path / "int").mkdir()
+    assert (
+        _project(tmp_path / "pub", Classification.PUBLIC, toml).kernel_isolation()
+        is Isolation.BWRAP_NET
+    )
+    with pytest.raises(wsp.WorkspaceError):
+        _project(tmp_path / "int", Classification.INTERNAL, toml).kernel_isolation()

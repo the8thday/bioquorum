@@ -6,20 +6,39 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from bioquorum.runtime import sandbox as sb
 from bioquorum.runtime.kernel import Kernel
 
 KernelFactory = Callable[[str], Awaitable[Kernel]]
 """``language -> started kernel``."""
 
 
-def jupyter_factory(cwd: str | Path | None = None) -> KernelFactory:
-    """Factory for real Jupyter kernels started in ``cwd`` (the project root)."""
+def jupyter_factory(
+    cwd: str | Path | None = None,
+    *,
+    sandbox: sb.SandboxSpec | None = None,
+    require_isolation: bool = False,
+) -> KernelFactory:
+    """Factory for real Jupyter kernels started in ``cwd`` (the project root).
+
+    With ``sandbox`` the kernel is isolated when this machine can do it (ADR-017). When it
+    cannot: ``require_isolation`` raises :class:`~bioquorum.runtime.sandbox.IsolationUnavailable`
+    before anything starts; otherwise the kernel runs unisolated and reports ``isolation="none"``.
+    """
 
     async def make(language: str) -> Kernel:
+        mode = sb.choose_isolation(
+            sandbox, available=sb.bwrap_available(), required=require_isolation
+        )
         from bioquorum.runtime.jupyter import JupyterKernel  # lazy: jupyter_client is heavy
 
         kernel_name = {"python": "python3", "r": "ir"}.get(language, language)
-        return await JupyterKernel(kernel_name=kernel_name, language=language, cwd=cwd).start()
+        return await JupyterKernel(
+            kernel_name=kernel_name,
+            language=language,
+            cwd=cwd,
+            sandbox=sandbox if mode is not sb.Isolation.NONE else None,
+        ).start()
 
     return make
 

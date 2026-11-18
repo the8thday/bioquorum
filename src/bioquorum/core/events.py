@@ -326,6 +326,9 @@ class RunStarted(EventPayload):
     code_hash: str
     env_lock_hash: str | None = None
     inputs: list[DataRef] = Field(default_factory=list)
+    # How the kernel was isolated: "bwrap", "bwrap+net" or "none" (ADR-017). None = recorded
+    # before isolation existed.
+    isolation: str | None = None
 
 
 @register

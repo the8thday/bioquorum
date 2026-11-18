@@ -57,6 +57,7 @@ async def execute_run(
                 code=code,
                 code_hash=chash,
                 env_lock_hash=ctx.env_lock_hash,
+                isolation=kernel.isolation,
             ),
             session_id=sid,
             actor=Actor.TOOL,

@@ -29,6 +29,7 @@ from bioquorum.runtime.kernel import (
     KernelEvent,
     KernelOutput,
 )
+from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env
 
 _DRAIN_S = 5.0  # how long to wait for the kernel to go idle after an interrupt
 
@@ -74,6 +75,20 @@ def _mime_payload(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 
+class _SandboxedKernelManager(AsyncKernelManager):
+    """Starts the kernel command inside bubblewrap (ADR-017)."""
+
+    bq_sandbox: SandboxSpec | None = None
+    bq_writable: tuple[str, ...] = ()
+
+    def format_kernel_cmd(self, extra_arguments: list[str] | None = None) -> list[str]:
+        cmd = super().format_kernel_cmd(extra_arguments)
+        if self.bq_sandbox is None:
+            return cmd
+        prefix = bwrap_argv(self.bq_sandbox, executable=cmd[0], writable=self.bq_writable)
+        return prefix + cmd
+
+
 class JupyterKernel:
     def __init__(
         self,
@@ -81,10 +96,16 @@ class JupyterKernel:
         kernel_name: str = "python3",
         language: str = "python",
         cwd: str | Path | None = None,
+        sandbox: SandboxSpec | None = None,
     ) -> None:
+        """``sandbox`` set: the kernel runs inside bubblewrap. The caller has already checked
+        that isolation is available (``runtime.sandbox.choose_isolation``)."""
         self._id = new_id()
         self._language = language
         self._cwd = str(cwd) if cwd is not None else None
+        self._sandbox = sandbox
+        if sandbox is not None and sys.platform == "win32":
+            raise RuntimeError("kernel sandboxing is not supported on Windows")
         # IPC (Unix sockets, user-only permissions) instead of unencrypted localhost TCP,
         # which any local user could connect to and run code through.
         self._sock_dir: str | None = None
@@ -94,9 +115,15 @@ class JupyterKernel:
             # Absolute socket path in a 0700 dir: the kernel runs in `cwd`, the client does
             # not, so a relative path would point at two different places.
             self._sock_dir = _socket_dir()
-            self._km = AsyncKernelManager(
+            self._km = _SandboxedKernelManager(
                 kernel_name=kernel_name, transport="ipc", ip=os.path.join(self._sock_dir, "k")
             )
+            if sandbox is not None:
+                # The connection file must be readable inside the sandbox: keep it next to
+                # the sockets instead of in the user's Jupyter runtime dir.
+                self._km.connection_file = os.path.join(self._sock_dir, "connection.json")
+                self._km.bq_sandbox = sandbox
+                self._km.bq_writable = (self._sock_dir,)
         self._kc: Any = None
         self._cancel_requested = False
 
@@ -108,8 +135,25 @@ class JupyterKernel:
     def language(self) -> str:
         return self._language
 
+    @property
+    def isolation(self) -> str:
+        if self._sandbox is None:
+            return Isolation.NONE
+        return Isolation.BWRAP_NET if self._sandbox.network else Isolation.BWRAP
+
     async def start(self, *, ready_timeout: float = 60.0) -> JupyterKernel:
-        await self._km.start_kernel(cwd=self._cwd) if self._cwd else await self._km.start_kernel()
+        # Secrets stay out of kernel code in every mode: the sandbox clears the environment,
+        # an unsandboxed kernel gets it with secret-looking names removed.
+        kw: dict[str, Any] = {"env": scrub_env(os.environ)}
+        if self._cwd:
+            kw["cwd"] = self._cwd
+        await self._km.start_kernel(**kw)
+        if self._sandbox is not None:
+            # A signal would hit bwrap (and take the kernel down with it); ask the kernel
+            # to interrupt itself over the control channel instead.
+            spec = self._km.kernel_spec
+            assert spec is not None  # loaded by start_kernel
+            spec.interrupt_mode = "message"
         self._kc = self._km.client()
         self._kc.start_channels()
         await self._kc.wait_for_ready(timeout=ready_timeout)
