@@ -228,6 +228,14 @@
           ],
           "default": null,
           "title": "Run Key"
+        },
+        "values": {
+          "description": "Named values declared with bq.value() (ADR-014)",
+          "items": {
+            "$ref": "#/$defs/NamedValue"
+          },
+          "title": "Values",
+          "type": "array"
         }
       },
       "required": [
@@ -240,9 +248,69 @@
       "title": "ManifestRun",
       "type": "object"
     },
+    "NamedValue": {
+      "additionalProperties": false,
+      "description": "A value declared in kernel code with ``bq.value()`` (ADR-014). Scalars only: tables\nand figures are referenced as artifacts.",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the value means",
+          "title": "Desc"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "NamedValue",
+      "type": "object"
+    },
     "VerificationStatus": {
+      "description": "The trust ladder (ADR-015). ``replicated`` is added in v0.4.",
       "enum": [
         "unverified",
+        "grounded",
         "reviewed",
         "reproduced",
         "disputed"

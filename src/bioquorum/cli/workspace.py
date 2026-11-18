@@ -53,6 +53,14 @@ class WorkspaceError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class AgentOptions:
+    """``[agent]`` switches (ADR-018): each mechanism can be turned off on its own."""
+
+    binding: bool = True  # evidence-binding prompt and source labels (ADR-014)
+    binding_retries: int = 2  # rounds of sending unresolved bindings back; 0 = off
+
+
 @dataclass
 class Workspace:
     root: Path
@@ -84,6 +92,13 @@ class Workspace:
 
     def models_config(self) -> ModelsConfig:
         return ModelsConfig.from_dict(self.config)
+
+    def agent_options(self) -> AgentOptions:
+        cfg = self.config.get("agent", {})
+        retries = cfg.get("binding_retries", 2)
+        if not isinstance(retries, int) or not 0 <= retries <= 2:
+            raise WorkspaceError("[agent] binding_retries must be 0, 1 or 2")
+        return AgentOptions(binding=bool(cfg.get("binding", True)), binding_retries=retries)
 
     def readable_roots(self) -> list[Path]:
         return [self.root, *self.data_dirs]

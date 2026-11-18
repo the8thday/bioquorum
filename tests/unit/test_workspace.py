@@ -176,3 +176,13 @@ def test_kernel_network_is_a_public_only_choice(tmp_path, monkeypatch):
     )
     with pytest.raises(wsp.WorkspaceError):
         _project(tmp_path / "int", Classification.INTERNAL, toml).kernel_isolation()
+
+
+def test_agent_switches_default_on_and_can_be_turned_off(tmp_path):
+    ws = wsp.init_project(tmp_path)
+    assert ws.agent_options() == wsp.AgentOptions(binding=True, binding_retries=2)
+    (tmp_path / "bioquorum.toml").write_text("[agent]\nbinding = false\nbinding_retries = 0\n")
+    assert wsp.load(tmp_path).agent_options() == wsp.AgentOptions(binding=False, binding_retries=0)
+    (tmp_path / "bioquorum.toml").write_text("[agent]\nbinding_retries = 5\n")
+    with pytest.raises(wsp.WorkspaceError):
+        wsp.load(tmp_path).agent_options()  # above the cap of 2 (ARCHITECTURE.md §6.5)

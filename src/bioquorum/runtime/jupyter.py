@@ -30,6 +30,7 @@ from bioquorum.runtime.kernel import (
     KernelOutput,
 )
 from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env
+from bioquorum.runtime.values import PRELUDE
 
 _DRAIN_S = 5.0  # how long to wait for the kernel to go idle after an interrupt
 
@@ -157,7 +158,15 @@ class JupyterKernel:
         self._kc = self._km.client()
         self._kc.start_channels()
         await self._kc.wait_for_ready(timeout=ready_timeout)
+        await self._install_prelude()
         return self
+
+    async def _install_prelude(self) -> None:
+        """Define ``bq`` in the kernel (ADR-014). Our own code: a failure here is a bug."""
+        async for item in self.execute(PRELUDE, timeout=30, silent=True):
+            if isinstance(item, ExecutionEnd) and item.status is not EndStatus.OK:
+                detail = item.error.short() if item.error else item.status.value
+                raise RuntimeError(f"kernel prelude failed: {detail}")
 
     # ------------------------------------------------------------- Kernel
 
@@ -228,6 +237,7 @@ class JupyterKernel:
     async def restart(self) -> None:
         await self._km.restart_kernel()
         await self._kc.wait_for_ready(timeout=60)
+        await self._install_prelude()
 
     async def snapshot_variables(self) -> dict[str, DataRef]:
         text = ""

@@ -7,6 +7,7 @@ from pydantic_ai.models.function import FunctionModel
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, ClaimKind, Classification, OutputStream
 from bioquorum.core.messages import Message, TextPart, ToolResultPart
+from bioquorum.core.refs import NamedValue, QuoteRef, ValueRef
 from bioquorum.core.status import VerificationStatus
 from bioquorum.models import ModelClient, ModelsConfig, Router
 from bioquorum.review import (
@@ -17,7 +18,7 @@ from bioquorum.review import (
     extract_claims,
     review,
 )
-from bioquorum.review.evidence import CitationEvidence, RunEvidence
+from bioquorum.review.evidence import CitationEvidence, DeclaredValue, RunEvidence, Source
 from bioquorum.storage.rebuild import snapshot
 
 pytestmark = pytest.mark.anyio
@@ -74,7 +75,7 @@ async def test_review_events_and_statuses(store):
     )
     statuses = [c.status for c in result.claims]
     assert statuses == [
-        VerificationStatus.REVIEWED,
+        VerificationStatus.UNVERIFIED,  # passed review, but unbound: still an assertion
         VerificationStatus.DISPUTED,
         VerificationStatus.DISPUTED,
     ]
@@ -84,7 +85,7 @@ async def test_review_events_and_statuses(store):
     assert types.count("review_finding") == 2 and types.count("claim_status_changed") == 3
     assert types.index("review_finished") < types.index("claim_status_changed")
     snap = snapshot(store.db)
-    assert {r["status"] for r in snap["claims"]} == {"reviewed", "disputed"}
+    assert {r["status"] for r in snap["claims"]} == {"unverified", "disputed"}
     models = {r["check"]: r["reviewer_model"] for r in snap["review_findings"]}
     assert models == {"value_match": "deterministic", "citation_supports": "deepseek:r"}
 
@@ -202,3 +203,94 @@ async def test_full_record_beats_search_list(store):
     assert "lowers glucose in mice" in two.abstract and "inhibits complex I" in two.abstract
     one = e.citation("PMID:11111111")
     assert one is not None and one.abstract == "|PMID 11111111|Paper one|"  # only its own line
+
+
+# ----------------------------------------------------------------- grounding (ADR-014)
+
+ABSTRACT = "# APOE4 and risk\nPMID: 28776086\nE4 homozygotes had an odds ratio of 14.9 for AD."
+BOUND = Evidence(
+    runs=[RunEvidence("R1", True, "bq.value('or_e4', 3.68)", "bq.value or_e4 = 3.68")],
+    values={"or_e4": DeclaredValue(NamedValue(name="or_e4", value=3.68), "R1")},
+    sources=[Source("s1", "C1", "biomcp__article_getter", ABSTRACT)],
+    citations=[CitationEvidence("PMID:28776086", "APOE4 and risk", ABSTRACT, pmid="28776086")],
+)
+
+
+async def test_grounded_claims_climb_to_reviewed_and_failed_bindings_are_disputed(store):
+    claims = [
+        ClaimInput(1, "E4 carriers had an odds ratio of {{or_e4}}.", ClaimKind.NUMERIC),
+        ClaimInput(
+            2,
+            'Homozygotes fare worse [@PMID:28776086 "E4 homozygotes had an odds ratio of 14.9"].',
+            ClaimKind.CITATION,
+        ),
+        ClaimInput(3, "Carriers had an odds ratio of {{or_e2}}.", ClaimKind.NUMERIC),
+        ClaimInput(4, "E4 carriers had an odds ratio of 3.68.", ClaimKind.NUMERIC),
+    ]
+    result = await review(
+        store,
+        session_id="S",
+        target_event_id="E",
+        claims=claims,
+        evidence=BOUND,
+        checks=deterministic_checks(),
+    )
+    assert [c.status for c in result.claims] == [
+        VerificationStatus.REVIEWED,
+        VerificationStatus.REVIEWED,
+        VerificationStatus.DISPUTED,
+        VerificationStatus.UNVERIFIED,
+    ]
+    (binding,) = [f for f in result.findings if f.check == "binding"]
+    assert binding.claim_index == 3 and "or_e2" in binding.evidence
+    events = store.read("S")
+    extracted = [e.parsed() for e in events if e.type == "claim_extracted"]
+    assert extracted[0].text == claims[0].text  # the marked text is what is recorded
+    assert ValueRef(name="or_e4", run_id="R1") in extracted[0].refs
+    assert any(isinstance(r, QuoteRef) and r.call_id == "C1" for r in extracted[1].refs)
+    changes = [e.parsed() for e in events if e.type == "claim_status_changed"]
+    first = [c for c in changes if c.claim_id == result.claims[0].claim_id]
+    assert [(c.from_status.value, c.to_status.value) for c in first] == [
+        ("unverified", "grounded"),
+        ("grounded", "reviewed"),
+    ]
+
+
+async def test_checks_see_rendered_text(store):
+    seen: list[str] = []
+
+    class Spy:
+        name, needs_model = "spy", False
+
+        async def run(self, claims, evidence):
+            seen.extend(c.text for c in claims)
+            return []
+
+    await review(
+        store,
+        session_id="S",
+        target_event_id="E",
+        claims=[ClaimInput(1, 'OR {{or_e4}} [@s1 "odds ratio of 14.9 for AD"]', ClaimKind.NUMERIC)],
+        evidence=BOUND,
+        checks=[Spy()],
+    )
+    assert seen == ['OR 3.68 "odds ratio of 14.9 for AD" [s1]']
+
+
+async def test_rounded_display_does_not_trip_value_match(store):
+    """A real run (2026-11-18): {{welch_p:.3e}} showed 2.644e-36 while the run printed
+    2.64416134953994e-36, and value_match disputed a correctly bound claim."""
+    p = 2.64416134953994e-36
+    evidence = Evidence(
+        runs=[RunEvidence("R1", True, "bq.value('welch_p', p)", f"bq.value welch_p = {p}")],
+        values={"welch_p": DeclaredValue(NamedValue(name="welch_p", value=p), "R1")},
+    )
+    result = await review(
+        store,
+        session_id="S",
+        target_event_id="E",
+        claims=[ClaimInput(1, "Welch t-test: p = {{welch_p:.3e}}.", ClaimKind.NUMERIC)],
+        evidence=evidence,
+        checks=deterministic_checks(),
+    )
+    assert result.findings == [] and result.claims[0].status is VerificationStatus.REVIEWED

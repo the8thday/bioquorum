@@ -2,6 +2,7 @@ from bioquorum.core import events as ev
 from bioquorum.core.bundle import Manifest
 from bioquorum.core.enums import Actor, ArtifactKind, Classification, ModelRole
 from bioquorum.core.hashing import code_hash, run_key, sha256_text
+from bioquorum.core.refs import NamedValue
 from bioquorum.core.status import StatusTrigger, VerificationStatus
 from bioquorum.provenance import build_manifest
 
@@ -15,7 +16,11 @@ def test_manifest_from_events(store):
         actor=Actor.TOOL,
     )
     key = run_key(code_hash(code), None, [])
-    store.append(ev.RunFinished(run_id="R", run_key=key), session_id=sid, actor=Actor.TOOL)
+    store.append(
+        ev.RunFinished(run_id="R", run_key=key, values=[NamedValue(name="n", value=3)]),
+        session_id=sid,
+        actor=Actor.TOOL,
+    )
     store.append(
         ev.ArtifactVersionCreated(
             artifact_id="A",
@@ -63,6 +68,7 @@ def test_manifest_from_events(store):
     assert isinstance(m, Manifest)
     (run,) = m.runs
     assert run.code_path == "runs/R/code.py" and run.run_key == key
+    assert run.values == [NamedValue(name="n", value=3)]  # bindings travel with the bundle
     (art,) = m.artifacts
     assert art.status is VerificationStatus.REVIEWED and art.run_id == "R"
     assert len(m.models_used) == 1

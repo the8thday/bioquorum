@@ -109,6 +109,7 @@ def _derived(evidence: Evidence) -> list[float]:
 def _evidence_numbers(evidence: Evidence) -> list[Number]:
     texts = [f"{r.code}\n{r.stdout}" for r in evidence.runs if r.succeeded]
     texts += [c.text for c in evidence.citations]
+    texts += [s.text for s in evidence.sources]  # database results, not only literature
     return [n for t in texts for n in numbers(normalise(t))]
 
 

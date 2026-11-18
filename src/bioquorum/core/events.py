@@ -31,7 +31,7 @@ from bioquorum.core.enums import (
 )
 from bioquorum.core.ids import id_time, new_id, utc_now
 from bioquorum.core.messages import Message, OpaqueBytes, ToolResultPart
-from bioquorum.core.refs import ClaimRef, DataRef
+from bioquorum.core.refs import ClaimRef, DataRef, NamedValue
 from bioquorum.core.status import StatusTrigger, VerificationStatus
 
 # ----------------------------------------------------------------- registry
@@ -347,6 +347,9 @@ class RunFinished(EventPayload):
     outputs: list[DataRef] = Field(default_factory=list)
     stdout_ref: DataRef | None = None
     run_key: str
+    values: list[NamedValue] = Field(
+        default_factory=list, description="Declared with bq.value() (ADR-014)"
+    )
 
 
 @register

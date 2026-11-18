@@ -11,8 +11,10 @@ from bioquorum.runtime.kernel import (
 )
 from bioquorum.runtime.manager import KernelFactory, KernelManager
 from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable, SandboxSpec
+from bioquorum.runtime.values import VALUE_MIME, parse_value, value_output
 
 __all__ = [
+    "VALUE_MIME",
     "EndStatus",
     "ExecutionEnd",
     "FakeKernel",
@@ -26,4 +28,6 @@ __all__ = [
     "KernelOutput",
     "SandboxSpec",
     "Script",
+    "parse_value",
+    "value_output",
 ]

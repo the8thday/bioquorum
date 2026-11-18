@@ -15,6 +15,10 @@ from typing import Any
 from bioquorum.core import events as ev
 from bioquorum.core.enums import ClaimKind
 from bioquorum.core.messages import TextPart
+from bioquorum.core.refs import NamedValue
+
+KERNEL_TOOLS = frozenset({"python_execute"})
+"""Their output is not a quotable source: text the kernel prints is not evidence (ADR-014)."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,46 @@ class PlanStep:
     done: bool | None = None  # None: unknown, infer from runs and the answer
 
 
+@dataclass(frozen=True)
+class DeclaredValue:
+    """A ``bq.value`` declaration and the run that made it (ADR-014)."""
+
+    value: NamedValue
+    run_id: str
+
+
+@dataclass(frozen=True)
+class Source:
+    """A tool result that quotes may come from, with its alias (``s1``, ``s2`` ...)."""
+
+    alias: str
+    call_id: str
+    tool: str
+    text: str
+
+
+def result_text(part) -> str:
+    return "\n".join(c.text for c in part.content if isinstance(c, TextPart))
+
+
+def is_source(p: ev.ToolCallFinished) -> bool:
+    return p.tool not in KERNEL_TOOLS and not p.result.is_error
+
+
+def source_aliases(events: Iterable[ev.Event]) -> dict[str, str]:
+    """call_id -> alias for every quotable tool result, numbered in event order. The agent
+    shows the same aliases to the model, so both sides agree without storing them."""
+    out: dict[str, str] = {}
+    for e in events:
+        if e.type != ev.ToolCallFinished.event_type:
+            continue
+        p = e.parsed()
+        assert isinstance(p, ev.ToolCallFinished)
+        if is_source(p) and p.call_id not in out:
+            out[p.call_id] = f"s{len(out) + 1}"
+    return out
+
+
 @dataclass
 class Evidence:
     question: str = ""
@@ -51,6 +95,9 @@ class Evidence:
     citations: list[CitationEvidence] = field(default_factory=list)
     plan: list[PlanStep] = field(default_factory=list)
     answer: str = ""
+    values: dict[str, DeclaredValue] = field(default_factory=dict)
+    """Named values of successful runs; for a repeated name, the latest declaration."""
+    sources: list[Source] = field(default_factory=list)
 
     def run(self, run_id: str) -> RunEvidence | None:
         return next((r for r in self.runs if r.run_id == run_id), None)
@@ -92,8 +139,11 @@ class Evidence:
     @classmethod
     def from_events(cls, events: Iterable[ev.Event], *, answer: str = "") -> Evidence:
         """Runs from run_* events; citations from identifiers seen in tool results; plan
-        steps from plan_* events."""
+        steps from plan_* events; named values from run_finished; quotable sources from
+        non-kernel tool results."""
         runs: dict[str, dict[str, Any]] = {}
+        values: dict[str, DeclaredValue] = {}
+        sources: list[Source] = []
         citations: dict[str, CitationEvidence] = {}
         plan: dict[str, list[str]] = {}
         done: dict[str, set[int]] = {}
@@ -108,8 +158,13 @@ class Evidence:
                 runs[p.run_id]["stdout"].append(p.text)
             elif isinstance(p, ev.RunFinished) and p.run_id in runs:
                 runs[p.run_id]["ok"] = True
-            elif isinstance(p, ev.ToolCallFinished) and p.tool != "python_execute":
-                text = "\n".join(c.text for c in p.result.content if isinstance(c, TextPart))
+                for nv in p.values:
+                    values.pop(nv.name, None)  # re-insert: keep "latest" also in order
+                    values[nv.name] = DeclaredValue(nv, p.run_id)
+            elif isinstance(p, ev.ToolCallFinished) and p.tool not in KERNEL_TOOLS:
+                text = result_text(p.result)
+                if is_source(p) and all(s.call_id != p.call_id for s in sources):
+                    sources.append(Source(f"s{len(sources) + 1}", p.call_id, p.tool, text))
                 for cit in citations_in_text(text):
                     citations[cit.key] = _richer(citations.get(cit.key), cit)
             elif isinstance(p, ev.PlanProposed):
@@ -130,6 +185,8 @@ class Evidence:
             citations=list(citations.values()),
             plan=steps,
             answer=answer,
+            values=values,
+            sources=sources,
         )
 
 

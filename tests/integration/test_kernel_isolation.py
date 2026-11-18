@@ -133,3 +133,9 @@ async def test_scientific_stack_still_works(kernel, project):
     )
     assert (text, status) == ("6", EndStatus.OK)
     assert (root / "t.parquet").exists()
+
+
+async def test_bq_prelude_works_in_the_sandbox(kernel):
+    evs = [e async for e in kernel.execute("bq.value('n', 3, unit='genes')", timeout=30)]
+    assert evs[-1].status is EndStatus.OK
+    assert any(getattr(e, "data", {}).get("text/plain") == "bq.value n = 3 genes" for e in evs)

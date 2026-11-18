@@ -83,3 +83,19 @@ async def test_kernel_runs_in_given_cwd_over_private_ipc(tmp_path):
     finally:
         await k.shutdown()
     assert not os.path.exists(sock_dir)
+
+
+async def test_bq_value_survives_restart_and_is_parseable(kernel):
+    from bioquorum.core.refs import NamedValue
+    from bioquorum.runtime.values import parse_value
+
+    async def declared(code):
+        outs = [e for e in await run(kernel, code) if isinstance(e, KernelOutput)]
+        return [v for v in map(parse_value, outs) if v is not None]
+
+    code = "import numpy as np\nbq.value('mean_x', np.float64(2.5), unit='mg', desc='mean')"
+    assert await declared(code) == [NamedValue(name="mean_x", value=2.5, unit="mg", desc="mean")]
+    await kernel.restart()
+    assert await declared("bq.value('n', 3)") == [NamedValue(name="n", value=3)]
+    end = (await run(kernel, "bq.value('bad name', 1)"))[-1]
+    assert end.status is EndStatus.ERROR and end.error.ename == "ValueError"

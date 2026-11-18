@@ -11,13 +11,18 @@ from enum import StrEnum
 
 
 class VerificationStatus(StrEnum):
-    UNVERIFIED = "unverified"
+    """The trust ladder (ADR-015). ``replicated`` is added in v0.4."""
+
+    UNVERIFIED = "unverified"  # an assertion only
+    GROUNDED = "grounded"  # every number and quote is bound to evidence (ADR-014)
     REVIEWED = "reviewed"
     REPRODUCED = "reproduced"
     DISPUTED = "disputed"
 
 
 class StatusTrigger(StrEnum):
+    BINDINGS_RESOLVED = "bindings_resolved"  # all bindings hold and nothing is left unbound
+    BINDINGS_FAILED = "bindings_failed"  # a {{name}} or quote did not resolve
     REVIEW_PASSED = "review_passed"  # review finished with no ERROR-level findings
     REVIEW_FAILED = "review_failed"  # at least one ERROR-level finding
     RERUN_MATCHED = "rerun_matched"  # rerun outputs equal (within tolerance)
@@ -28,27 +33,44 @@ class StatusTrigger(StrEnum):
 _RANK: dict[VerificationStatus, int] = {
     VerificationStatus.DISPUTED: 0,
     VerificationStatus.UNVERIFIED: 1,
-    VerificationStatus.REVIEWED: 2,
-    VerificationStatus.REPRODUCED: 3,
+    VerificationStatus.GROUNDED: 2,
+    VerificationStatus.REVIEWED: 3,
+    VerificationStatus.REPRODUCED: 4,
 }
 
 S, T = VerificationStatus, StatusTrigger
 
-# Every (status, trigger) pair is defined; rerun results never substitute for review.
+# Every (status, trigger) pair is defined. Levels cannot be skipped (ADR-015): each passing
+# trigger lifts a claim at most one level, and only from the level just below it.
 TRANSITIONS: dict[tuple[VerificationStatus, StatusTrigger], VerificationStatus] = {
-    (S.UNVERIFIED, T.REVIEW_PASSED): S.REVIEWED,
+    (S.UNVERIFIED, T.BINDINGS_RESOLVED): S.GROUNDED,
+    (S.UNVERIFIED, T.BINDINGS_FAILED): S.DISPUTED,
+    (S.UNVERIFIED, T.REVIEW_PASSED): S.UNVERIFIED,  # reviewed, but still only an assertion
     (S.UNVERIFIED, T.REVIEW_FAILED): S.DISPUTED,
     (S.UNVERIFIED, T.RERUN_MATCHED): S.UNVERIFIED,
     (S.UNVERIFIED, T.RERUN_MISMATCHED): S.DISPUTED,
+    (S.GROUNDED, T.BINDINGS_RESOLVED): S.GROUNDED,
+    (S.GROUNDED, T.BINDINGS_FAILED): S.DISPUTED,
+    (S.GROUNDED, T.REVIEW_PASSED): S.REVIEWED,
+    (S.GROUNDED, T.REVIEW_FAILED): S.DISPUTED,
+    (S.GROUNDED, T.RERUN_MATCHED): S.GROUNDED,
+    (S.GROUNDED, T.RERUN_MISMATCHED): S.DISPUTED,
+    (S.REVIEWED, T.BINDINGS_RESOLVED): S.REVIEWED,
+    (S.REVIEWED, T.BINDINGS_FAILED): S.DISPUTED,
     (S.REVIEWED, T.REVIEW_PASSED): S.REVIEWED,
     (S.REVIEWED, T.REVIEW_FAILED): S.DISPUTED,
     (S.REVIEWED, T.RERUN_MATCHED): S.REPRODUCED,
     (S.REVIEWED, T.RERUN_MISMATCHED): S.DISPUTED,
+    (S.REPRODUCED, T.BINDINGS_RESOLVED): S.REPRODUCED,
+    (S.REPRODUCED, T.BINDINGS_FAILED): S.DISPUTED,
     (S.REPRODUCED, T.REVIEW_PASSED): S.REPRODUCED,
     (S.REPRODUCED, T.REVIEW_FAILED): S.DISPUTED,
     (S.REPRODUCED, T.RERUN_MATCHED): S.REPRODUCED,
     (S.REPRODUCED, T.RERUN_MISMATCHED): S.DISPUTED,
-    (S.DISPUTED, T.REVIEW_PASSED): S.REVIEWED,
+    # Leaving disputed means climbing again from the bottom: bindings first, then review.
+    (S.DISPUTED, T.BINDINGS_RESOLVED): S.GROUNDED,
+    (S.DISPUTED, T.BINDINGS_FAILED): S.DISPUTED,
+    (S.DISPUTED, T.REVIEW_PASSED): S.UNVERIFIED,
     (S.DISPUTED, T.REVIEW_FAILED): S.DISPUTED,
     (S.DISPUTED, T.RERUN_MATCHED): S.DISPUTED,
     (S.DISPUTED, T.RERUN_MISMATCHED): S.DISPUTED,

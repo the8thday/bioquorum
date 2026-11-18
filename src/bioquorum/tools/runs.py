@@ -15,9 +15,10 @@ from bioquorum.core.enums import Actor, DataKind, OutputStream
 from bioquorum.core.hashing import code_hash, run_key
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import ImageRefPart, ResultContent, TextPart
-from bioquorum.core.refs import DataRef
+from bioquorum.core.refs import DataRef, NamedValue
 from bioquorum.runtime import summarize
 from bioquorum.runtime.kernel import EndStatus, ExecutionEnd, KernelError, KernelOutput
+from bioquorum.runtime.values import parse_value
 from bioquorum.tools.context import ToolContext
 
 EVENT_TEXT_LIMIT = 20_000  # per run_output event; the full stdout goes to the CAS
@@ -33,6 +34,7 @@ class RunRecord:
     stdout_ref: DataRef | None = None
     content: list[ResultContent] = field(default_factory=list)
     error: str | None = None
+    values: list[NamedValue] = field(default_factory=list)
 
 
 def strip_ansi(text: str) -> str:
@@ -69,6 +71,8 @@ async def execute_run(
         labels: dict[int, str] = {}
         image_parts: list[ImageRefPart] = []
         stdout: list[str] = []
+        values: dict[str, NamedValue] = {}  # bq.value declarations; last one per name wins
+        value_problems: list[str] = []
         end = ExecutionEnd(status=EndStatus.ERROR)
 
         try:
@@ -78,6 +82,11 @@ async def execute_run(
                     break
                 idx = len(outputs)
                 outputs.append(item)
+                declared = parse_value(item)
+                if isinstance(declared, NamedValue):
+                    values[declared.name] = declared
+                elif isinstance(declared, str):
+                    value_problems.append(declared)
                 mime = summarize.image_mime(item)
                 if mime is not None:
                     payload = item.data[mime]
@@ -133,8 +142,13 @@ async def execute_run(
     end_payload: ev.EventPayload
     if end.status is EndStatus.OK:
         key = run_key(chash, ctx.env_lock_hash, [])
+        record.values = list(values.values())
         end_payload = ev.RunFinished(
-            run_id=run_id, outputs=figures, stdout_ref=stdout_ref, run_key=key
+            run_id=run_id,
+            outputs=figures,
+            stdout_ref=stdout_ref,
+            run_key=key,
+            values=record.values,
         )
     elif end.status is EndStatus.CANCELLED:
         end_payload = ev.RunCancelled(run_id=run_id)
@@ -157,5 +171,9 @@ async def execute_run(
     body = summary or "(no output)"
     if record.error:
         body += f"\nerror: {record.error}"
+        if values:
+            body += f"\nbq.value not recorded because the run did not finish: {', '.join(values)}"
+    for problem in value_problems:
+        body += f"\n{problem}"
     record.content = [TextPart(text=f"{header}\n{body}"), *image_parts]
     return record

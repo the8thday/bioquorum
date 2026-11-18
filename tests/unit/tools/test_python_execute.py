@@ -5,7 +5,9 @@ import pytest
 from bioquorum.core.enums import OutputStream
 from bioquorum.core.hashing import code_hash, run_key
 from bioquorum.core.messages import ImageRefPart
-from bioquorum.runtime import KernelOutput, Script
+from bioquorum.core.refs import NamedValue
+from bioquorum.runtime import KernelError, KernelOutput, Script
+from bioquorum.runtime.values import VALUE_MIME, value_output
 from bioquorum.storage.rebuild import snapshot
 from bioquorum.tools import default_registry, invoke
 
@@ -91,3 +93,42 @@ async def test_long_output_truncated_for_model(ctx, store, kernel):
     assert len(part.text()) < 5_000 and "truncated" in part.text()
     finished = run_events(store)[-1].parsed()
     assert len(ctx.cas.get(finished.stdout_ref)) == 50_000  # full copy kept
+
+
+# ----------------------------------------------------------------- bq.value (ADR-014)
+
+
+async def test_declared_values_are_recorded_on_run_finished(ctx, store, kernel):
+    kernel.queue(
+        Script(
+            outputs=[
+                value_output("n_de", 412, unit="genes"),
+                value_output("p_min", 1e-9),
+                value_output("n_de", 413, unit="genes"),  # same name: last one wins
+            ]
+        )
+    )
+    part = await invoke(SPEC, {"code": "bq.value('n_de', 412)"}, ctx)
+    assert "bq.value n_de = 413 genes" in part.text()  # the model sees what it declared
+    finished = run_events(store)[-1].parsed()
+    assert finished.values == [
+        NamedValue(name="n_de", value=413, unit="genes"),
+        NamedValue(name="p_min", value=1e-9),
+    ]
+
+
+async def test_values_of_a_failed_run_are_not_recorded(ctx, store, kernel):
+    kernel.queue(
+        Script(outputs=[value_output("n", 3)], error=KernelError(ename="E", evalue="boom"))
+    )
+    part = await invoke(SPEC, {"code": "bq.value('n', 3); 1/0"}, ctx)
+    assert run_events(store)[-1].type == "run_failed"
+    assert "not recorded" in part.text() and "n" in part.text()
+
+
+async def test_malformed_value_payload_is_reported_not_recorded(ctx, store, kernel):
+    bad = KernelOutput(stream=OutputStream.DISPLAY, data={VALUE_MIME: '{"name": "1x", "value": 1}'})
+    kernel.queue(Script(outputs=[bad]))
+    part = await invoke(SPEC, {"code": "..."}, ctx)
+    assert run_events(store)[-1].parsed().values == []
+    assert "rejected" in part.text()

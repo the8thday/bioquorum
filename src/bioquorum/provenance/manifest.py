@@ -48,7 +48,7 @@ def build_manifest(
             )
         elif isinstance(p, ev.RunFinished) and p.run_id in runs:
             runs[p.run_id] = runs[p.run_id].model_copy(
-                update={"outputs": list(p.outputs), "run_key": p.run_key}
+                update={"outputs": list(p.outputs), "run_key": p.run_key, "values": list(p.values)}
             )
         elif isinstance(p, ev.ArtifactVersionCreated):
             artifacts[p.version_id] = ManifestArtifact(

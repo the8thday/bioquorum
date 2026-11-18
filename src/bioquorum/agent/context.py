@@ -11,16 +11,26 @@ from collections.abc import Iterable
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Trust
 from bioquorum.core.messages import Message, TextPart, ToolResultPart
+from bioquorum.review.evidence import source_aliases
 
 
-def conversation(events: Iterable[ev.Event]) -> list[Message]:
+def conversation(events: Iterable[ev.Event], *, source_labels: bool = False) -> list[Message]:
+    """``source_labels``: start each quotable tool result with ``[source sN]``, the alias that
+    quote markers use (ADR-014). Aliases come from the same rule the review uses."""
+    items = list(events)
+    aliases = source_aliases(items) if source_labels else {}
     out: list[Message] = []
-    for e in events:
+    for e in items:
         p = e.parsed()
         if isinstance(p, ev.UserMessage | ev.AssistantMessage):
             out.append(p.message)
         elif isinstance(p, ev.ToolCallFinished):
-            out.append(Message.tool(p.result))
+            result = p.result
+            alias = aliases.get(p.call_id)
+            if alias is not None:
+                label = TextPart(text=f"[source {alias}]")
+                result = result.model_copy(update={"content": [label, *result.content]})
+            out.append(Message.tool(result))
         elif isinstance(p, ev.ToolCallFailed):
             out.append(
                 Message.tool(

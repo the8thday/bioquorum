@@ -259,22 +259,18 @@ AuditEntry(id, ts, actor, action, target, classification, detail)
 
 ### 5.7 验证状态机
 
-```
-unverified ──review 通过──▶ reviewed ──rerun 一致──▶ reproduced
-     │                         │                         │
-     └──── 任一检查 error ─────┴──── rerun 不一致 ────────┴──▶ disputed
-                                                            │
-disputed ──finding 全部 addressed 后重新 review──▶ reviewed
-```
-
-上图是 v0.1 代码里的状态机。按 ADR-015 扩展为五级：
+按 ADR-015 是五级加一个争议态，代码里已实现前四级（`replicated` 从 v0.4 起）：
 
 ```
-unverified → grounded → reviewed → reproduced → replicated      （任一级失败 → disputed）
+unverified ──绑定全部成立──▶ grounded ──review 通过──▶ reviewed ──rerun 一致──▶ reproduced
+     │                         │                         │                         │
+     └──── 绑定失败 / 任一检查 error / rerun 不一致 ──────┴─────────────────────────┴──▶ disputed
+disputed ──绑定成立──▶ grounded（从底下重新往上走；review 通过只回到 unverified）
 ```
 
-`grounded`（绑定全部成立，ADR-014）从 v0.2 起；`replicated`（独立重复得到同样的量）从 v0.4 起。级别不能跳；不适用的级别如实显示为不适用。`core/status.py` 的转移表随实现扩展，始终保持每个（状态, 触发）都有定义。
-
+- 级别不能跳：每个通过类触发最多把状态抬一级，并且只从紧邻的下一级抬上来。没有绑定的结论通过审查后仍是 `unverified`（"仅为断言"）；重跑一致不替代有据和审查。`tests/unit/core/test_status.py` 检查这一点。
+- `core/status.py` 的转移表始终保持每个（状态, 触发）都有定义。触发：`bindings_resolved`、`bindings_failed`、`review_passed`、`review_failed`、`rerun_matched`、`rerun_mismatched`。
+- 不适用的级别如实显示为不适用。
 - Claim 和 ArtifactVersion 共用这套状态。
 - 状态只能通过 `claim_status_changed` / `artifact_status_changed` 事件改变，事件里写明原因和触发的 finding 或 rerun。
 - 一个回答的整体状态取其所有 Claim 的最低状态。
@@ -333,6 +329,7 @@ class Kernel(Protocol):
 - `KernelManager`：每个 Session 一个 Python kernel，按需 R kernel；跑在项目的 pixi 环境里；空闲超时回收，回收前可快照变量。
 - 【承重】并发模型：单进程 asyncio；同一 Session 内的 Run 串行；不同 Session 并行。`interrupt()` 产生 `run_cancelled`，超时产生 `run_timed_out`，两者都正常结束 Run，不留悬挂状态。
 - `summarize.py`：输出压缩成模型可看的摘要。DataFrame 给 shape、dtypes、head、describe；AnnData 给维度和 obs/var 列名；图存为产物并给缩略图。摘要的大小有上限，超出截断并注明。
+- 命名值（ADR-014）：`JupyterKernel` 在启动和重启后执行 `runtime/values.PRELUDE`，在 kernel 里定义 `bq`（不依赖 kernel 环境里装了 bioquorum）。`bq.value()` 发出 MIME 为 `application/vnd.bioquorum.value+json` 的 `display_data`，`tools/runs.py` 把它记进 `run_finished.values`；失败、超时、打断的 run 不记命名值。
 - 【可调】血缘 hook：kernel 启动时注入，包装 pandas、anndata、numpy、matplotlib 的读写函数，把路径和 hash 记到当前 Run。hook 失效时 Run 仍然成功，只是 inputs/outputs 为空并打标记，不能因为 hook 让分析失败。
 
 ### 6.3 溯源层 `provenance/`
@@ -406,11 +403,13 @@ ToolSpec(
 3. **重跑**（可选）：关键 Run 在全新 kernel 里重新执行，走 §6.3 的 rerun。
 4. **输出**：`review_finding` 写入事件流。主 agent 在下一轮必须对每条 `error` 级 finding 作出回应；【承重】同一条 finding 的往返次数上限为 2，超过则保持 `disputed` 并交给用户。
 5. 独立重复（v0.4 起，ADR-015，取代原"共识模式"）：新会话、全新上下文，只给问题、输入和要计算的量的名字与定义，不给数值和代码；结果按容差比较，一致则进入 `replicated`。由用户触发，不默认执行。
-6. **证据绑定**（v0.2 起，ADR-014）：
-   - kernel 里 `bq.value(name, value, unit)` 把命名值记入 Run；正文 `{{name}}` 在渲染时取值。
-   - 引用写成 `[@来源 "原话"]`，原话必须是本会话某次工具返回文本的逐字子串。
-   - 解析是确定性的，在 `review/` 里实现为检查之前的一步；全部成立的结论进入 `grounded`。解析失败的项退回给 agent，往返上限同第 4 条。
+6. **证据绑定**（已实现，ADR-014，`review/binding.py`；语法、别名、格式化见 ADR-014 的设计笔记）：
+   - kernel 里 `bq.value(name, value, unit, desc)` 把命名值记入 Run（`run_finished.values`）；正文 `{{name}}` 在渲染时取值，读者看到的是记录的值。
+   - 引用写成 `[@s3 "原话"]`（来源别名）或 `[@PMID:123 "原话"]`，原话必须是本会话某次非 kernel 工具返回文本的逐字子串（只归一化空白；JSON 结果也比较解码后的字符串）。来源别名按事件顺序给成功的非 kernel 工具结果编号（`review/evidence.source_aliases`），agent 上下文里同一规则生成 `[source sN]` 行，所以不需要存储。
+   - `Evidence` 增加 `values`（命名值 → run）和 `sources`（可引用的工具结果）。
+   - 解析是确定性的，在 `review/service.py` 里先于检查执行：至少一个绑定、全部成立、没有裸露的数字和文献 ID 的结论进入 `grounded`；绑定失败记 error 级 finding（检查名 `binding`），结论进入 `disputed`。`claim_extracted.refs` 记下 `ValueRef` / `QuoteRef`。检查看的是渲染后的文本（数值填入，原话写成 `"原话" [来源]`）；`value_match` 的证据也包括数据库类工具结果。
    - 没绑定的数字和引用不报错，显示为"仅为断言"，由上表的检查继续处理。外部回答（`--answer-file`）没有绑定，全部走上表的检查。
+   - 解析失败的项由 agent 循环退回给模型（见 §6.6 的开关），往返上限同第 4 条。
 
 ### 6.6 编排层 `agent/`
 
@@ -422,7 +421,8 @@ ToolSpec(
 - 实现要点（v0.1，`agent/loop.py`）：每一步都用 `agent/context.conversation()` 从事件重建上下文；工具调用一律 `invoke_by_name()`；没有工具调用的 assistant 消息即为回答；到达步数上限时不带工具再问一次，保证用户拿到回答。`invoke()` 保证每个调用 ID 都以 `tool_call_finished` / `tool_call_failed` 结束（拒绝也算），否则重建的历史里会有没有结果的工具调用，provider 会拒绝。
 - 【承重】机制与开关（ADR-018）：下列机制各有独立配置开关，关掉后循环仍能跑；每个机制合入时附带 harness 提升评测的前后对比。主循环保持小，机制以可插拔步骤接入。
   - 预算（v0.2）：按 token、费用和时间限额运行，取代固定的 12 步上限；到限额时的收尾方式不变。
-  - 压缩（v0.2）、流式输出（v0.2）、绑定退回（v0.2，§6.5 第 6 条）。
+  - 压缩（v0.2）、流式输出（v0.2）。
+  - 证据绑定（已实现）：`[agent] binding`（提示词里的绑定说明和 `[source sN]` 行，关掉即 v0.1 的提示词，作提升评测的对照组）；`[agent] binding_retries`（0 到 2，回答里有解析失败的绑定时，以 `user_message`、`actor = system` 列出失败项让模型修正）。两者默认开启；提升评测的前后对比尚未做（ROADMAP v0.2 评测项），没有提升就按 ADR-018 关掉。
   - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
   - 子任务（v0.5）：子 agent 用全新上下文完成一件事（例如文献检索），只把有限长度的总结和证据引用交回主上下文；它的工具调用同样经过 `invoke()`，写进同一个事件日志。
   - skills、项目笔记（v0.5）：SKILL.md 渐进加载；每个项目一份跨会话的笔记，由 agent 维护、用户可改。

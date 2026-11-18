@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from bioquorum.core.enums import ArtifactKind, Classification
-from bioquorum.core.refs import DataRef
+from bioquorum.core.refs import DataRef, NamedValue
 from bioquorum.core.status import VerificationStatus
 
 SPEC_VERSION = "0"
@@ -37,6 +37,9 @@ class ManifestRun(_Model):
     inputs: list[DataRef] = Field(default_factory=list)
     outputs: list[DataRef] = Field(default_factory=list)
     run_key: str | None = None
+    values: list[NamedValue] = Field(
+        default_factory=list, description="Named values declared with bq.value() (ADR-014)"
+    )
 
 
 class ManifestArtifact(_Model):
