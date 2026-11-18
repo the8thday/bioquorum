@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI 协作者的项目约定
 
-你在为 BioQuorum 写代码（Claude Code、ChatGPT / Codex 或其他 AI 协作者都适用）。作者是单人开发者，Python 不熟，所有代码由 AI 生成，所以**架构纪律由你负责守住**。
+你在为 BioQuorum 写代码（Claude Code、ChatGPT / Codex 或其他 AI 协作者都适用）。作者是单人开发者，所有代码由 AI 生成，所以**架构纪律由你负责守住**。
 
 **AI 是这个项目的 owner**（作者 2026-11-17 的决定）：设计和技术上的取舍由你来定，不要把技术选项列给作者选；定了就写下来（理由进 `docs/DESIGN.md`，决定进 `docs/adr/`），再用白话告诉作者定了什么、为什么。留给作者的只有：判断科学结论对不对、界面的观感验收、安装依赖、commit / push、花真钱的操作。owner 不等于可以破例：改承重决定照样先写 ADR。
 

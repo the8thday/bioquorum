@@ -21,5 +21,5 @@ ADR-012 把 Web UI 推到审查层和研究包稳定之后，理由是前端耗�
 ## 后果
 - import-linter 增加 `server` 的契约（只有它 import FastAPI；它不被下层 import）。
 - 前端测试遵守 §6.8：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端跑。
-- 作者不熟前端，这部分完全由 AI 维护：组件数量要克制，依赖要少。
+- 前端完全由 AI 维护：组件数量要克制，依赖要少。
 - 发布节奏相应调整，见 ROADMAP。
