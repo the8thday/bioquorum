@@ -22,7 +22,8 @@
 - [x] internal / confidential 在隔离不可用时拒绝；public 带警告运行；`[kernel] network = true` 仅 public。
 - [x] 测试：单元 12 个（参数、策略、workspace），集成 8 个（联网失败、项目外文件不可见、数据目录只读、`.bioquorum/` 不可见、配置只读、无密钥、打断和超时后 kernel 存活、pandas 读写）。
 - [x] `SECURITY.md`；worker 系统提示说明沙箱。
-- [ ] **数据下载工具**：现在 kernel 不能联网，GEO 这类数据没有办法取。加一个工具：下载到项目目录，结果进 CAS，事件里记来源 URL 和 hash；权限类别 `network`，只有 `public` 项目可用。场景 B 之前必须有。
+- [x] **数据下载工具** `download_file`（2026-11-18，`tools/builtin/download.py`）：存到 `downloads/` 和 CAS，URL / hash / 大小进事件；只限 public 项目；拒绝私有和本机地址；流式大小上限。单元测试 22 个；实测从 NCBI GEO 下了 9.4 MB 的文件，沙箱 kernel 能读。
+  - 局限：internal / confidential 项目现在取不了公开数据。等真有需要时再定（候选：按主机白名单放开，URL 本身算不算泄露要想清楚），需要新 ADR。
 - [ ] 用真实模型跑一次 `bq run`，确认模型看到"不能联网"后会改用工具（需要作者的 key；见下面"需要作者做的事"）。
 
 ### 2. 证据绑定（ADR-014）
@@ -54,14 +55,14 @@
 ## 怎么验证一切正常（接手第一件事）
 ```bash
 uv sync --all-groups
-uv run pytest && uv run lint-imports && uv run ruff check . && uv run pyright   # 222 单元测试，8 条契约
+uv run pytest && uv run lint-imports && uv run ruff check . && uv run pyright   # 244 单元测试，8 条契约
 uv run pytest -m integration                                                    # 真实 Jupyter kernel，含沙箱（14 个）
 uv run pytest -m live          # 需要 OPENAI_API_KEY / DEEPSEEK_API_KEY 和 biomcp（4 个，几美分）
 uv run python evals/review_eval.py                                              # 审查检查：21/24，0 误报
 ```
 
 ## 回来后对 AI 说的话
-> 继续 BioQuorum。先读 AGENTS.md、docs/DESIGN.md 和 NEXT.md，再读 docs/ARCHITECTURE.md 和 docs/adr/，然后继续 v0.2：先补数据下载工具，再做第 2 步（证据绑定，ADR-014）。
+> 继续 BioQuorum。先读 AGENTS.md、docs/DESIGN.md 和 NEXT.md，再读 docs/ARCHITECTURE.md 和 docs/adr/，然后继续 v0.2 第 2 步（证据绑定，ADR-014）。
 
 ## 文档地图
 | 文件 | 内容 |

@@ -39,6 +39,10 @@ Every run records how it was isolated (`isolation` on the `run_started` event: `
 
 Every tool call goes through one function (`tools.invoke`), which checks the project's data classification, checks permission (asking you when nothing has been granted), and writes the call and its result to an append-only event log that doubles as the audit trail. Refused calls are logged too.
 
+### Downloads
+
+`download_file` is how external data reaches an analysis now that the kernel has no network. It is a `network` permission on the target host, available to `public` projects only (the URL itself leaves your machine). It accepts http(s) URLs without embedded credentials, refuses any URL or redirect that resolves to a private, loopback or link-local address (so injected instructions cannot use it to reach localhost services or your intranet), enforces a size limit while streaming, and records the URL, size and SHA-256 in the event log with a copy of the file in the content store. Files land in `downloads/` inside the project.
+
 ### Data classification
 
 A project is `public`, `internal` or `confidential`. Model providers and tools declare the highest level they may receive. A call that would send data above that level is refused and logged; it is never rerouted to something weaker without telling you. By default remote model providers accept `public` and `internal`; only endpoints on your own machine accept `confidential`.
@@ -56,6 +60,8 @@ API keys are read from environment variables, referenced in config as `env:NAME`
 - **External MCP servers are not sandboxed.** A server you configure runs as a normal process with your permissions (or as a remote service). Only add servers you trust. BioQuorum controls which project classifications may use a server, not what the server does.
 - **Queries to public databases leave your machine.** A gene name or compound sent to Open Targets or PubMed is visible to that service. Remote servers are limited to `public` projects unless you mark them otherwise.
 - **No outbound allowlist.** Kernel network is all or nothing.
+- **DNS rebinding.** `download_file` checks the addresses a host resolves to, then connects; a hostile DNS server could answer differently the second time. Treat this as a hurdle, not a guarantee.
+- **Downloads are not available to `internal` / `confidential` projects yet.** Download public data in a `public` project, or place the files in a data directory yourself.
 - **The project directory is writable.** Sandboxed code can delete or overwrite files in it, including scripts you may run later yourself. Keep raw data in `data_dirs` (read-only) and the project under version control.
 - **No resource limits.** Kernel code can fill the disk of the project directory or use all memory and CPU.
 - **bubblewrap is not a virtual machine.** A kernel-level vulnerability in Linux could let code escape. For hostile inputs at scale, run BioQuorum inside a VM or container as well.

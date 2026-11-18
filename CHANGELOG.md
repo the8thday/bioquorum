@@ -9,6 +9,7 @@ Extension interfaces (checks, connectors, providers, skills) may change before v
 - **interface change**: `Kernel` gains a read-only `isolation` attribute; `run_started` events gain an optional `isolation` field.
 - **cli**: `bq run` and `bq mcp serve` report or refuse the isolation mode before running; an empty `bioquorum.toml` is created if missing so it can be mounted read-only.
 - Secret-looking environment variables are no longer passed to kernels in any mode.
+- **tools**: `download_file` fetches public files into `downloads/` and the CAS (public projects, `network` permission on the host; private/local addresses refused on every redirect hop; streaming size limit). `httpx2` is now a declared dependency (it was already installed through `mcp` and `pydantic-ai`).
 
 ## 0.1.0 — 2026-11-17
 

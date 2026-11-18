@@ -95,6 +95,7 @@ name = "bioquorum"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx2" },
     { name = "ipykernel" },
     { name = "jupyter-client" },
     { name = "mcp" },
@@ -134,6 +135,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'eval'", specifier = ">=0.40" },
+    { name = "httpx2", specifier = ">=2.16,<3" },
     { name = "ipykernel", specifier = ">=6.29" },
     { name = "jupyter-client", specifier = ">=8.6,<9" },
     { name = "mcp", specifier = ">=2.3,<3" },

@@ -377,6 +377,7 @@ ToolSpec(
   - 审计由 `tool_call_finished` / `tool_call_failed` / `error(policy_violation)` 事件投影到 `audit_entries`，不另写。
   - `invoke` 对工具层面的问题（拒绝、参数错、handler 抛异常）不抛异常，一律返回 `is_error=True` 的 `ToolResultPart`；拒绝文本是 BioQuorum 自己生成的，标 `trusted`。错误文本写入事件前经 `policy/secrets.redact()`。
   - 输出可能来自远端（`network` / `connector` / `external_mcp`）的工具，`ToolSpec` 构造时禁止声明 `output_trust=trusted`。
+- 内置工具：`python_execute`、`read_file`、`list_files`、`download_file`。`download_file` 是 kernel 断网后取外部数据的唯一途径（ADR-017）：`network` 权限，目标是主机名，`classification_floor = public`；拒绝私有和本机地址（每一跳重定向都查）；文件存进项目的 `downloads/` 和 CAS，URL 记在 `tool_call_requested`，hash 和大小以 `DataRefPart` 记在 `tool_call_finished`，不需要新事件类型。
 - 外部 MCP 服务器的工具自动包装为 ToolSpec，`permission=external_mcp`，`output_trust=untrusted`。
   - 名字加命名空间 `<server>__<tool>`；`classification_floor` 取该服务器在配置里的 `clearance`，远端服务器缺省 `public`，只有标为 `local` 的才对所有分级可用；权限目标是 `mcp:<server>`。
   - 分层：`mcp/` 在 `tools/` 之下，不能 import 工具层。所以 `mcp/client.py` 和 `mcp/server.py` 只做协议转换，输入输出都是中立类型；包装成 ToolSpec 在 `tools/external.py`，MCP 出口接到 `invoke()` 在 `tools/exits.py`，组装在 `cli/`。`mcp` SDK 只允许在 `mcp/` 内 import（import-linter）。

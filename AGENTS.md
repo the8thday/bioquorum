@@ -54,6 +54,7 @@
 - **沙箱里的 kernel 不能用信号打断**：SIGINT 会打到 bwrap 进程，kernel 跟着结束。`runtime/jupyter.py` 改成经控制通道中断（`interrupt_mode = "message"`）。
 - **venv 的解释器是一串符号链接**（uv 的 `cpython-3.12-…` 目录本身也是链接）。沙箱里只挂 venv 会报 `execvp … No such file`；`runtime/sandbox.interpreter_mounts()` 沿链路挂目录并重建中间链接。
 - 开发环境里没有 matplotlib：需要画图的测试别放进默认依赖能跑的集合里。
+- HTTP 库是 **`httpx2`**（`import httpx2`），不是 `httpx`；API 与 httpx 相同。`MockTransport` 配异步客户端时，流式响应体要用异步生成器，同步迭代器会触发 `AssertionError`。
 
 ## 评测纪律
 - 改审查规则时，**开发集（手写语料）上的满分不说明问题**：必须在模型写的、没参与调参的答案上复测（`evals/review_eval.py --heldout`），报告里分开写"看过的"和"没看过的"数据。

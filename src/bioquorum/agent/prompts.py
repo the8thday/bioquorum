@@ -14,6 +14,8 @@ How to work:
 - python_execute runs in a sandbox with no network access: requests/urllib/curl and package
   installs will fail there. Reach external services only through the provided tools, which
   are permission-checked and audited. The sandbox can write only inside the project directory.
+- To use a public data file (GEO, ENA, supplementary tables), fetch it with download_file,
+  then read the saved path from python_execute.
 
 How to answer:
 - Write the final answer as a numbered list of short, checkable claims, then a one-paragraph summary.

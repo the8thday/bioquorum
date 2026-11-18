@@ -16,6 +16,7 @@ dependencies = [
   "ipykernel>=6.29",          # default Python kernel until pixi envs (ROADMAP v0.2)
   "mcp>=2.3,<3",               # official MCP SDK, mcp/ only (ARCHITECTURE.md §4)
   "pydantic-ai-slim[openai]>=2.68,<3",  # models/ only (ADR-003); slim: no telemetry deps
+  "httpx2>=2.16,<3",           # download_file (tools/); already pulled in by mcp and pydantic-ai
 ]
 
 [project.optional-dependencies]
