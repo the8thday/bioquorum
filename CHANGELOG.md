@@ -2,6 +2,14 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## Unreleased (0.2.0)
+
+- **direction**: `docs/DESIGN.md`; ADR-014 (evidence binding), ADR-015 (trust ladder, replication), ADR-016 (record-centric web workbench, supersedes ADR-012), ADR-017 (kernel isolation), ADR-018 (harness mechanisms measured by lift). ARCHITECTURE and PRODUCT v0.4; roadmap reordered.
+- **runtime**: kernels start inside bubblewrap (`runtime/sandbox.py`): no network, project dir read-write, data dirs and the Python environment read-only, cleared environment, `.bioquorum/` hidden, `bioquorum.toml` and `.git` read-only. `internal` / `confidential` projects refuse to start a kernel when isolation is unavailable; `public` projects run with a warning. `[kernel] network = true` (public projects only).
+- **interface change**: `Kernel` gains a read-only `isolation` attribute; `run_started` events gain an optional `isolation` field.
+- **cli**: `bq run` and `bq mcp serve` report or refuse the isolation mode before running; an empty `bioquorum.toml` is created if missing so it can be mounted read-only.
+- Secret-looking environment variables are no longer passed to kernels in any mode.
+
 ## 0.1.0 — 2026-11-17
 
 First end-to-end version (ROADMAP v0.1).

@@ -1,10 +1,12 @@
 # BioQuorum 架构设计
 
-> 状态：**v0.3（2026-11-17）**，对应代码 v0.1.0。旧版存档：[v0.2](archive/ARCHITECTURE-v0.2-2026-11-13.md)、[v0.1](archive/ARCHITECTURE-v0.1-2026-11-11.md)。
+> 状态：**v0.4（2026-11-17）**，对应代码 v0.1.0 加上 v0.2 至 v0.4 的已定方向。旧版存档：[v0.3](archive/ARCHITECTURE-v0.3-2026-11-17.md)、[v0.2](archive/ARCHITECTURE-v0.2-2026-11-13.md)、[v0.1](archive/ARCHITECTURE-v0.1-2026-11-11.md)。
+>
+> v0.4 相对 v0.3 的改动（理由见 [DESIGN.md](DESIGN.md)）：v0.1 的承重决定全部保留；新增 ADR-014 至 018。§1 增加原则 12 至 14；§5.7 状态机扩展为五级（ADR-015）；§6.5 增加证据绑定（ADR-014）；§6.6 写明 agent 层的机制与开关（ADR-018）；新增 §6.9 `server/` 与 `web/`（ADR-016 取代 ADR-012）；§8 kernel 隔离方案定为 bubblewrap（ADR-017）。**标"v0.x 起"的内容尚未实现，以代码为准；§5.3 的事件表只列已注册的类型，新类型随实现加入。**
 >
 > v0.3 相对 v0.2 的改动（全部是实现中补充的细节，没有改动承重决定，唯一的决定变更走了 ADR-013）：
 > §6.1 模型层实现要点（底层 `Model.request()`、调用 ID、thinking 按家族回放、Responses API、provider 默认分级、配置合并）与 reviewer 选择规则（ADR-013 取代 ADR-011）；§6.2 `Kernel` 接口加 `ExecutionEnd` 终止帧和 `shutdown()`；§6.4 `classification_floor` 的确切含义、`target(args, ctx)`、`invoke()` 不抛异常且每个调用都有结果事件、外部 MCP 包装与分层、录制回放；§6.5 证据结构与审查流程；§6.6 agent 循环与入口；§6.8 models 的 cassette 键；§8 kernel 可直接联网的实测风险；§3 用户项目目录布局。import-linter 契约从 6 条增至 8 条（ADR-006 的 agent 限制、mcp SDK 只在 mcp/）。
-> 产品定义见 [PRODUCT.md](PRODUCT.md)，调研见 [research/landscape-2026-11.md](research/landscape-2026-11.md)，路线图见 [../ROADMAP.md](../ROADMAP.md)。
+> 设计理念见 [DESIGN.md](DESIGN.md)，产品定义见 [PRODUCT.md](PRODUCT.md)，调研见 [research/landscape-2026-11.md](research/landscape-2026-11.md)，路线图见 [../ROADMAP.md](../ROADMAP.md)。
 >
 > 本文是项目的最高约束。代码和文档冲突时，先改文档再改代码；改动承重决定必须新增一条 ADR（见 §11）。
 
@@ -34,6 +36,9 @@
 9. 【可调】**依赖少而稳。** 每引入一个依赖都写明理由，核心依赖锁定版本。
 10. 【承重】**默认安全。** 零遥测；敏感操作需要授权；密钥永远不进入模型上下文；违反分级策略的调用直接拒绝并记审计，不静默降级。
 11. 【承重】**可测试优先。** 每一层都要能在不联网、不调模型、不启动真实 kernel 的情况下测试（见 §6.8）。做不到的设计不接受。
+12. 【承重】**结论在写出时绑定证据**（v0.2 起，ADR-014）。读者看到的数字来自证据库，不来自模型输出的字符；引用附带能在来源里逐字找到的原话。没绑定的内容显示为"仅为断言"。
+13. 【承重】**界面不持有不能从事件推出的状态**（v0.3 起，ADR-016）。CLI、MCP Server、Web 三个入口走同一套调用。
+14. 【承重】**harness 的机制可单独开关，用评测上的提升说话**（ADR-018）。
 
 ---
 
@@ -45,7 +50,7 @@
 └──────────▲──────────────────▲──────────────────────────────────────┘
            │                  │
 ┌──────────┴──────────────────┼───────┐
-│ server/  FastAPI · SSE 推送（v0.2+） │
+│ server/  FastAPI · SSE 推送（v0.3） │
 ├─────────────────────────────┼───────┤
 │ agent/   编排：主循环 · plan · compaction                          │
 │ review/  审查：claim 抽取 · 检查器 · 重跑 · 共识                    │
@@ -98,7 +103,7 @@ bioquorum/
 │   ├── models/               # registry.py, roles.py, capabilities.py, routing.py, cost.py, convert.py
 │   ├── review/               # claims.py, checks/, rerun.py, consensus.py
 │   ├── agent/                # loop.py, plan.py, compaction.py, prompts/
-│   ├── server/               # v0.2+
+│   ├── server/               # v0.3（ADR-016）；web/ 的构建产物随包发布
 │   └── cli/                  # main.py (typer)
 ├── bundle-spec/              # 研究包规范 + JSON Schema（从 v0.1 起有 manifest v0）
 ├── evals/                    # 评测任务；injected-errors/ 注入错误语料
@@ -262,6 +267,14 @@ unverified ──review 通过──▶ reviewed ──rerun 一致──▶ rep
 disputed ──finding 全部 addressed 后重新 review──▶ reviewed
 ```
 
+上图是 v0.1 代码里的状态机。按 ADR-015 扩展为五级：
+
+```
+unverified → grounded → reviewed → reproduced → replicated      （任一级失败 → disputed）
+```
+
+`grounded`（绑定全部成立，ADR-014）从 v0.2 起；`replicated`（独立重复得到同样的量）从 v0.4 起。级别不能跳；不适用的级别如实显示为不适用。`core/status.py` 的转移表随实现扩展，始终保持每个（状态, 触发）都有定义。
+
 - Claim 和 ArtifactVersion 共用这套状态。
 - 状态只能通过 `claim_status_changed` / `artifact_status_changed` 事件改变，事件里写明原因和触发的 finding 或 rerun。
 - 一个回答的整体状态取其所有 Claim 的最低状态。
@@ -307,6 +320,7 @@ reviewer = "local:<model>"              # 按审查评测成绩选择，可与 w
 ```python
 class Kernel(Protocol):
     kernel_id: str; language: str
+    isolation: str                  # "bwrap" | "bwrap+net" | "none"（ADR-017），记入 run_started
     def execute(self, code: str, *, timeout: float | None) -> AsyncIterator[KernelOutput | ExecutionEnd]
     async def interrupt(self) -> None
     async def restart(self) -> None
@@ -390,7 +404,12 @@ ToolSpec(
    前四个是确定性检查，不消耗模型调用，v0.1 先做。评测报告要分别报告两组的召回率和误报率，不能混在一起。v0.0 对照实验在确定性可核实的错误上没有发现同家族盲区（docs/research/reviewer-experiment.md）；判断类检查上的家族差异在 v0.2 补测。
 3. **重跑**（可选）：关键 Run 在全新 kernel 里重新执行，走 §6.3 的 rerun。
 4. **输出**：`review_finding` 写入事件流。主 agent 在下一轮必须对每条 `error` 级 finding 作出回应；【承重】同一条 finding 的往返次数上限为 2，超过则保持 `disputed` 并交给用户。
-5. 【可调】共识模式见 §10。
+5. 独立重复（v0.4 起，ADR-015，取代原"共识模式"）：新会话、全新上下文，只给问题、输入和要计算的量的名字与定义，不给数值和代码；结果按容差比较，一致则进入 `replicated`。由用户触发，不默认执行。
+6. **证据绑定**（v0.2 起，ADR-014）：
+   - kernel 里 `bq.value(name, value, unit)` 把命名值记入 Run；正文 `{{name}}` 在渲染时取值。
+   - 引用写成 `[@来源 "原话"]`，原话必须是本会话某次工具返回文本的逐字子串。
+   - 解析是确定性的，在 `review/` 里实现为检查之前的一步；全部成立的结论进入 `grounded`。解析失败的项退回给 agent，往返上限同第 4 条。
+   - 没绑定的数字和引用不报错，显示为"仅为断言"，由上表的检查继续处理。外部回答（`--answer-file`）没有绑定，全部走上表的检查。
 
 ### 6.6 编排层 `agent/`
 
@@ -400,6 +419,12 @@ ToolSpec(
 - Prompt 结构对缓存友好：系统提示、工具列表、skill 目录保持固定顺序；时间戳等易变内容放末尾。
 - Prompt 中 untrusted 内容用固定分隔符包裹，系统提示明确说明分隔符内的指令不得执行。
 - 实现要点（v0.1，`agent/loop.py`）：每一步都用 `agent/context.conversation()` 从事件重建上下文；工具调用一律 `invoke_by_name()`；没有工具调用的 assistant 消息即为回答；到达步数上限时不带工具再问一次，保证用户拿到回答。`invoke()` 保证每个调用 ID 都以 `tool_call_finished` / `tool_call_failed` 结束（拒绝也算），否则重建的历史里会有没有结果的工具调用，provider 会拒绝。
+- 【承重】机制与开关（ADR-018）：下列机制各有独立配置开关，关掉后循环仍能跑；每个机制合入时附带 harness 提升评测的前后对比。主循环保持小，机制以可插拔步骤接入。
+  - 预算（v0.2）：按 token、费用和时间限额运行，取代固定的 12 步上限；到限额时的收尾方式不变。
+  - 压缩（v0.2）、流式输出（v0.2）、绑定退回（v0.2，§6.5 第 6 条）。
+  - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
+  - 子任务（v0.5）：子 agent 用全新上下文完成一件事（例如文献检索），只把有限长度的总结和证据引用交回主上下文；它的工具调用同样经过 `invoke()`，写进同一个事件日志。
+  - skills、项目笔记（v0.5）：SKILL.md 渐进加载；每个项目一份跨会话的笔记，由 agent 维护、用户可改。
 - 入口：`bq run` 提问 → 循环 → 回答 → 自动审查（`review.review_answer`）；`bq review [--answer-file]` 审查会话最后一条回答，或审查外部（例如 Claude Code 经 MCP）写出的回答，证据都取自会话事件。
 
 ### 6.7 策略层 `policy/`
@@ -423,6 +448,16 @@ ToolSpec(
 
 CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模块合入前必须有对应层的测试。
 
+### 6.9 服务与界面 `server/`、`web/`（v0.3 起，ADR-016）
+
+- `server/`（FastAPI）只做两件事：读（事件和投影经 HTTP 提供，新事件经 SSE 推送）；写（把用户操作转成与 CLI 相同的调用：提问、批准计划、决定权限、打断、触发审查 / 重跑 / 独立重复）。它不写投影表，不直接执行工具。
+- 【承重】界面状态 = 事件的函数。刷新页面、换一台设备打开，看到的东西相同。流式 token 是 SSE 瞬时帧，断线重连后从最近的事件 `seq` 续上。
+- `web/`：以研究记录为中心。四个部分：记录（结论带状态标记）、证据抽屉（数字 → 代码、输出、输入 hash；引用 → 原文与高亮的原话）、活动流与输入框、卡片（计划、权限、审查）。
+- 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
+- 【可调】React + Vite + TypeScript + shadcn/ui；布局细节。
+- 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
+- 依赖方向：`server → agent`；只有 `server` import FastAPI（落地时加 import-linter 契约）。
+
 ---
 
 ## 7. 扩展点
@@ -441,9 +476,10 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 ## 8. 安全模型（摘要，完整内容见 SECURITY.md）
 
 - 威胁：模型生成的代码误删或篡改数据；prompt injection 经工具返回内容导致数据外泄；第三方依赖或 MCP 服务器被投毒。
-- 从 v0.1 起的防护：权限卡片 + 目录授权 + 审计 + untrusted 标记 + 分级路由硬拒绝。**明确告知用户此时没有 OS 沙箱。**
-  - v0.1 验收中实测到：worker 会在 `python_execute` 里用 `requests` 自己联网（下载全文）。kernel 里的代码不经过 `invoke()` 的网络权限和分级检查，所以 **confidential 项目在沙箱就位前不能视为隔离**。目前只有提示词层面的软约束（要求联网走工具），它不是安全控制。
-- 沙箱（bubblewrap / sandbox-exec / Docker，网络白名单代理，外部 MCP 进程隔离）在路线图上单列版本；它是 `runtime/` 内部的实现替换，不改变其他层的接口。
+- 从 v0.1 起的防护：权限卡片 + 目录授权 + 审计 + untrusted 标记 + 分级路由硬拒绝。
+  - v0.1 验收中实测到：worker 会在 `python_execute` 里用 `requests` 自己联网（下载全文），绕过 `invoke()` 的网络权限和分级检查。提示词里的要求不是安全控制，所以有了下一条。
+- **kernel 隔离（已实现，ADR-017，`runtime/sandbox.py`）**：kernel 在 bubblewrap 里启动，空网络命名空间，所有分级默认不能联网；项目目录可读写，数据目录和环境只读，其余不可见；环境变量清空后只设白名单；`.bioquorum/` 不可见，`bioquorum.toml` 和 `.git` 只读。隔离不可用时，`public` 项目带明确提示运行，`internal` / `confidential` 项目拒绝启动 kernel。`public` 项目可由用户在配置里明确开启 kernel 联网。每个 `run_started` 事件记录当次的隔离方式。完整边界见 [SECURITY.md](../SECURITY.md)。
+- 仍未覆盖、留在 v0.6 的部分：出站白名单代理、外部 MCP 服务器的进程隔离、macOS 的 `sandbox-exec`、Docker 部署。这些都是 `runtime/` 和 `mcp/` 内部的实现替换，不改变其他层的接口。
 
 ---
 
@@ -461,9 +497,9 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 
 ## 10. 未来方向（备注，不构成约束）
 
-- **Web UI**：React + Vite + TS + shadcn/ui，三栏布局，构建后作为静态文件随 Python 包发布。推后到科学层和审查层稳定之后；在那之前 CLI 和 MCP Server 模式是唯一入口，Claude Code / opencode 充当 UI。
-- **Specialists**：markdown 定义的子 agent，可单独配模型和权限，支持并行。
-- **共识模式**：两个不同家族的模型独立完成同一任务，自动对比结论分歧。
+- **Specialists**：markdown 定义的子 agent，可单独配模型和权限，支持并行（§6.6 的子任务机制稳定之后）。
+- **稳健性检查**：对记录在案的分析选择（阈值、过滤、检验方法）换成其他合理取值重跑，看结论是否还成立。
+- **工具结果进 kernel**：数据库工具的返回可在 kernel 里按调用别名读取，数值经 `bq.value` 声明后再引用。
 - **code-action 降级**：对 tool call 能力弱的模型，改为直接生成 Python 代码调用工具。
 - **查看器**：Mol*（3D 结构）、RDKit.js（分子）、igv.js（基因组）。
 - **远程算力**：SSH、Slurm、Modal；**桌面应用**：Tauri；**团队版**：Postgres、SSO。
@@ -487,5 +523,10 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 009 | Jupyter 协议作为 kernel 实现，但以 `Kernel` 接口隔离 |
 | 010 | 研究包 manifest 从 v0.1 起存在，字段只增不删 |
 | 011 | ~~reviewer 默认与 worker 不同家族~~（被 013 取代） |
-| 012 | Web UI 推后，CLI 与 MCP Server 为首批入口 |
+| 012 | ~~Web UI 推后，CLI 与 MCP Server 为首批入口~~（被 016 取代） |
 | 013 | reviewer 按审查能力选择，家族多样性改为可选 |
+| 014 | 结论在写出时绑定证据 |
+| 015 | 可信度阶梯与独立重复 |
+| 016 | 以研究记录为中心的 Web 工作台，提前到 v0.3 |
+| 017 | kernel 在 OS 级隔离里运行，网络默认关闭 |
+| 018 | harness 的每个机制可单独开关，并用评测上的提升说话 |

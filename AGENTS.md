@@ -3,10 +3,11 @@
 你在为 BioQuorum 写代码（Claude Code、ChatGPT / Codex 或其他 AI 协作者都适用）。作者是单人开发者，Python 不熟，所有代码由 AI 生成，所以**架构纪律由你负责守住**。
 
 ## 先读什么
-1. `NEXT.md`：现在做到哪、下一步是什么。
-2. `docs/ARCHITECTURE.md`：最高约束。标【承重】的条目不能为了省事破例。
-3. `docs/adr/`：已做出的决定。不要在会话里重新争论；要改就先新增一条 ADR。
-4. `ROADMAP.md`：当前版本的范围。不要提前做后面版本的东西。
+1. `docs/DESIGN.md`：为什么这样做。八条判断决定了取舍，拿不准时回到这里。
+2. `NEXT.md`：现在做到哪、下一步是什么。
+3. `docs/ARCHITECTURE.md`：最高技术约束。标【承重】的条目不能为了省事破例。
+4. `docs/adr/`：已做出的决定。不要在会话里重新争论；要改就先新增一条 ADR。
+5. `ROADMAP.md`：当前版本的范围。不要提前做后面版本的东西。
 
 ## 不可违反的规则（来自 ARCHITECTURE.md §1）
 - 分层依赖方向由 `pyproject.toml` 里的 import-linter 契约强制，`uv run lint-imports` 必须通过。
@@ -16,6 +17,9 @@
 - 工具返回内容默认 `untrusted`。
 - 密钥不进事件、日志、异常信息。
 - 哈希只用 `core/hashing.py`，ID 只用 `core/ids.new_id()`。
+- 读者看到的数字来自证据库，不来自模型输出的字符；不为了让回答"看起来已验证"放宽任何一级状态的定义（ADR-014、015）。
+- 界面不持有不能从事件推出的状态；`server/` 不写投影、不绕过 `invoke()`（ADR-016）。
+- agent 层的新机制必须有独立开关，合入时附带 harness 提升评测的前后对比（ADR-018）。
 
 ## 工作方式
 - 先写测试再写实现；新模块合入前必须有对应层的测试（ARCHITECTURE.md §6.8）。
@@ -33,6 +37,7 @@
 - API key 只在作者自己的终端里 `export`（`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`），不写进仓库、配置文件或 `.env`。配置里只写 `env:NAME` 引用。检查时只报告 set / missing，不打印值。
 - 提交前确认 diff 里没有用户名路径、公司邮箱和密钥；commit 身份是 `the8thday <the8thday@users.noreply.github.com>`。只有作者明确要求时才 commit / push。
 - 公开仓库：https://github.com/the8thday/bioquorum。
+- kernel 在 bubblewrap 沙箱里运行（ADR-017，本机可用）：不能联网、不能装包、只能写项目目录。需要外部数据就加工具，不要放宽沙箱。
 
 ## 已经踩过的坑（不要再踩）
 - **DeepSeek 思考模式**要求下一轮把上一轮的 reasoning 原样传回，否则 400。`models/convert.py` 按家族保存并回放 thinking。
@@ -44,9 +49,12 @@
 - 每个工具调用都必须以结果事件结束（拒绝也算），否则从事件重建的历史会被 provider 拒绝。
 - 完整版 `pydantic-ai` 会带进 logfire / OpenTelemetry：只用 `pydantic-ai-slim[按需 provider]`。
 - 录制的 cassette 里只记命令名，不记绝对路径（会泄露用户名）。
+- **沙箱里的 kernel 不能用信号打断**：SIGINT 会打到 bwrap 进程，kernel 跟着结束。`runtime/jupyter.py` 改成经控制通道中断（`interrupt_mode = "message"`）。
+- **venv 的解释器是一串符号链接**（uv 的 `cpython-3.12-…` 目录本身也是链接）。沙箱里只挂 venv 会报 `execvp … No such file`；`runtime/sandbox.interpreter_mounts()` 沿链路挂目录并重建中间链接。
+- 开发环境里没有 matplotlib：需要画图的测试别放进默认依赖能跑的集合里。
 
 ## 评测纪律
 - 改审查规则时，**开发集（手写语料）上的满分不说明问题**：必须在模型写的、没参与调参的答案上复测（`evals/review_eval.py --heldout`），报告里分开写"看过的"和"没看过的"数据。
 - 不为在语料上拿分写针对单题的规则；抓不到的如实列出，交给模型检查。
 - 语料的标准答案只在逻辑上站得住时才改（例如 `also_affects` 连带结论），并写进语料 README。
-- 对外结论（README、PRODUCT）只写有数据支撑的话。ADR-011 就是因为对照实验不支持而被 ADR-013 取代。
+- README 只写已经实现并测过的东西；PRODUCT.md 写目标产品，两者不要混。对外结论只写有数据支撑的话。ADR-011 就是因为对照实验不支持而被 ADR-013 取代。

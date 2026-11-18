@@ -1,6 +1,6 @@
 # ADR-012 Web UI 推后，CLI 与 MCP Server 为首批入口
 
-状态：已接受（2026-11-13）
+状态：被 [ADR-016](016-record-centric-workbench.md) 取代（2026-11-17）。原状态：已接受（2026-11-13）
 
 ## 背景
 React 三栏工作台是最耗时、最不差异化的部分，且是唯一的非 Python 工具链。科学层已作为 MCP Server 暴露，Claude Code / opencode 可以直接充当 UI。

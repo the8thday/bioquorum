@@ -2,8 +2,8 @@
 
 **The open, model-neutral AI workbench for biomedical research — cross-verified, reproducible, and private by design.**
 
-> Status: **v0.1.0, pre-alpha.** The science layer, model layer, review layer, agent loop and CLI work end to end; there is no web UI and **no sandbox** yet (see [Security](#security)).
-> Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/PRODUCT.md](docs/PRODUCT.md) · [ROADMAP.md](ROADMAP.md) · decisions in [docs/adr/](docs/adr/) · changes in [CHANGELOG.md](CHANGELOG.md)
+> Status: **v0.1.0, pre-alpha.** The science layer, model layer, review layer, agent loop and CLI work end to end; there is no web UI yet. Model-written code runs in a sandboxed kernel on Linux (see [Security](#security)).
+> Where it is going: [docs/DESIGN.md](docs/DESIGN.md). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/PRODUCT.md](docs/PRODUCT.md) · [ROADMAP.md](ROADMAP.md) · decisions in [docs/adr/](docs/adr/) · changes in [CHANGELOG.md](CHANGELOG.md)
 
 ## Why
 
@@ -38,7 +38,7 @@ Full walkthrough: [docs/demo-v0.1.md](docs/demo-v0.1.md).
 
 ## Security
 
-v0.1 has **no OS sandbox**. Tool calls go through permission checks, classification checks and the audit log, but code the model runs in the Jupyter kernel can read files and reach the network directly. Do not use confidential data with v0.1. Sandboxing is on the [roadmap](ROADMAP.md).
+Tool calls go through permission checks, classification checks and the audit log. Code the model runs in the Jupyter kernel is isolated with [bubblewrap](https://github.com/containers/bubblewrap) on Linux: no network, write access only to the project directory, no API keys in its environment. Where that isolation is not available (macOS, Windows, containers without user namespaces), `public` projects run with a warning and `internal` / `confidential` projects refuse to run code. External MCP server processes are not isolated yet. Details and limits: [SECURITY.md](SECURITY.md).
 
 ## Development
 
