@@ -6,7 +6,7 @@
 ## 一句话现状
 **v0.1.0 加上 v0.2 的前两步**：`bq run` 提问 → kernel 和数据库工具 → 回答 → 逐条审查；`bq mcp serve`；没有 Web UI。**kernel 已经在 bubblewrap 沙箱里运行**（2026-11-18，ADR-017）。**证据绑定已实现**（2026-11-18，ADR-014）：回答里的 `{{name}}` 取 kernel 里 `bq.value` 记录的值，`[@s3 "原话"]` 逐字核对工具结果，全部成立的结论是 `grounded`。还没在真实模型上测过遵从率。
 **设计在 2026-11-17 重新定了方向**：作者把项目交给 AI 当 owner，作者已读过并认可 `docs/DESIGN.md`。决定记为 ADR-014 至 018，ARCHITECTURE / PRODUCT 升到 v0.4，ROADMAP 从 v0.2 起重排。
-沙箱和下载工具已合进 `main` 并 push（2026-11-18）。**证据绑定的改动还没有 commit**，等作者说。
+沙箱、下载工具和证据绑定都已合进 `main` 并 push（2026-11-18）。以后的 commit / push 仍然只在作者明确要求时做。
 
 方向的要点（细节看 DESIGN.md）：
 1. 结论在写出时绑定证据，数字从 run 输出里取，引用带逐字原话（ADR-014）。
@@ -59,7 +59,7 @@
 1. ~~读 `docs/DESIGN.md`~~ 已读，已认可（2026-11-18）。
 2. ~~commit / push~~ 已完成（2026-11-18）。
 2a. ~~跑一次真实的 `bq run`~~ AI 已用作者的 key 跑了三道题（2026-11-18）。
-2b. 让 AI commit 证据绑定的改动。
+2b. ~~commit 证据绑定的改动~~ 已完成（2026-11-18）。
 3. v0.1 遗留的一项验收（可选，5 分钟）：在 Claude Code 里 `claude mcp add bioquorum -- …/bq mcp serve -C ~/bq-demo`，步骤在 `docs/demo-v0.1.md` 第 4 步。终端录屏那一项取消了。
 4. 决定第 3 家模型用哪个（有 Anthropic key，还是用开源模型）。
 5. API key 只在自己的终端里 export；Claude Code 要从那个终端启动才能读到。加依赖时自己运行安装命令。
