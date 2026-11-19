@@ -7,8 +7,8 @@ from pydantic_ai import messages as pa
 from pydantic_ai.models.function import FunctionModel
 from rich.console import Console
 
+from bioquorum.application import workspace as wsp
 from bioquorum.cli import runner
-from bioquorum.cli import workspace as wsp
 from bioquorum.core.enums import Classification
 from bioquorum.core.status import VerificationStatus
 from bioquorum.models import ModelClient, ModelsConfig, Router

@@ -1,0 +1,211 @@
+{
+ "format": 1,
+ "entries": {
+  "19e75a613d9a75e2e693256418cd4f6a602f6473051f78bed4cf4c47cf7cff7c": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW6535VCPGP219P7D9S3WM",
+      "name": "read_demo_excerpts",
+      "args": {}
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 415,
+    "output_tokens": 2,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "aea9ad5d82671a537d47233de6c3d18265ec6218e2edf86e96baba44d22026d1": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW6539KCKXYQR2Z3YQSMZR",
+      "name": "python_execute",
+      "args": {
+       "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
+       "input_files": [
+        "metformin-evidence.json"
+       ]
+      }
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 487,
+    "output_tokens": 264,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "7331839035c1e09c416b57d48161d88a82bfc7edcad5cefa059e591ba9eda799": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "text",
+      "text": "This record covers {{excerpts}} selected evidence excerpts.\n\nA small human study reported reduced glucose production [@PMID:11118008 \"through a reduction in gluconeogenesis\"].\n\nPrimary human hepatocytes showed AMPK activation associated with [@PMID:21947382 \"a decrease in cellular energy status\"].\n\nDelayed-release metformin [@PMID:27216492 \"enhances fasting and postprandial GLP-1 and PYY\"].\n\nThe gut pathway accounts for most of metformin's effect in humans."
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 524,
+    "output_tokens": 328,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "69d02b716cc6da429285f899b350a5e657598a68022daed0e9dd220c2913db78": {
+   "spec": "deepseek:offline-review",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "text",
+      "text": "{\"claims\": [{\"kind\": \"numeric\", \"text\": \"This record covers {{excerpts}} selected evidence excerpts.\"}, {\"kind\": \"citation\", \"text\": \"A small human study reported reduced glucose production [@PMID:11118008 \\\"through a reduction in gluconeogenesis\\\"].\"}, {\"kind\": \"citation\", \"text\": \"Primary human hepatocytes showed AMPK activation associated with [@PMID:21947382 \\\"a decrease in cellular energy status\\\"].\"}, {\"kind\": \"citation\", \"text\": \"Delayed-release metformin [@PMID:27216492 \\\"enhances fasting and postprandial GLP-1 and PYY\\\"].\"}, {\"kind\": \"causal\", \"text\": \"The gut pathway accounts for most of metformin's effect in humans.\"}]}"
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 257,
+    "output_tokens": 93,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "5a0c6a78c358f026636a329951bd0fd79185e7a54745db5ceabfcf8011c9d79f": {
+   "spec": "deepseek:offline-review",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "text",
+      "text": "{\"verdicts\": [{\"claim_index\": 2, \"supported\": true, \"reason\": \"Supported by the excerpt.\"}, {\"claim_index\": 3, \"supported\": true, \"reason\": \"Supported by the excerpt.\"}, {\"claim_index\": 4, \"supported\": true, \"reason\": \"Supported by the excerpt.\"}]}"
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 451,
+    "output_tokens": 35,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "351f921e729b9c431ba7e29d4733030084402b2a5693c971c9c2ef4ceb5053c0": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW655VEXTRQA9AAD245RJT",
+      "name": "read_demo_excerpts",
+      "args": {}
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 487,
+    "output_tokens": 2,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "4371c7e4dbc26461b048889be810e897c1e11b3217dfa4b0784105a33fb9173a": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW65661KDC7NG2TNVDK71W",
+      "name": "record_plan_step",
+      "args": {
+       "step": 1
+      }
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 559,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "4e9ac3120058036ab549af1120a8af28e357c6fa33413de2984be4ccfdb1e74e": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW656HBN1KWJBN1MEZGG5W",
+      "name": "python_execute",
+      "args": {
+       "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
+       "input_files": [
+        "metformin-evidence.json"
+       ]
+      }
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 564,
+    "output_tokens": 268,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "5e45d58285bb5a2275492ec81dce91cdffe39061662e5871c0cf9b5b68f52fdc": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "tool_call",
+      "call_id": "01M7SW6571459ED6CW5730Z002",
+      "name": "record_plan_step",
+      "args": {
+       "step": 2
+      }
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 601,
+    "output_tokens": 272,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  },
+  "0583958c48737f0786b84cbcc9dceaedd255f9bfdf8992b8bf4e2d3e9a5f43b4": {
+   "spec": "deepseek:offline-example",
+   "message": {
+    "role": "assistant",
+    "parts": [
+     {
+      "type": "text",
+      "text": "This record covers {{excerpts}} selected evidence excerpts.\n\nA small human study reported reduced glucose production [@PMID:11118008 \"through a reduction in gluconeogenesis\"].\n\nPrimary human hepatocytes showed AMPK activation associated with [@PMID:21947382 \"a decrease in cellular energy status\"].\n\nDelayed-release metformin [@PMID:27216492 \"enhances fasting and postprandial GLP-1 and PYY\"].\n\nThe gut pathway accounts for most of metformin's effect in humans."
+     }
+    ]
+   },
+   "usage": {
+    "input_tokens": 606,
+    "output_tokens": 336,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+   }
+  }
+ }
+}

@@ -17,6 +17,7 @@ from bioquorum.review import (
     deterministic_checks,
     extract_claims,
     review,
+    review_answer,
 )
 from bioquorum.review.evidence import CitationEvidence, DeclaredValue, RunEvidence, Source
 from bioquorum.storage.rebuild import snapshot
@@ -25,6 +26,24 @@ pytestmark = pytest.mark.anyio
 CFG = ModelsConfig.from_dict(
     {"providers": {"deepseek": {}}, "roles": {"reviewer": "deepseek:r", "worker": "deepseek:r"}}
 )
+
+
+async def test_empty_claim_extraction_is_reported_as_incomplete(store):
+    answer = store.append(
+        ev.AssistantMessage(message=Message.assistant("Treatment changed the endpoint.")),
+        session_id="S",
+        actor=Actor.AGENT,
+    )
+    result = await review_answer(
+        store,
+        client(store, reviewer({"claims": []})),
+        session_id="S",
+        classification=Classification.PUBLIC,
+        answer_event_id=answer.id,
+    )
+    assert not result.claims and any(
+        error.startswith("claim_extraction:") for error in result.errors
+    )
 
 
 def reviewer(reply: dict, seen: list | None = None):
@@ -100,6 +119,35 @@ async def test_untrusted_abstract_is_fenced_for_the_reviewer(store):
     await supports.run(CLAIMS, EVIDENCE)
     user_text = str(seen[0][-1].parts[-1].content)
     assert "<untrusted-tool-output>" in user_text and "knock-in mice" in user_text
+
+
+@pytest.mark.parametrize(
+    ("verdicts", "status"),
+    [
+        ([], VerificationStatus.GROUNDED),
+        ([{"claim_index": 1, "supported": False}], VerificationStatus.DISPUTED),
+    ],
+)
+async def test_bound_source_alias_goes_to_the_semantic_reviewer(store, verdicts, status):
+    seen = []
+    quote = "A constitutive strain was tested in mice."
+    supports = CitationSupports(
+        client(store, reviewer({"verdicts": verdicts}, seen)),
+        session_id="S",
+        classification=Classification.PUBLIC,
+    )
+    result = await review(
+        store,
+        session_id="S",
+        target_event_id="answer",
+        claims=[
+            ClaimInput(1, f'The strain was tested in humans [@s1 "{quote}"].', ClaimKind.CITATION)
+        ],
+        evidence=Evidence(sources=[Source("s1", "source-call", "original", quote)]),
+        checks=[*deterministic_checks(), supports],
+    )
+    assert quote in str(seen[0]) and "<untrusted-tool-output>" in str(seen[0])
+    assert result.claims[0].status is status
 
 
 async def test_broken_model_check_does_not_hide_deterministic_results(store):
@@ -294,3 +342,71 @@ async def test_rounded_display_does_not_trip_value_match(store):
         checks=deterministic_checks(),
     )
     assert result.findings == [] and result.claims[0].status is VerificationStatus.REVIEWED
+
+
+def test_consecutive_display_results_stay_separate():
+
+    payloads = [
+        ev.RunStarted(run_id="r1", kernel_id="k", code="pass", code_hash="hash"),
+        ev.RunOutput(run_id="r1", stream=OutputStream.DISPLAY, text="bq.value cells = 2700"),
+        ev.RunOutput(run_id="r1", stream=OutputStream.DISPLAY, text="bq.value genes = 32738"),
+        ev.RunFinished(run_id="r1", run_key="key"),
+    ]
+    events = [
+        ev.Event.build(p, session_id="S", seq=i, actor=Actor.TOOL) for i, p in enumerate(payloads)
+    ]
+    assert Evidence.from_events(events).runs[0].stdout.splitlines() == [
+        "bq.value cells = 2700",
+        "bq.value genes = 32738",
+    ]
+
+
+async def test_unavailable_online_registry_does_not_promote_bound_citation(ctx, store):
+    from bioquorum.review.checks.citations import CitationResolves
+
+    check = CitationResolves(ctx)
+    # The session is internal, so the tool will refuse the public lookup before networking.
+    evidence = Evidence(
+        sources=[Source("s1", "call", "read_file", "PMID:21475136\nThe assay showed no effect.")],
+        citations=[CitationEvidence(key="PMID:21475136", abstract="The assay showed no effect.")],
+    )
+    claim = ClaimInput(
+        1,
+        'The assay showed no effect [@PMID:21475136 "The assay showed no effect."]',
+        ClaimKind.CITATION,
+    )
+    result = await review(
+        store,
+        session_id="S",
+        target_event_id="E",
+        claims=[claim],
+        evidence=evidence,
+        checks=[check],
+    )
+    assert result.claims[0].status is VerificationStatus.GROUNDED
+    assert [f.check for f in result.findings] == ["citation_lookup_unavailable"]
+
+
+async def test_broken_check_does_not_mark_grounded_claim_reviewed(store):
+    from bioquorum.core.refs import NamedValue
+    from bioquorum.review.evidence import DeclaredValue
+
+    class BrokenCheck:
+        name = "broken"
+        needs_model = False
+
+        async def run(self, claims, evidence):
+            raise RuntimeError("Check unavailable")
+
+    result = await review(
+        store,
+        session_id="S",
+        target_event_id="target",
+        claims=[ClaimInput(1, "The estimate was {{estimate}}.", ClaimKind.NUMERIC)],
+        evidence=Evidence(
+            values={"estimate": DeclaredValue(NamedValue(name="estimate", value=7), "r")}
+        ),
+        checks=[BrokenCheck()],
+    )
+    assert result.errors
+    assert result.claims[0].status is VerificationStatus.GROUNDED

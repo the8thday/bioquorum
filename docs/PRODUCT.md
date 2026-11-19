@@ -151,8 +151,8 @@ Settings（设置）：Models & Roles · Policies · Credentials · Audit Log
 
 **可安装（v0.3，不做宣传）**：
 - [ ] `uvx bioquorum` 一条命令装好并打开工作台，5 分钟内跑通示例
-- [ ] 不碰命令行完成场景 C
-- [ ] `SECURITY.md`（如实写出隔离的边界）、`CONTRIBUTING.md`、`THIRD_PARTY.md`、Apache-2.0 LICENSE
+- [x] 不碰命令行完成离线场景 C 的浏览器回放与自动验收，作者科学验收待完成
+- [x] `SECURITY.md`、`CONTRIBUTING.md`、`THIRD_PARTY.md`、Apache-2.0 LICENSE
 - [ ] CI：测试、lint、类型检查、import-linter 全部通过
 
 **正式发布（v0.4）**，以 [DESIGN.md](DESIGN.md) 第 4 节的 60 秒演示为准，演示里的七步都要是真的：

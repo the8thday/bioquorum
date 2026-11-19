@@ -116,6 +116,27 @@ def test_choose_isolation():
     )
     assert choose_isolation(spec, available=False, required=False) is Isolation.NONE
     assert choose_isolation(None, available=True, required=False) is Isolation.NONE
+
+
+def test_macos_requires_an_explicit_supported_offline_profile():
+    spec = SandboxSpec(workdir="/p", macos=True)
+    assert (
+        choose_isolation(spec, available=False, required=True, macos_supported=True)
+        is Isolation.SEATBELT
+    )
+    with pytest.raises(IsolationUnavailable):
+        choose_isolation(
+            SandboxSpec(workdir="/p", macos=True, network=True),
+            available=False,
+            required=True,
+            macos_supported=True,
+        )
+    assert (
+        choose_isolation(
+            SandboxSpec(workdir="/p"), available=False, required=False, macos_supported=True
+        )
+        is Isolation.NONE
+    )
     with pytest.raises(IsolationUnavailable):
         choose_isolation(spec, available=False, required=True)
     with pytest.raises(IsolationUnavailable):

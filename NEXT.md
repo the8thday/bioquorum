@@ -1,10 +1,32 @@
 # 下一步（给回来的作者和任何 AI 协作者）
 
-> 更新：2026-11-18（证据绑定之后）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
+> 更新：2026-11-19（v0.5 扩展验收与 v0.6 私有部署开发版）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 > 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
 
-## 一句话现状
-**v0.1.0 加上 v0.2 的前两步**：`bq run` 提问 → kernel 和数据库工具 → 回答 → 逐条审查；`bq mcp serve`；没有 Web UI。**kernel 已经在 bubblewrap 沙箱里运行**（2026-11-18，ADR-017）。**证据绑定已实现**（2026-11-18，ADR-014）：回答里的 `{{name}}` 取 kernel 里 `bq.value` 记录的值，`[@s3 "原话"]` 逐字核对工具结果，全部成立的结论是 `grounded`。还没在真实模型上测过遵从率。
+## 目前进度
+
+**v0.5 主功能已经实现。** 第一批是项目 Skills 按需加载和跨会话笔记。Skill 只先加载目录描述，
+需要时才经工具读正文。共享笔记由作者保存，模型草稿只留在提出它的会话。
+两项机制默认关闭，独立配置。见 [v0.5 使用说明](docs/demo-v0.5.md)
+和 [本地模型对照](docs/research/v05-project-context.md)。
+
+文献子任务支持显式 `/literature`。三道合成题全部触发，两个回答带有效引用。场景 A 用 IL23R／IBD 跑通公开检索、语义审查、引用回溯与证据型导出。场景 B 用 GSE96583 的真实计数跑通 QC、探索性聚类、配对供者差异与研究包重跑。两个场景的研究包都带自动 Methods 草稿。场景 B 已换两组 QC 选择再跑。见 [本轮验收记录](docs/research/v05-scenarios.md)。
+
+工具来源可通过独立开关成为带哈希的 kernel 输入。四道靶点扩展题已实跑，本地文本模型的自主检索覆盖未达标。实际 QC 图通过 Apple Vision 识读标签。通用视觉语言模型与真实外部端点待测。见 [v0.5 发布验收](docs/release/v0.5-acceptance.md)。
+
+**v0.6 已生成开发包 `0.6.0.dev0`。** 数据分级和审计页经过浏览器检查，macOS 内核和离线 stdio MCP 通过真实进程测试，HTTPS 白名单代理已实现。Docker 定义和部署说明已补齐。需在有 Python 容器基础镜像、Linux 系统依赖和可解析公开地址的环境完成部署烟测。见 [v0.6 验收](docs/release/v0.6-acceptance.md)。
+
+**v0.4 仍是候选版。** 本机已经用真实 Jupyter、Chromium 和解包脚本验证重跑及研究包，
+候选 wheel 与样例研究包保留。暂缓的三项验收单独记录：
+**Linux 端到端独立重复、第二台机器重跑研究包、公开基准实跑**。
+完成条件见 [v0.4 验收清单](docs/release/v0.4-acceptance.md)。
+
+## 接下来
+
+- v0.5 使用已配置的视觉语言模型端点验收图表推理。针对四道靶点的自主检索覆盖缺口，用更强模型或更可靠的来源路由再测。作者验收公开样例和发布。
+- v0.6 在具备基础镜像、Linux 隔离和可返回公开地址的网络环境里测试部署。
+- 作者准备好锁定的 Linux 环境后，再恢复 v0.4 的真实环境验收。科学、布局和发布仍待作者确认。
+
 **设计在 2026-11-17 重新定了方向**：作者把项目交给 AI 当 owner，作者已读过并认可 `docs/DESIGN.md`。决定记为 ADR-014 至 018，ARCHITECTURE / PRODUCT 升到 v0.4，ROADMAP 从 v0.2 起重排。
 沙箱、下载工具和证据绑定都已合进 `main` 并 push（2026-11-18）。以后的 commit / push 仍然只在作者明确要求时做。
 
@@ -15,7 +37,7 @@
 4. kernel 用 bubblewrap 隔离，网络默认关闭（ADR-017）。原先留给作者选的方案已由 owner 选定为方案 1。
 5. harness 的机制可单独开关，用评测提升说话（ADR-018）。
 
-## 下一步：v0.2 Grounded（按这个顺序）
+## v0.2 Grounded 的已完成记录
 
 ### 1. kernel 隔离（ADR-017）✅ 2026-11-18
 - [x] `runtime/sandbox.py`：bwrap 参数、可用性探测、分级决定；`JupyterKernel(sandbox=...)`；`Kernel.isolation` 记入 `run_started`。
@@ -43,17 +65,23 @@
 - 已知局限：原话的来源只能是本会话的工具结果，kernel 里读的本地文件（例如用户给的 PDF 转出的文本）不能当原话来源；需要时加一个读文件的工具路径，而不是放宽规则。`bq.value` 只收标量。投影表里还没有命名值（v0.3 界面要用时再加，届时先接 Alembic）。
 
 ### 3. 评测（提前到预算之前）
-**为什么提前**：DESIGN.md 第 5 节说"v0.2 第一件事就是测遵从率"，ADR-018 要求机制合入时附带前后对比。绑定和退回现在默认开启但**未证实**；按 ADR-018，测不出提升就关掉。所以先测，再做预算循环。
-- `evals/` 加 harness 提升评测：同一模型 ×（`[agent] binding = false, binding_retries = 0` / 默认）× 同一组题；报告绑定遵从率（`grounded` 结论占比）、编造数字检出率（对比 v0.1 `value_match`）、rubric 得分、费用、退回轮数。留出集分开写。
-- 第 3 家 provider（Anthropic 需要作者运行 `! uv add "pydantic-ai-slim[openai,anthropic]"`，或换一个 OpenAI 兼容的开源模型服务）。
-- 结果写进 `docs/research/binding-eval.md`。
+ADR-018 要求用配对结果决定默认值。初测后保留绑定提示，自动退回默认设为 0，保留显式开启。
+- [x] `evals/binding_eval.py` 对比关绑定、只开绑定提示、同时开绑定提示和退回。在冻结的引用题、计算题上报告有据占比、rubric、费用、耗时和退回轮数，并从模型写出的留出结论重放数字错误注入。
+- [x] DeepSeek V4 Pro、Qwen3 4B Instruct、Llama 3.2 3B 共 54 次真实运行和数字注入见 [绑定评测](docs/research/binding-eval.md)。Linux OrbStack 环境的 16 项集成测试全部通过。
+- [x] 单独测试绑定失败反馈。V4 Pro 和 Flash 在留出集一轮分别修复 8/8 和 7/8，按人工核对计。原本有据的邻近结论也可能被撤回。本轮没有第二轮事件。暂保持退回默认 0，保留显式开启。详见 [修复对照](docs/research/binding-repair-eval.md)。
+- [x] 完整 harness 与最短提示加 kernel 的真实研究数据对照。两套模型共 30 个组合，留出题新增有据结论，未观察到一致的准确率增益。退回在 10 个启用组合中触发 1 次，增加 4 次 worker 调用，默认继续关闭。DeepSeek Chat 的推理字段往返缺口已修复并通过回归。详见 [真实研究数据对照](docs/research/harness-research-eval.md)。
 
-### 4. 循环按预算运行（ADR-018）
-- 预算取代 12 步上限；压缩；CLI 流式输出；费用显示。每项一个配置开关。
+### 4. 循环按预算运行（ADR-018、019）✅
+- [x] 独立配置 token、估算美元和时间预算。达到阈值即停止启动新工具，保留一次无工具收尾；审查独立计量。
+- [x] 压缩只替换已结束的上下文前缀，证据仍从原始事件取得；CLI 流式模式显示即时生成进度，最终绑定完成后呈现研究正文。
+- [x] TOML 可配置模型费率。CLI 区分估算费用、显式零价格和未知价格。
+- [x] 本地 Qwen 的 12 个配对组合测完，按开发题与留出题分开报告。预算触发一次并停住后续工具，压缩增加十次摘要调用，流式进度都在完成前收到增量。三个开关均按需开启。 [运行控制对照](docs/research/v02-runtime-controls.md)
 
-### 5. 场景与小债
-- 场景 C 完整；场景 B 用 pbmc3k。
-- 外部 MCP 断线重连；改表前接 Alembic；`citation_resolves` 在线解析。
+### 5. 场景与小债 ✅
+- [x] B 使用真实 PBMC 3k，在 bubblewrap 内由 Python 计算，R Matrix 独立复算。过滤后为 2,638 个细胞和 13,656 个基因，数值和散点图回溯到输入哈希和运行。
+- [x] C 使用真实 PubMed 摘要完成二甲双胍证据表，五条引用逐字绑定并通过公开标识符在线核验。演示用预定义模型回复，科学结论待作者判断。
+- [x] MCP 传输断开后在下一次请求重连。Alembic 自动升级旧库并保留事件。在线文献标识符核验经工具权限和审计执行。
+- [x] 验收产物在本地 `evals/results/v02-acceptance/`，开发与本地模型留出审查回归见 [评测记录](docs/research/v02-runtime-controls.md)。
 
 ## 需要作者做的事
 1. ~~读 `docs/DESIGN.md`~~ 已读，已认可（2026-11-18）。
@@ -61,21 +89,21 @@
 2a. ~~跑一次真实的 `bq run`~~ AI 已用作者的 key 跑了三道题（2026-11-18）。
 2b. ~~commit 证据绑定的改动~~ 已完成（2026-11-18）。
 3. v0.1 遗留的一项验收（可选，5 分钟）：在 Claude Code 里 `claude mcp add bioquorum -- …/bq mcp serve -C ~/bq-demo`，步骤在 `docs/demo-v0.1.md` 第 4 步。终端录屏那一项取消了。
-4. 决定第 3 家模型用哪个（有 Anthropic key，还是用开源模型）。
-5. API key 只在自己的终端里 export；Claude Code 要从那个终端启动才能读到。加依赖时自己运行安装命令。
-6. 注册 PyPI 名 `bioquorum`；查商标（v0.3 之前）。
+4. API key 只在自己的终端里 export；Claude Code 要从那个终端启动才能读到。加依赖时自己运行安装命令。
+5. 公开发布前确认 PyPI 名 `bioquorum` 和商标。
+6. v0.2 新增 Alembic，依赖已写入锁文件。由作者运行 `uv sync --locked`，常规 `uv run` 也会同步环境。请在提交前读 B 或 C 的一份回答，完成科学验收。
 
 ## 怎么验证一切正常（接手第一件事）
 ```bash
 uv sync --all-groups
-uv run pytest && uv run lint-imports && uv run ruff check . && uv run pyright   # 328 单元测试，8 条契约
+uv run pytest && uv run lint-imports && uv run ruff check . && uv run pyright   # 单元测试，9 条分层契约
 uv run pytest -m integration                                                    # 真实 Jupyter kernel，含沙箱（16 个）
 uv run pytest -m live          # 需要 OPENAI_API_KEY / DEEPSEEK_API_KEY 和 biomcp（4 个，几美分）
 uv run python evals/review_eval.py                                              # 审查检查：21/24，0 误报
 ```
 
 ## 回来后对 AI 说的话
-> 继续 BioQuorum。先读 AGENTS.md、docs/DESIGN.md 和 NEXT.md，再读 docs/ARCHITECTURE.md 和 docs/adr/，然后继续 v0.2 第 3 步（绑定的遵从率和 harness 提升评测）。
+> 继续 BioQuorum。先读 AGENTS.md、docs/DESIGN.md 和 NEXT.md，再读 docs/ARCHITECTURE.md 和 docs/adr/。核对 v0.5 与 v0.6 验收清单，继续通用视觉模型和私有部署实跑。v0.4 的暂缓项在独立清单里。
 
 ## 文档地图
 | 文件 | 内容 |
@@ -83,10 +111,10 @@ uv run python evals/review_eval.py                                              
 | `AGENTS.md`（`CLAUDE.md` 引用它） | AI 协作约定、环境约束、踩过的坑、评测纪律 |
 | `docs/DESIGN.md` | 设计理念：为什么这样做（四份文档冲突时它优先） |
 | `docs/ARCHITECTURE.md` v0.4 | 最高技术约束（承重 / 可调） |
-| `docs/adr/001-018` | 已做出的决定（011 被 013 取代，012 被 016 取代） |
+| `docs/adr/001-023` | 已做出的决定（011 被 013 取代，012 被 016 取代） |
 | `ROADMAP.md` / `docs/PRODUCT.md` v0.4 | 版本范围 / 产品定义 |
 | `CHANGELOG.md` | 版本变更 |
 | `docs/research/reviewer-experiment.md` | 跨家族审查假设的对照实验（结论：不成立） |
 | `docs/research/review-checks.md` | 确定性审查检查的规则与实测 |
-| `docs/demo-v0.1.md` | v0.1 演示与验收步骤 |
+| `docs/demo-v0.1.md` / `docs/demo-v0.3.md` | CLI 和工作台演示与验收步骤 |
 | `docs/archive/` | 文档旧版本 |

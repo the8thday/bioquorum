@@ -11,15 +11,19 @@ Mechanisms with their own switches (ADR-018):
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from bioquorum.agent.budget import Budget, BudgetMeter
+from bioquorum.agent.compaction import compact_history
 from bioquorum.agent.context import conversation
 from bioquorum.agent.prompts import binding_feedback, worker_system
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, ModelRole
 from bioquorum.core.messages import Message, ToolCallPart, ToolResultPart
-from bioquorum.models.client import ModelClient
+from bioquorum.models.client import ModelClient, OnDelta
+from bioquorum.models.config import ConfigError
 from bioquorum.review.binding import unresolved
 from bioquorum.review.evidence import Evidence
 from bioquorum.tools.context import ToolContext
@@ -39,6 +43,7 @@ class Hooks:
 
     on_tool_call: OnToolCall | None = None
     on_tool_result: OnToolResult | None = None
+    on_model_delta: OnDelta | None = None
 
 
 @dataclass
@@ -50,6 +55,7 @@ class TurnResult:
     stopped_early: bool = False
     model_specs: list[str] = field(default_factory=list)
     binding_retries: int = 0
+    stop_reason: str | None = None
 
 
 async def _call(hook, *args) -> None:
@@ -65,26 +71,72 @@ async def run_turn(
     client: ModelClient,
     registry: ToolRegistry,
     ctx: ToolContext,
-    max_steps: int = DEFAULT_MAX_STEPS,
+    max_steps: int | None = None,
     hooks: Hooks | None = None,
     system: str | None = None,
     binding: bool = True,
-    binding_retries: int = MAX_BINDING_RETRIES,
+    binding_retries: int = 0,
+    budget: Budget | None = None,
+    budget_meter: BudgetMeter | None = None,
+    before_first_model: Callable[[ev.Event], Awaitable[None]] | None = None,
+    compact_at_bytes: int | None = None,
 ) -> TurnResult:
     hooks = hooks or Hooks()
     system = system if system is not None else worker_system(binding=binding)
+    meter = budget_meter or BudgetMeter(budget or Budget())
+    budget = meter.limits
+    if max_steps is None and not budget.enabled:
+        max_steps = DEFAULT_MAX_STEPS
+    if max_steps is not None and max_steps < 1:
+        raise ConfigError("max_steps must be positive")
+    if budget.usd is not None:
+        roles = [ModelRole.WORKER]
+        if compact_at_bytes is not None:
+            roles.append(ModelRole.SUMMARIZER)
+        for role in roles:
+            for route in client.router.chain(role, ctx.classification):
+                spec = str(route.spec)
+                if spec not in client.prices:
+                    raise ConfigError(f"cost budget requires a price for {spec}")
+                if client.prices[spec] == (0, 0) and all(
+                    limit is None for limit in (max_steps, budget.tokens, budget.seconds)
+                ):
+                    raise ConfigError(f"cost budget for zero-price {spec} requires another limit")
     retries_left = max(0, min(binding_retries, MAX_BINDING_RETRIES))
     retried = 0
     store, sid = ctx.store, ctx.session_id
     asked = store.append(
         ev.UserMessage(message=Message.user(question)), session_id=sid, actor=Actor.USER
     )
+    if before_first_model is not None:
+        await before_first_model(asked)
     tools = registry.definitions()
     cause = asked.id
     calls = 0
     specs: list[str] = []
-    for step in range(1, max_steps + 1):
-        history = [Message.system(system), *conversation(store.read(sid), source_labels=binding)]
+    step = 0
+    compacted_through = -1
+    while (max_steps is None or step < max_steps) and not meter.stop_reason():
+        events = store.history(sid)
+        if compact_at_bytes is not None:
+            compacted_through = await compact_history(
+                client,
+                ctx,
+                events,
+                meter,
+                target_bytes=compact_at_bytes,
+                binding=binding,
+                attempted_through=compacted_through,
+                cause=cause,
+            )
+            if meter.stop_reason():
+                break
+            events = store.history(sid)
+        history = [
+            Message.system(system),
+            *conversation(events, source_labels=binding, compacted=compact_at_bytes is not None),
+        ]
+        step += 1
         completion = await client.complete(
             ModelRole.WORKER,
             history,
@@ -92,7 +144,9 @@ async def run_turn(
             session_id=sid,
             classification=ctx.classification,
             causation_id=cause,
+            on_delta=hooks.on_model_delta,
         )
+        meter.record(completion)
         specs.append(str(completion.route.spec))
         said = store.append(
             ev.AssistantMessage(message=completion.message, model_call_id=completion.model_call_id),
@@ -102,8 +156,15 @@ async def run_turn(
         )
         tool_calls = completion.message.tool_calls()
         if not tool_calls:
-            problems = unresolved(completion.message.text(), Evidence.from_events(store.read(sid)))
-            if problems and retries_left > 0 and step < max_steps:
+            problems = unresolved(
+                completion.message.text(), Evidence.from_events(store.history(sid))
+            )
+            if (
+                problems
+                and retries_left > 0
+                and not meter.stop_reason()
+                and (max_steps is None or step < max_steps)
+            ):
                 retries_left -= 1
                 retried += 1
                 feedback = binding_feedback([(b.raw, b.problem) for b in problems])
@@ -115,20 +176,56 @@ async def run_turn(
                 ).id
                 continue
             return TurnResult(completion.message, said.id, step, calls, False, specs, retried)
-        for call in tool_calls:
-            calls += 1
-            await _call(hooks.on_tool_call, call)
-            result = await invoke_by_name(
-                registry, call.name, call.args, ctx, call_id=call.call_id, causation_id=said.id
-            )
-            await _call(hooks.on_tool_result, call, result)
+        try:
+            for call in tool_calls:
+                calls += 1
+                await _call(hooks.on_tool_call, call)
+                result = await invoke_by_name(
+                    registry,
+                    call.name,
+                    call.args,
+                    ctx,
+                    call_id=call.call_id,
+                    causation_id=said.id,
+                    skip_reason=meter.stop_reason(),
+                )
+                await _call(hooks.on_tool_result, call, result)
+        except asyncio.CancelledError:
+            finished = {
+                p.call_id
+                for e in store.read(sid, from_seq=said.seq + 1)
+                if isinstance(p := e.parsed(), ev.ToolCallFinished | ev.ToolCallFailed)
+            }
+            for call in tool_calls:
+                if call.call_id not in finished:
+                    await invoke_by_name(
+                        registry,
+                        call.name,
+                        call.args,
+                        ctx,
+                        call_id=call.call_id,
+                        causation_id=said.id,
+                        skip_reason="Research stopped",
+                    )
+            raise
         cause = said.id
 
-    # Out of steps: ask once more without tools so the user still gets an answer.
+    # An exhausted exploration budget still allows a tool-free answer.
+    reason = meter.stop_reason() or "step limit"
+    cause = store.append(
+        ev.ExplorationStopped(reason=reason),
+        session_id=sid,
+        actor=Actor.SYSTEM,
+        causation_id=cause,
+    ).id
     history = [
         Message.system(system),
-        *conversation(store.read(sid), source_labels=binding),
-        Message.user("Step limit reached. Answer now with what you have; say what is missing."),
+        *conversation(
+            store.history(sid), source_labels=binding, compacted=compact_at_bytes is not None
+        ),
+        Message.user(
+            f"{reason.capitalize()} reached. Answer now with what you have; say what is missing."
+        ),
     ]
     completion = await client.complete(
         ModelRole.WORKER,
@@ -137,19 +234,29 @@ async def run_turn(
         session_id=sid,
         classification=ctx.classification,
         causation_id=cause,
+        on_delta=hooks.on_model_delta,
     )
+    answer = completion.message
+    if answer.tool_calls():
+        # No tool calls may escape the final pass without a matching result in the log.
+        answer = answer.model_copy(
+            update={"parts": [part for part in answer.parts if not isinstance(part, ToolCallPart)]}
+        )
+    if not answer.text().strip():
+        answer = Message.assistant(f"Could not produce a textual answer before the {reason}.")
     said = store.append(
-        ev.AssistantMessage(message=completion.message, model_call_id=completion.model_call_id),
+        ev.AssistantMessage(message=answer, model_call_id=completion.model_call_id),
         session_id=sid,
         actor=Actor.AGENT,
         causation_id=cause,
     )
     return TurnResult(
-        completion.message,
+        answer,
         said.id,
-        max_steps,
+        step,
         calls,
         True,
         [*specs, str(completion.route.spec)],
         retried,
+        reason,
     )

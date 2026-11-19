@@ -7,27 +7,41 @@ Layout of a project::
     <root>/.bioquorum/bioquorum.db # event store
     <root>/.bioquorum/cas/         # content-addressed store
 
-Only the CLI (top layer) assembles these pieces, so every lower layer stays injectable.
+CLI and workbench share this composition so lower layers stay injectable.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import tomllib
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
+from bioquorum.agent.budget import Budget
+from bioquorum.application.environment import project_environment
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, PermissionClass, PermissionScope
 from bioquorum.core.ids import new_id
-from bioquorum.mcp.client import ServerConfig
+from bioquorum.mcp.client import McpConnection, ServerConfig, StdioLaunch
 from bioquorum.models.config import ModelsConfig
-from bioquorum.policy.permissions import PermissionPolicy
+from bioquorum.policy.egress import loopback_proxy_url
+from bioquorum.policy.permissions import Asker, PermissionPolicy
 from bioquorum.provenance.cas import ContentStore
 from bioquorum.runtime.manager import KernelFactory, KernelManager, jupyter_factory
-from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_available, choose_isolation
+from bioquorum.runtime.sandbox import (
+    Isolation,
+    SandboxSpec,
+    bwrap_argv,
+    bwrap_available,
+    choose_isolation,
+    seatbelt_argv,
+    seatbelt_available,
+)
 from bioquorum.storage.db import Database
 from bioquorum.storage.events import EventStore
 from bioquorum.tools.context import ToolContext
@@ -58,7 +72,17 @@ class AgentOptions:
     """``[agent]`` switches (ADR-018): each mechanism can be turned off on its own."""
 
     binding: bool = True  # evidence-binding prompt and source labels (ADR-014)
-    binding_retries: int = 2  # rounds of sending unresolved bindings back; 0 = off
+    binding_retries: int = 0  # opt in to sending unresolved bindings back
+    budget: Budget = field(default_factory=Budget)
+    compact_at_bytes: int | None = None
+    stream: bool = False
+    show_cost: bool = True
+    skills: bool = False
+    project_notes: bool = False
+    literature_subtasks: bool = False
+    literature_tools: tuple[str, ...] = ()
+    source_to_kernel: bool = False
+    vision: bool = False
 
 
 @dataclass
@@ -90,15 +114,103 @@ class Workspace:
             out.append(ServerConfig.from_dict(name, data))
         return out
 
+    def outbound_proxy(self) -> str | None:
+        value = self.config.get("security", {}).get("outbound_proxy")
+        try:
+            return None if value is None else loopback_proxy_url(value)
+        except ValueError as exc:
+            raise WorkspaceError(f"[security] {exc}") from None
+
+    def mcp_connection(self, cfg: ServerConfig) -> McpConnection:
+        @contextmanager
+        def sandboxed_command():
+            assert cfg.command is not None
+            executable = (
+                str((self.root / cfg.command).absolute())
+                if os.sep in cfg.command
+                else shutil.which(cfg.command)
+            )
+            if executable is None or not os.access(executable, os.X_OK):
+                raise WorkspaceError("The selected isolated MCP executable is unavailable")
+            roots = tuple((self.root / path).resolve(strict=True) for path in cfg.read_paths)
+            with TemporaryDirectory(prefix="bq-mcp-") as workdir:
+                spec = SandboxSpec(workdir=workdir, read_only=roots, macos=True)
+                mode = choose_isolation(
+                    spec,
+                    available=bwrap_available(),
+                    macos_supported=seatbelt_available(),
+                    required=True,
+                )
+                prefix = (
+                    seatbelt_argv(spec, executable=executable, writable=(workdir,))
+                    if mode is Isolation.SEATBELT
+                    else bwrap_argv(spec, executable=executable)
+                )
+                yield StdioLaunch(
+                    tuple([*prefix, executable, *cfg.args]),
+                    workdir,
+                    {"PATH": "/usr/bin:/bin", "HOME": workdir, "TMPDIR": workdir},
+                )
+
+        return McpConnection(
+            cfg,
+            outbound_proxy=self.outbound_proxy(),
+            isolated_stdio=sandboxed_command if cfg.isolated else None,
+        )
+
     def models_config(self) -> ModelsConfig:
         return ModelsConfig.from_dict(self.config)
 
     def agent_options(self) -> AgentOptions:
         cfg = self.config.get("agent", {})
-        retries = cfg.get("binding_retries", 2)
-        if not isinstance(retries, int) or not 0 <= retries <= 2:
+        for flag in (
+            "skills",
+            "project_notes",
+            "literature_subtasks",
+            "source_to_kernel",
+            "vision",
+        ):
+            if type(cfg.get(flag, False)) is not bool:
+                raise WorkspaceError(f"[agent] {flag} must be true or false")
+        literature = cfg.get("literature_tools", [])
+        if (
+            not isinstance(literature, list)
+            or len(literature) > 12
+            or any(not isinstance(name, str) or not 1 <= len(name) <= 64 for name in literature)
+        ):
+            raise WorkspaceError("[agent] literature_tools must list up to twelve exact tool names")
+        if cfg.get("literature_subtasks") and not literature:
+            raise WorkspaceError(
+                "[agent] literature_subtasks requires an explicit literature_tools allowlist"
+            )
+        retries = cfg.get("binding_retries", AgentOptions.binding_retries)
+        if type(retries) is not int or not 0 <= retries <= 2:
             raise WorkspaceError("[agent] binding_retries must be 0, 1 or 2")
-        return AgentOptions(binding=bool(cfg.get("binding", True)), binding_retries=retries)
+        threshold = cfg.get("compact_at_bytes")
+        if threshold is not None and (type(threshold) is not int or threshold <= 0):
+            raise WorkspaceError("[agent] compact_at_bytes must be a positive integer")
+        try:
+            budget = Budget(
+                tokens=cfg.get("budget_tokens"),
+                usd=cfg.get("budget_usd"),
+                seconds=cfg.get("budget_seconds"),
+            )
+        except ValueError as exc:
+            raise WorkspaceError(f"[agent] {exc}") from exc
+        return AgentOptions(
+            binding=bool(cfg.get("binding", True)),
+            binding_retries=retries,
+            budget=budget,
+            compact_at_bytes=threshold,
+            stream=bool(cfg.get("stream", False)),
+            show_cost=bool(cfg.get("show_cost", True)),
+            skills=cfg.get("skills", False),
+            project_notes=cfg.get("project_notes", False),
+            literature_subtasks=cfg.get("literature_subtasks", False),
+            literature_tools=tuple(literature),
+            source_to_kernel=cfg.get("source_to_kernel", False),
+            vision=cfg.get("vision", False),
+        )
 
     def readable_roots(self) -> list[Path]:
         return [self.root, *self.data_dirs]
@@ -118,6 +230,10 @@ class Workspace:
                 f"[kernel] network = true is only allowed in public projects; this project is "
                 f"{self.classification.value}. Kernel code reaches the network through tools."
             )
+        if wanted and self.outbound_proxy() is not None:
+            raise WorkspaceError(
+                "Kernel network is unavailable when an outbound proxy is configured"
+            )
         return wanted
 
     def kernel_sandbox(self) -> SandboxSpec:
@@ -125,18 +241,26 @@ class Workspace:
         own state (event log, CAS) or the files that decide what runs outside the sandbox
         next time (MCP server commands in the config, git hooks)."""
         protected = [self.root / CONFIG_FILE, self.root / ".git"]
+        macos = self.config.get("kernel", {}).get("macos_sandbox", False)
+        if type(macos) is not bool:
+            raise WorkspaceError("[kernel] macos_sandbox must be true or false")
         return SandboxSpec(
             workdir=self.root,
             read_only=(*self.data_dirs, *protected),
             hidden=(self.state_dir,),
             network=self.kernel_network(),
+            macos=macos,
         )
 
     def kernel_isolation(self) -> Isolation:
         """What kernels of this project will get here. Raises ``IsolationUnavailable`` when the
         project requires isolation and this machine cannot provide it."""
+        spec = self.kernel_sandbox()
         return choose_isolation(
-            self.kernel_sandbox(), available=bwrap_available(), required=self.isolation_required
+            spec,
+            available=bwrap_available(),
+            macos_supported=spec.macos and seatbelt_available(),
+            required=self.isolation_required or spec.macos or self.outbound_proxy() is not None,
         )
 
 
@@ -214,7 +338,11 @@ def start_session(ws: Workspace, store: EventStore, title: str) -> str:
 
 
 def default_permissions(
-    ws: Workspace, *, allow: list[PermissionClass], servers: list[ServerConfig]
+    ws: Workspace,
+    *,
+    allow: list[PermissionClass],
+    servers: list[ServerConfig],
+    ask: Asker | None = None,
 ) -> PermissionPolicy:
     """What starting a BioQuorum server implies the user has agreed to.
 
@@ -223,7 +351,7 @@ def default_permissions(
     connectors) needs an explicit ``--allow``. The MCP host usually adds its own per-call
     confirmation on top.
     """
-    policy = PermissionPolicy()
+    policy = PermissionPolicy(ask)
     scope, pid = PermissionScope.PROJECT, ws.project_id
     for d in ws.readable_roots():
         policy.grant(PermissionClass.READ_FS, str(d), scope, project_id=pid)
@@ -243,12 +371,23 @@ def tool_context(
     *,
     kernel_factory: KernelFactory | None = None,
 ) -> ToolContext:
+    lock_hash = None
     if kernel_factory is None:
+        python_executable, lock_hash = project_environment(
+            ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi", False))
+        )
         # A read-only mount needs an existing file; without one, kernel code could create
         # the config itself and plant an MCP server command for the next start.
         (ws.root / CONFIG_FILE).touch(exist_ok=True)
+        spec = ws.kernel_sandbox()
         kernel_factory = jupyter_factory(
-            ws.root, sandbox=ws.kernel_sandbox(), require_isolation=ws.isolation_required
+            ws.root,
+            sandbox=spec,
+            require_isolation=ws.isolation_required
+            or spec.macos
+            or ws.outbound_proxy() is not None,
+            python_executable=python_executable,
+            observe_lineage=bool(ws.config.get("kernel", {}).get("lineage", False)),
         )
     return ToolContext(
         store=store,
@@ -259,4 +398,6 @@ def tool_context(
         cas=ws.cas(),
         kernels=KernelManager(kernel_factory),
         workdir=ws.root,
+        env_lock_hash=lock_hash,
+        outbound_proxy=ws.outbound_proxy(),
     )

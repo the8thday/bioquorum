@@ -1,6 +1,6 @@
 # ADR-014 结论在写出时绑定证据
 
-状态：已接受（2026-11-17）。已实现（2026-11-18，`runtime/values.py`、`review/binding.py`）；遵从率评测待做。
+状态：已接受（2026-11-17）。已实现（2026-11-18，`runtime/values.py`、`review/binding.py`）。遵从率初测见 [绑定评测](../research/binding-eval.md)。
 
 ## 背景
 v0.1 的审查是事后的：模型写完一段文字，再用规则去猜每个数字、每条引用从哪来。实测的两个缺口都出在这里：`value_match` 是"出现即通过"，编造的 "48 trials"、"62%" 没被标出；worker 在 kernel 里自己下载的全文，审查看不到，结论被误判为 disputed（NEXT.md，docs/research/review-checks.md）。再加规则只会让猜测更复杂。
@@ -44,3 +44,5 @@ v0.1 的审查是事后的：模型写完一段文字，再用规则去猜每个
 - `citation_supports` 的任务缩小为"这句原话是否支持这条结论"，输入更短，判断更容易。
 - 必须先测再信：在没参与调参的答案上报告各模型的绑定遵从率、编造数字的检出率（对比 v0.1 `value_match`）、开启绑定前后的 rubric 得分。遵从率不够的模型加"补绑定"步骤或降级，结果写进 `docs/research/`。
 - 研究包导出时带上绑定关系，读者不装 BioQuorum 也能从数字追到 run。
+
+v0.5 场景 A。语义审查读取解析后的引用和相应来源。审查未返回结论级判定时，记录缺失并保留该结论的当前等级。 [ADR-025](025-research-record-handoffs.md)

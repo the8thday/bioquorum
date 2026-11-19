@@ -131,6 +131,7 @@ def _model_call_finished(conn: Connection, e: Event, p: ev.ModelCallFinished) ->
             cache_read_tokens=p.cache_read_tokens,
             cache_write_tokens=p.cache_write_tokens,
             cost_usd=p.cost_usd,
+            cost_known=p.cost_known,
             latency_ms=p.latency_ms,
         )
     )

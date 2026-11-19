@@ -7,17 +7,20 @@ together, and those sibling layers may not import each other.
 from __future__ import annotations
 
 import base64
+import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, DataKind, OutputStream
-from bioquorum.core.hashing import code_hash, run_key
+from bioquorum.core.hashing import code_hash, run_key, sha256_file
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import ImageRefPart, ResultContent, TextPart
 from bioquorum.core.refs import DataRef, NamedValue
 from bioquorum.runtime import summarize
 from bioquorum.runtime.kernel import EndStatus, ExecutionEnd, KernelError, KernelOutput
+from bioquorum.runtime.lineage import LINEAGE_MIME
 from bioquorum.runtime.values import parse_value
 from bioquorum.tools.context import ToolContext
 
@@ -42,7 +45,13 @@ def strip_ansi(text: str) -> str:
 
 
 async def execute_run(
-    ctx: ToolContext, code: str, *, language: str = "python", timeout: float | None = None
+    ctx: ToolContext,
+    code: str,
+    *,
+    language: str = "python",
+    timeout: float | None = None,
+    inputs: Sequence[DataRef] = (),
+    input_paths: Sequence[str] = (),
 ) -> RunRecord:
     kernels, cas = ctx.require_kernels(), ctx.require_cas()
     store, sid = ctx.store, ctx.session_id
@@ -59,6 +68,11 @@ async def execute_run(
                 code=code,
                 code_hash=chash,
                 env_lock_hash=ctx.env_lock_hash,
+                inputs=list(inputs),
+                input_paths=list(input_paths),
+                environment=getattr(kernel, "environment", None),
+                synthetic=getattr(kernel, "synthetic", False),
+                verification_run=ctx.verification_run,
                 isolation=kernel.isolation,
             ),
             session_id=sid,
@@ -73,6 +87,7 @@ async def execute_run(
         stdout: list[str] = []
         values: dict[str, NamedValue] = {}  # bq.value declarations; last one per name wins
         value_problems: list[str] = []
+        observed_io: set[tuple[str, str, str]] = set()
         end = ExecutionEnd(status=EndStatus.ERROR)
 
         try:
@@ -82,6 +97,20 @@ async def execute_run(
                     break
                 idx = len(outputs)
                 outputs.append(item)
+                if len(observed_io) < 100 and (trace := item.data.get(LINEAGE_MIME)):
+                    try:
+                        row = json.loads(trace)
+                        path, direction, fn = row["path"], row["direction"], row["function"]
+                        if (
+                            isinstance(path, str)
+                            and len(path) <= 1024
+                            and isinstance(fn, str)
+                            and len(fn) <= 60
+                            and direction in ("input", "output")
+                        ):
+                            observed_io.add((path, direction, fn))
+                    except (ValueError, KeyError, TypeError):
+                        pass
                 declared = parse_value(item)
                 if isinstance(declared, NamedValue):
                     values[declared.name] = declared
@@ -135,13 +164,37 @@ async def execute_run(
             )
             raise
 
+    for path, direction, fn in sorted(observed_io):
+        # The kernel reports observations, not proof of what bytes a call used.
+        root = ctx.workdir.resolve()
+        try:
+            resolved = (root / path).resolve()
+            relative = resolved.relative_to(root)
+            if any(part.startswith(".") for part in relative.parts) or not relative.parts:
+                continue
+            digest = (
+                sha256_file(resolved)
+                if resolved.is_file() and resolved.stat().st_size <= 64 * 2**20
+                else None
+            )
+            event = ev.LineageObserved(
+                run_id=run_id,
+                path=relative.as_posix(),
+                direction=direction,  # type: ignore[arg-type]
+                function=fn,
+                post_run_hash=digest,
+            )
+            store.append(event, session_id=sid, actor=Actor.TOOL, causation_id=started.id)
+        except (ValueError, OSError, RuntimeError):
+            continue
+
     stdout_ref = (
         cas.put_bytes("".join(stdout).encode("utf-8"), kind=DataKind.OTHER) if stdout else None
     )
     record = RunRecord(run_id=run_id, status=end.status, outputs=figures, stdout_ref=stdout_ref)
     end_payload: ev.EventPayload
     if end.status is EndStatus.OK:
-        key = run_key(chash, ctx.env_lock_hash, [])
+        key = run_key(chash, ctx.env_lock_hash, (ref.content_hash for ref in inputs))
         record.values = list(values.values())
         end_payload = ev.RunFinished(
             run_id=run_id,

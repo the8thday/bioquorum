@@ -18,10 +18,14 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     event,
+    inspect,
+    select,
 )
 from sqlalchemy.engine import Engine
 
-SCHEMA_VERSION = 1
+from bioquorum.storage.migrations import migrate
+
+SCHEMA_VERSION = 2
 
 metadata = MetaData()
 
@@ -162,6 +166,7 @@ model_calls = Table(
     Column("cache_read_tokens", Integer, nullable=False),
     Column("cache_write_tokens", Integer, nullable=False),
     Column("cost_usd", Float, nullable=False),
+    Column("cost_known", Boolean, nullable=False, server_default="0"),
     Column("latency_ms", Integer, nullable=False),
 )
 
@@ -229,11 +234,28 @@ class Database:
         return db
 
     def create_all(self) -> None:
-        metadata.create_all(self.engine)
         with self.engine.begin() as conn:
-            row = conn.execute(schema_meta.select().where(schema_meta.c.key == "version")).first()
-            if row is None:
+            if conn.dialect.name == "sqlite":
+                conn.exec_driver_sql("BEGIN IMMEDIATE")
+            inspection = inspect(conn)
+            if not inspection.has_table(schema_meta.name):
+                if inspection.has_table(events.name):
+                    raise RuntimeError("BioQuorum database lacks its schema marker")
+                metadata.create_all(conn)
                 conn.execute(schema_meta.insert().values(key="version", value=str(SCHEMA_VERSION)))
+                migrate(conn, fresh=True)
+                return
+            query = select(schema_meta.c.value).where(schema_meta.c.key == "version")
+            version = conn.execute(query).scalar_one_or_none()
+            if version not in ("1", str(SCHEMA_VERSION)):
+                raise RuntimeError(f"Unsupported BioQuorum schema version: {version}")
+            migrate(conn, baseline=version == "1")
+            if version != str(SCHEMA_VERSION):
+                conn.execute(
+                    schema_meta.update()
+                    .where(schema_meta.c.key == "version")
+                    .values(value=str(SCHEMA_VERSION))
+                )
 
     def begin(self):
         return self.engine.begin()

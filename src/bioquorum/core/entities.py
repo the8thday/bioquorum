@@ -123,6 +123,7 @@ class ModelCall(_Entity):
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     cost_usd: float = 0.0
+    cost_known: bool = False
     latency_ms: int = 0
 
 

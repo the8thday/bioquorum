@@ -26,6 +26,7 @@ class PermissionRequest:
     session_id: str | None = None
     project_id: str | None = None
     reason: str = ""
+    request_id: str | None = None
 
 
 @dataclass(frozen=True)

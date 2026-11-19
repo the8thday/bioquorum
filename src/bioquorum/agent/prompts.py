@@ -40,7 +40,7 @@ How to answer (evidence binding):
   contiguous passage of at least a few words: no ellipses, no paraphrase, no added words.
   Put each quote right after the sentence it supports, not gathered at the end of a paragraph.
 - Anything you cannot bind, state without a marker: it is shown as an unverified assertion.
-  Never invent a marker. Bindings are checked mechanically; failures are sent back to you.
+  Never invent a marker. Bindings are checked mechanically.
 """
 
 

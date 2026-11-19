@@ -2,8 +2,10 @@ import pytest
 from pydantic_ai import messages as pa
 from pydantic_ai.models.function import FunctionModel
 
-from bioquorum.core.enums import Classification, ModelRole
-from bioquorum.core.messages import Message, ToolCallPart
+from bioquorum.core.enums import Classification, DataKind, MessageRole, ModelRole
+from bioquorum.core.hashing import sha256_bytes
+from bioquorum.core.messages import ImageRefPart, Message, ToolCallPart, ToolResultPart
+from bioquorum.core.refs import DataRef
 from bioquorum.models import (
     CassetteMissError,
     CassetteMode,
@@ -50,6 +52,82 @@ def types(store):
     return [e.type for e in store.read("S")]
 
 
+async def test_optional_output_limit_reaches_the_provider(store):
+    def limited(_messages, info):
+        assert info.model_settings is not None and info.model_settings.get("max_tokens") == 90
+        return pa.ModelResponse(parts=[pa.TextPart(content="done")])
+
+    client = ModelClient(
+        Router(CONFIG), store, factory=lambda _: FunctionModel(limited), max_output_tokens=90
+    )
+    assert (
+        await client.complete(
+            ModelRole.WORKER,
+            [Message.user("q")],
+            session_id="S",
+            classification=Classification.PUBLIC,
+        )
+    ).message.text() == "done"
+
+
+@pytest.mark.parametrize(
+    ("configured", "enabled", "expected"),
+    [(False, True, False), (True, False, False), (True, True, True)],
+)
+async def test_image_bytes_require_opt_in_and_a_vision_route(store, configured, enabled, expected):
+    data = b"\x89PNG\r\n\x1a\nfixture-image"
+    digest = sha256_bytes(data)
+    image = ImageRefPart(
+        ref=DataRef(
+            uri=f"cas://{digest}", content_hash=digest, size=len(data), kind=DataKind.FIGURE
+        ),
+        mime="image/png",
+    )
+    call = ToolCallPart(call_id="figure-call", name="python_execute", args={"code": "..."})
+    history = [
+        Message.user("Inspect the result"),
+        Message(role=MessageRole.ASSISTANT, parts=[call]),
+        Message.tool(ToolResultPart(call_id=call.call_id, content=[image])),
+    ]
+    cfg = ModelsConfig.from_dict(
+        {
+            "providers": {"ollama": {}},
+            "roles": {"worker": "ollama:m"},
+            "models": {"ollama:m": {"vision": configured}},
+        }
+    )
+    loads = []
+
+    def load(ref):
+        loads.append(ref)
+        return data
+
+    def inspect(messages, _info):
+        finals = messages[-1].parts
+        ret = finals[0]
+        assert isinstance(ret, pa.ToolReturnPart)
+        observed = any(
+            isinstance(part, pa.BinaryContent) and part.data == data for part in ret.files
+        )
+        assert observed is expected
+        return pa.ModelResponse(
+            parts=[pa.TextPart(content="image present" if observed else "text only")]
+        )
+
+    client = ModelClient(
+        Router(cfg),
+        store,
+        factory=lambda _: FunctionModel(inspect),
+        image_loader=load if enabled else None,
+    )
+    result = await client.complete(
+        ModelRole.WORKER, history, session_id="S", classification=Classification.PUBLIC
+    )
+    assert result.message.text() == ("image present" if expected else "text only")
+    assert len(loads) == int(expected)
+    assert "fixture-image" not in str([e.payload for e in store.read("S")])
+
+
 async def test_success_writes_started_and_finished(store):
     client = ModelClient(
         Router(CONFIG),
@@ -69,6 +147,38 @@ async def test_success_writes_started_and_finished(store):
     (row,) = snapshot(store.db)["model_calls"]
     assert row["provider"] == "openai" and row["role"] == "worker" and row["input_tokens"] > 0
     assert row["cost_usd"] > 0
+
+
+async def test_stream_persists_only_completed_reply_and_prices(store):
+    from bioquorum.core import events as ev
+
+    async def chunks(messages, info):
+        yield "first "
+        assert types(store) == ["model_call_started"]
+        yield "second"
+
+    cfg = ModelsConfig.from_dict(
+        {
+            "providers": {"ollama": {}},
+            "roles": {"worker": "ollama:m"},
+            "models": {"ollama:m": {"input_usd_per_million": 1, "output_usd_per_million": 2}},
+        }
+    )
+    client = ModelClient(
+        Router(cfg), store, factory=lambda route: FunctionModel(stream_function=chunks)
+    )
+    deltas: list[str] = []
+    result = await client.complete(
+        ModelRole.WORKER,
+        [Message.user("q")],
+        session_id="S",
+        classification=Classification.PUBLIC,
+        on_delta=deltas.append,
+    )
+    tail = store.read("S")[-1].parsed()
+    assert isinstance(tail, ev.ModelCallFinished)
+    assert result.message.text() == "".join(deltas) == "first second"
+    assert tail.cost_known and tail.cost_usd > 0
 
 
 async def test_fallback_on_failure_and_secrets_redacted(store):

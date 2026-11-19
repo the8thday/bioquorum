@@ -23,6 +23,16 @@ def resolve(path: str, ctx: ToolContext) -> Path:
     return p.resolve()
 
 
+def _private(path: Path, ctx: ToolContext) -> bool:
+    # Scope hidden state to the project (some demo projects live under a global .bioquorum).
+    parent = ctx.workdir.resolve()
+    resolved = path.resolve()
+    parts = (
+        resolved.relative_to(parent).parts if resolved.is_relative_to(parent) else resolved.parts
+    )
+    return any(part.casefold() == ".bioquorum" for part in parts)
+
+
 class ReadFileArgs(BaseModel):
     path: str = Field(description="File path, absolute or relative to the project directory.")
     max_chars: int = Field(default=20_000, gt=0, le=200_000)
@@ -34,6 +44,10 @@ class ListFilesArgs(BaseModel):
 
 async def _read_file(args: ReadFileArgs, ctx: ToolContext) -> ToolResult:
     p = resolve(args.path, ctx)
+    if _private(p, ctx):
+        return ToolResult.text(
+            "Private project state is unavailable through file tools.", is_error=True
+        )
     if not p.is_file():
         return ToolResult.text(f"not a file: {p}", is_error=True)
     size = p.stat().st_size
@@ -49,9 +63,16 @@ async def _read_file(args: ReadFileArgs, ctx: ToolContext) -> ToolResult:
 
 async def _list_files(args: ListFilesArgs, ctx: ToolContext) -> ToolResult:
     p = resolve(args.path, ctx)
+    if _private(p, ctx):
+        return ToolResult.text(
+            "Private project state is unavailable through file tools.", is_error=True
+        )
     if not p.is_dir():
         return ToolResult.text(f"not a directory: {p}", is_error=True)
-    entries = sorted(p.iterdir(), key=lambda e: e.name)
+    entries = sorted(
+        (e for e in p.iterdir() if not _private(e, ctx) and (not e.is_symlink() or e.exists())),
+        key=lambda e: e.name,
+    )
     lines = [
         f"{e.name}/" if e.is_dir() else f"{e.name}\t{e.stat().st_size}" for e in entries[:MAX_LIST]
     ]

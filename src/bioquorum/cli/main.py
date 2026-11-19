@@ -14,9 +14,8 @@ from rich.console import Console
 from rich.table import Table
 
 from bioquorum import __version__
-from bioquorum.cli import workspace as wsp
+from bioquorum.application import workspace as wsp
 from bioquorum.core.enums import Classification, ModelRole, PermissionClass
-from bioquorum.mcp.client import McpConnection
 from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
 from bioquorum.models import ConfigError, ModelUnavailableError, Router
@@ -39,6 +38,25 @@ app.add_typer(db_app, name="db")
 app.add_typer(project_app, name="project")
 app.add_typer(mcp_app, name="mcp")
 console = Console()
+
+
+@app.command("egress")
+def egress_cmd(
+    allow: Annotated[list[str], typer.Option("--allow", help="Exact public HTTPS hostname")],
+    port: Annotated[int, typer.Option(min=0, max=65535)] = 0,
+) -> None:
+    """Run the local HTTPS egress proxy."""
+    from bioquorum.server.egress import serve_egress
+
+    try:
+        asyncio.run(serve_egress(allow, port))
+    except (OSError, ValueError) as exc:
+        console.print(str(exc))
+        raise typer.Exit(1) from exc
+    except KeyboardInterrupt:
+        pass
+
+
 err = Console(stderr=True)  # stdout belongs to the MCP protocol in `bq mcp serve`
 
 DbPath = Annotated[
@@ -185,9 +203,19 @@ def run_cmd(
     session: Annotated[str | None, typer.Option(help="Continue this session")] = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Grant every permission")] = False,
     review: Annotated[bool, typer.Option(help="Review the answer afterwards")] = True,
-    max_steps: Annotated[int, typer.Option(help="Model calls before forcing an answer")] = 12,
+    max_steps: Annotated[
+        int | None,
+        typer.Option(min=1, help="Exploration steps (default: 12 when no budget is configured)"),
+    ] = None,
+    stream: Annotated[bool | None, typer.Option(help="Show live model generation progress")] = None,
+    online_citations: Annotated[
+        bool,
+        typer.Option(
+            "--online-citations", help="Resolve retrieved PMIDs and DOIs online (public projects)"
+        ),
+    ] = False,
 ) -> None:
-    """Ask a question: the worker model plans, runs tools, answers; then the answer is reviewed."""
+    """Ask a question, run tools, and review the resulting answer."""
     from bioquorum.cli.runner import run_question
 
     ws = _load(project)
@@ -203,12 +231,130 @@ def run_cmd(
                 yes=yes,
                 review=review,
                 max_steps=max_steps,
+                stream=stream,
+                online_citations=online_citations,
             )
         )
-    except (ConfigError, PolicyViolation, ModelUnavailableError) as exc:
+    except (ConfigError, wsp.WorkspaceError, PolicyViolation, ModelUnavailableError) as exc:
         err.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
     raise typer.Exit(code)
+
+
+@app.command("workbench")
+def workbench_cmd(
+    project: Annotated[Path | None, typer.Option("--project", "-C")] = None,
+    port: Annotated[int, typer.Option(min=0, max=65535)] = 0,
+    browser: bool = True,
+) -> None:
+    """Open the local research workbench."""
+    from bioquorum.server.launch import launch
+
+    try:
+        launch(project, port=port, browser=browser)
+    except (wsp.WorkspaceError, OSError, ValueError) as exc:
+        err.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
+
+
+@app.command("skills")
+def skills_cmd(project: ProjectDir = Path(".")) -> None:
+    """List available project skills without opening their bodies."""
+    from bioquorum.skills.loader import discover
+
+    ws = _load(project)
+    enabled = ws.agent_options().skills
+    console.print_json(
+        data={
+            "enabled": enabled,
+            "skills": {
+                key: item.description for key, item in discover(ws.state_dir / "skills").items()
+            },
+        }
+    )
+
+
+@app.command("note")
+def note_cmd(
+    session: str,
+    file: Annotated[Path | None, typer.Option(help="Save your edited note from this file.")] = None,
+    revision: Annotated[
+        str | None, typer.Option(help="Revision returned when you read the note.")
+    ] = None,
+    project: ProjectDir = Path("."),
+) -> None:
+    """Show the project note, or save an explicit researcher edit."""
+    from bioquorum.application import project_memory
+    from bioquorum.application.controls import ResearchControls
+
+    controls = ResearchControls(_load(project))
+    try:
+        if file is None:
+            result = project_memory.snapshot(controls, session)
+        else:
+            edit = project_memory.SaveNote(
+                body=file.read_text(encoding="utf-8"), prior_revision=revision
+            )
+            result = asyncio.run(project_memory.save(controls, session, edit))
+    except (LookupError, OSError, ValueError) as exc:
+        err.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
+    console.print_json(data=result)
+
+
+@app.command("rerun")
+def rerun_cmd(session: str, claim: str, project: ProjectDir = Path(".")) -> None:
+    """Compare a reviewed claim's recorded runs with fresh executions."""
+    from bioquorum.application.controls import ResearchControls
+    from bioquorum.application.verify import rerun
+
+    try:
+        result = asyncio.run(rerun(ResearchControls(_load(project)), session, claim))
+        console.print_json(data=result)
+    except (ValueError, LookupError) as exc:
+        err.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
+
+
+@app.command("replicate")
+def replicate_cmd(
+    session: str,
+    claim: str,
+    request: Annotated[
+        Path | None, typer.Option(help="Explicit blind request with approved estimate.")
+    ] = None,
+    project: ProjectDir = Path("."),
+) -> None:
+    """Show a replication estimate, or execute an explicitly prepared blind request."""
+    from bioquorum.application.controls import ResearchControls
+    from bioquorum.application.verify import BlindRequest, replicate, replication_quote
+
+    controls = ResearchControls(_load(project))
+    try:
+        if request is None:
+            result = replication_quote(controls, session, claim)
+        else:
+            plan = BlindRequest.model_validate_json(request.read_bytes())
+            result = asyncio.run(replicate(controls, session, claim, plan))
+        console.print_json(data=result)
+    except (ValueError, LookupError, OSError) as exc:
+        err.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
+
+
+@app.command("export")
+def export_cmd(session: str, project: ProjectDir = Path(".")) -> None:
+    """Export a portable research bundle for the selected session."""
+    from bioquorum.application.controls import ResearchControls
+    from bioquorum.application.verify import bundle_file, export_bundle
+
+    try:
+        controls = ResearchControls(_load(project))
+        result = asyncio.run(export_bundle(controls, session))
+        console.print(str(bundle_file(controls, session, result["id"])), markup=False)
+    except (ValueError, LookupError) as exc:
+        err.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
 
 
 @app.command("review")
@@ -221,6 +367,12 @@ def review_cmd(
     model_checks: Annotated[
         bool, typer.Option(help="Also run citation_supports with the reviewer model")
     ] = True,
+    online_citations: Annotated[
+        bool,
+        typer.Option(
+            "--online-citations", help="Resolve retrieved PMIDs and DOIs online (public projects)"
+        ),
+    ] = False,
 ) -> None:
     """Review the last answer of a session claim by claim."""
     from bioquorum.cli.runner import print_review, review_session
@@ -239,6 +391,7 @@ def review_cmd(
                 session_id=sid,
                 answer_file=answer_file,
                 model_checks=model_checks,
+                online_citations=online_citations,
             )
         )
     except (NothingToReviewError, ConfigError, PolicyViolation, ModelUnavailableError) as exc:
@@ -307,7 +460,7 @@ async def _serve(ws: wsp.Workspace, allow: list[PermissionClass], external: bool
     async with AsyncExitStack() as stack:
         for cfg in servers:
             try:
-                conn = await stack.enter_async_context(McpConnection(cfg))
+                conn = await stack.enter_async_context(ws.mcp_connection(cfg))
                 specs = await register_external(registry, conn)
                 err.print(f"mcp server {cfg.name}: {len(specs)} tools")
             except Exception as exc:  # one broken server must not take the others down
@@ -352,7 +505,7 @@ def mcp_record(
     existing = Cassette.load(out) if out.exists() else None
 
     async def go() -> Cassette:
-        async with McpConnection(cfg) as conn:
+        async with ws.mcp_connection(cfg) as conn:
             return await record(conn, calls, into=existing)
 
     cassette = asyncio.run(go())

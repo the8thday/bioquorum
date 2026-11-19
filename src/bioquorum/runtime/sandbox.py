@@ -12,6 +12,7 @@ What the sandboxed kernel gets:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -52,6 +53,7 @@ class Isolation(StrEnum):
 
     BWRAP = "bwrap"  # sandboxed, no network
     BWRAP_NET = "bwrap+net"  # sandboxed files and env, network allowed
+    SEATBELT = "seatbelt"
     NONE = "none"  # not isolated
 
 
@@ -65,6 +67,7 @@ class SandboxSpec:
     read_only: Sequence[str | Path] = ()  # data dirs; files inside workdir to protect
     hidden: Sequence[str | Path] = ()  # replaced by an empty dir (or empty file)
     network: bool = False
+    macos: bool = False
 
 
 @cache
@@ -83,17 +86,104 @@ def bwrap_available() -> bool:
         return False
 
 
-def choose_isolation(spec: SandboxSpec | None, *, available: bool, required: bool) -> Isolation:
+@cache
+def seatbelt_available() -> bool:
+    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
+        return False
+    try:
+        probe = subprocess.run(
+            [
+                "/usr/bin/sandbox-exec",
+                "-p",
+                "(version 1)(deny default)(allow process-exec)(allow file-read*)(allow sysctl-read)",
+                "/usr/bin/true",
+            ],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return probe.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def choose_isolation(
+    spec: SandboxSpec | None, *, available: bool, required: bool, macos_supported: bool = False
+) -> Isolation:
     """Decide the isolation for a new kernel, or raise if the requirement cannot be met."""
     if spec is not None and available:
         return Isolation.BWRAP_NET if spec.network else Isolation.BWRAP
+    if spec is not None and spec.macos and macos_supported:
+        if spec.network:
+            raise IsolationUnavailable(
+                "The macOS isolation profile requires kernel network to be disabled."
+            )
+        return Isolation.SEATBELT
     if required:
         raise IsolationUnavailable(
             "This project requires an isolated kernel, but bubblewrap isolation is not "
-            "available on this machine (Linux with `bwrap` and unprivileged user namespaces "
-            "is needed). Refusing to run code unisolated."
+            "available on this machine. Linux requires bubblewrap and user namespaces. "
+            "macOS requires an enabled and available seatbelt profile."
         )
     return Isolation.NONE
+
+
+def _seatbelt_path(path: str | Path) -> str:
+    return f"(subpath {json.dumps(str(Path(path).resolve()), ensure_ascii=False)})"
+
+
+def seatbelt_argv(
+    spec: SandboxSpec,
+    *,
+    executable: str,
+    writable: Sequence[str | Path],
+) -> list[str]:
+    """Use a default-deny profile with private Unix IPC and selected filesystem roots."""
+    workdir = Path(spec.workdir).resolve()
+    env_roots, _ = interpreter_mounts(executable)
+    read_roots = (
+        workdir,
+        *spec.read_only,
+        *writable,
+        *env_roots,
+        "/System",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/Library/Apple/System",
+        "/private/var/db/dyld",
+        "/dev",
+    )
+    writes = (workdir, *writable)
+    profile = [
+        "(version 1)",
+        "(deny default)",
+        '(import "dyld-support.sb")',
+        "(allow sysctl-read)",
+        "(allow process-exec process-fork)",
+        "(allow signal (target self))",
+        "(allow file-read-metadata)",
+        "(allow file-read* file-map-executable "
+        + " ".join(_seatbelt_path(root) for root in read_roots)
+        + ")",
+        "(allow file-write* "
+        + " ".join(_seatbelt_path(root) for root in writes)
+        + ' (literal "/dev/null"))',
+    ]
+    for path in writable:
+        socket_policy = _seatbelt_path(path)
+        profile.extend(
+            (
+                f"(allow network-bind (local unix-socket {socket_policy}))",
+                f"(allow network-outbound (remote unix-socket {socket_policy}))",
+                f"(allow network-inbound (local unix-socket {socket_policy}))",
+            )
+        )
+    for path in spec.read_only:
+        profile.append(f"(deny file-write* {_seatbelt_path(path)})")
+    for path in spec.hidden:
+        profile.append(f"(deny file-read* file-write* {_seatbelt_path(path)})")
+    return ["/usr/bin/sandbox-exec", "-p", "\n".join(profile)]
 
 
 def scrub_env(environ: Mapping[str, str]) -> dict[str, str]:

@@ -8,14 +8,15 @@ same checks run on a live session (``from_events``) and on the injected-error co
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from bioquorum.core import events as ev
-from bioquorum.core.enums import ClaimKind
+from bioquorum.core.enums import ClaimKind, OutputStream
 from bioquorum.core.messages import TextPart
-from bioquorum.core.refs import NamedValue
+from bioquorum.core.refs import NamedValue, QuoteRef
+from bioquorum.tools.builtin.citation import CITATION_LOOKUP
 
 KERNEL_TOOLS = frozenset({"python_execute"})
 """Their output is not a quotable source: text the kernel prints is not evidence (ADR-014)."""
@@ -64,27 +65,63 @@ class Source:
     call_id: str
     tool: str
     text: str
+    excerpt: str | None = None
+    source_event_id: str | None = None
+    task_id: str | None = None
 
 
 def result_text(part) -> str:
     return "\n".join(c.text for c in part.content if isinstance(c, TextPart))
 
 
+NON_SOURCE_TOOLS = {
+    *KERNEL_TOOLS,
+    "record_plan_step",
+    "request_plan_deviation",
+    "replay_recorded_run",
+    "stage_blind_inputs",
+    "export_research_bundle",
+    "open_skill",
+    "read_project_note",
+    "draft_project_note",
+    "save_project_note",
+    "delegate_literature",
+    "stage_tool_source",
+}
+
+
 def is_source(p: ev.ToolCallFinished) -> bool:
-    return p.tool not in KERNEL_TOOLS and not p.result.is_error
+    return (
+        p.tool not in NON_SOURCE_TOOLS and p.tool != CITATION_LOOKUP.name and not p.result.is_error
+    )
+
+
+def _sources(event: ev.EventPayload) -> Iterator[Source]:
+    if isinstance(event, ev.ToolCallFinished) and is_source(event):
+        yield Source("", event.call_id, event.tool, result_text(event.result))
+    elif isinstance(event, ev.LiteratureFinished) and event.outcome == "completed":
+        for excerpt in event.sources:
+            header = f"{excerpt.identifier}\n" if excerpt.identifier else ""
+            yield Source(
+                "",
+                excerpt.call_id,
+                excerpt.tool,
+                header + excerpt.text,
+                excerpt.text,
+                excerpt.source_event_id,
+                event.task_id,
+            )
 
 
 def source_aliases(events: Iterable[ev.Event]) -> dict[str, str]:
-    """call_id -> alias for every quotable tool result, numbered in event order. The agent
-    shows the same aliases to the model, so both sides agree without storing them."""
+    """Assign stable source aliases for direct tool results and approved excerpts."""
     out: dict[str, str] = {}
-    for e in events:
-        if e.type != ev.ToolCallFinished.event_type:
+    for event in events:
+        if event.type not in (ev.ToolCallFinished.event_type, ev.LiteratureFinished.event_type):
             continue
-        p = e.parsed()
-        assert isinstance(p, ev.ToolCallFinished)
-        if is_source(p) and p.call_id not in out:
-            out[p.call_id] = f"s{len(out) + 1}"
+        for source in _sources(event.parsed()):
+            if source.call_id not in out:
+                out[source.call_id] = f"s{len(out) + 1}"
     return out
 
 
@@ -145,6 +182,7 @@ class Evidence:
         values: dict[str, DeclaredValue] = {}
         sources: list[Source] = []
         citations: dict[str, CitationEvidence] = {}
+        source_ids: set[str] = set()
         plan: dict[str, list[str]] = {}
         done: dict[str, set[int]] = {}
         question = ""
@@ -152,21 +190,29 @@ class Evidence:
             p = e.parsed()
             if isinstance(p, ev.UserMessage) and not question:
                 question = p.message.text()
-            elif isinstance(p, ev.RunStarted):
+            elif isinstance(p, ev.RunStarted) and not p.verification_run:
                 runs[p.run_id] = {"code": p.code, "stdout": [], "ok": False}
             elif isinstance(p, ev.RunOutput) and p.run_id in runs and p.text:
-                runs[p.run_id]["stdout"].append(p.text)
+                fragments = runs[p.run_id]["stdout"]
+                if p.stream is OutputStream.DISPLAY:
+                    if fragments and not fragments[-1].endswith("\n"):
+                        fragments.append("\n")
+                    fragments.append(p.text.rstrip("\n") + "\n")
+                else:
+                    fragments.append(p.text)
             elif isinstance(p, ev.RunFinished) and p.run_id in runs:
                 runs[p.run_id]["ok"] = True
                 for nv in p.values:
                     values.pop(nv.name, None)  # re-insert: keep "latest" also in order
                     values[nv.name] = DeclaredValue(nv, p.run_id)
-            elif isinstance(p, ev.ToolCallFinished) and p.tool not in KERNEL_TOOLS:
-                text = result_text(p.result)
-                if is_source(p) and all(s.call_id != p.call_id for s in sources):
-                    sources.append(Source(f"s{len(sources) + 1}", p.call_id, p.tool, text))
-                for cit in citations_in_text(text):
-                    citations[cit.key] = _richer(citations.get(cit.key), cit)
+            elif isinstance(p, ev.ToolCallFinished | ev.LiteratureFinished):
+                for source in _sources(p):
+                    if source.call_id in source_ids:
+                        continue
+                    source_ids.add(source.call_id)
+                    sources.append(replace(source, alias=f"s{len(sources) + 1}"))
+                    for cit in citations_in_text(source.text):
+                        citations[cit.key] = _richer(citations.get(cit.key), cit)
             elif isinstance(p, ev.PlanProposed):
                 plan[p.plan_id] = list(p.steps)
             elif isinstance(p, ev.PlanStepDone):
@@ -198,6 +244,8 @@ class ClaimInput:
     claim_id: str | None = None
     run_refs: tuple[str, ...] = ()
     """Runs the claim explicitly relies on (Claim refs, or "run r2" in its text)."""
+    quote_refs: tuple[QuoteRef, ...] = ()
+    """Resolved and checked quote bindings supplied by the review service."""
 
     def all_run_refs(self) -> tuple[str, ...]:
         named = re.findall(r"\b[Rr]un\s+([A-Za-z0-9]+)\b", self.text)

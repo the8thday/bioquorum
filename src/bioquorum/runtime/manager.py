@@ -18,6 +18,8 @@ def jupyter_factory(
     *,
     sandbox: sb.SandboxSpec | None = None,
     require_isolation: bool = False,
+    python_executable: Path | None = None,
+    observe_lineage: bool = False,
 ) -> KernelFactory:
     """Factory for real Jupyter kernels started in ``cwd`` (the project root).
 
@@ -28,17 +30,28 @@ def jupyter_factory(
 
     async def make(language: str) -> Kernel:
         mode = sb.choose_isolation(
-            sandbox, available=sb.bwrap_available(), required=require_isolation
+            sandbox,
+            available=sb.bwrap_available(),
+            required=require_isolation,
+            macos_supported=bool(sandbox and sandbox.macos and sb.seatbelt_available()),
         )
         from bioquorum.runtime.jupyter import JupyterKernel  # lazy: jupyter_client is heavy
 
         kernel_name = {"python": "python3", "r": "ir"}.get(language, language)
-        return await JupyterKernel(
+        kernel = JupyterKernel(
             kernel_name=kernel_name,
             language=language,
             cwd=cwd,
+            python_executable=python_executable if language == "python" else None,
+            observe_lineage=observe_lineage,
             sandbox=sandbox if mode is not sb.Isolation.NONE else None,
-        ).start()
+            isolation=mode,
+        )
+        try:
+            return await kernel.start()
+        except BaseException:
+            await kernel.shutdown()
+            raise
 
     return make
 

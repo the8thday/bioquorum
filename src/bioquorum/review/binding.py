@@ -116,8 +116,12 @@ def _mentions(source: Source, key: str) -> bool:
     return key.lower() in source.text.lower()
 
 
-def _contains(source: Source, quote: str) -> bool:
-    return any(quote in form for form in _variants(source.text))
+def quote_matches(source: Source, quote: str) -> bool:
+    """For a delegated source, only the approved excerpt is quotable."""
+    normalized = _norm(quote)
+    return len(normalized) >= MIN_QUOTE and any(
+        normalized in form for form in _variants(source.excerpt or source.text)
+    )
 
 
 # ----------------------------------------------------------------- resolution
@@ -171,7 +175,7 @@ def _quote(m: re.Match[str], evidence: Evidence) -> Binding:
         candidates = [s for s in evidence.sources if _mentions(s, src)]
         if not candidates:
             return fail(f"no tool result in this session mentions {src}")
-    hit = next((s for s in candidates if _contains(s, quote)), None)
+    hit = next((s for s in candidates if quote_matches(s, quote)), None)
     if hit is None:
         where = src if _ALIAS.fullmatch(src) else f"the results that mention {src}"
         return fail(f"quote not found verbatim in {where}")

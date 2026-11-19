@@ -27,6 +27,34 @@ async def test_images_and_errors_convert(fake_ot):
         assert bad.is_error  # the SDK hides server-side exception text
 
 
+async def test_transport_failure_reopens_for_next_call_without_resending(fake_ot, monkeypatch):
+    from mcp import Client
+    from mcp.shared.exceptions import MCPError
+    from mcp.types import CONNECTION_CLOSED
+
+    clients = []
+
+    def build(_target):
+        client = Client(fake_ot, mode="auto")
+        clients.append(client)
+        if len(clients) == 1:
+
+            async def disconnect(*args, **kwargs):
+                raise MCPError(CONNECTION_CLOSED, "lost connection")
+
+            monkeypatch.setattr(client, "call_tool", disconnect)
+        return client
+
+    connection = McpConnection(CFG, target=fake_ot)
+    monkeypatch.setattr(connection, "_new_client", build)
+    async with connection as conn:
+        with pytest.raises(MCPError):
+            await conn.call_tool("target_info", {"symbol": "X"})
+        assert len(clients) == 1
+        assert not (await conn.call_tool("target_info", {"symbol": "X"})).is_error
+        assert len(clients) == 2
+
+
 def test_config_parsing_and_defaults():
     remote = ServerConfig.from_dict("ot", {"url": "https://x/mcp"})
     assert remote.clearance is Classification.PUBLIC  # remote servers default to public

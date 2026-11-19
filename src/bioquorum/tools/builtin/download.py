@@ -137,6 +137,8 @@ def download_tool(
             async with httpx2.AsyncClient(
                 transport=transport,
                 follow_redirects=False,
+                proxy=ctx.outbound_proxy,
+                trust_env=ctx.outbound_proxy is None,
                 timeout=httpx2.Timeout(60.0, connect=30.0),
                 headers={"user-agent": _USER_AGENT},
             ) as client:

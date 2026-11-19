@@ -1,7 +1,7 @@
 import pytest
 from typer.testing import CliRunner
 
-from bioquorum.cli import workspace as wsp
+from bioquorum.application import workspace as wsp
 from bioquorum.cli.main import app
 from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.policy.permissions import PermissionRequest
@@ -114,8 +114,21 @@ def test_models_command_shows_confidential_block(tmp_path, monkeypatch):
 # ------------------------------------------------------------ kernel isolation (ADR-017)
 
 
+def test_proxy_managed_public_projects_fail_closed_without_kernel_isolation(tmp_path, monkeypatch):
+    from bioquorum.runtime.sandbox import IsolationUnavailable
+
+    monkeypatch.setattr("bioquorum.application.workspace.bwrap_available", lambda: False)
+    project = _project(tmp_path, Classification.PUBLIC)
+    project.config = {"security": {"outbound_proxy": "http://127.0.0.1:8888"}}
+    with pytest.raises(IsolationUnavailable):
+        project.kernel_isolation()
+    project.config["kernel"] = {"network": True}
+    with pytest.raises(wsp.WorkspaceError, match="Kernel network is unavailable"):
+        project.kernel_isolation()
+
+
 def _project(tmp_path, classification, toml=""):
-    from bioquorum.cli import workspace as wsp
+    from bioquorum.application import workspace as wsp
 
     wsp.init_project(tmp_path, classification=classification)
     (tmp_path / "bioquorum.toml").write_text(toml)
@@ -138,7 +151,7 @@ def test_sandbox_protects_state_config_and_data(tmp_path):
 def test_only_public_projects_may_run_unisolated(tmp_path, monkeypatch):
     import pytest
 
-    from bioquorum.cli import workspace as wsp
+    from bioquorum.application import workspace as wsp
     from bioquorum.core.enums import Classification
     from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
 
@@ -162,7 +175,7 @@ def test_only_public_projects_may_run_unisolated(tmp_path, monkeypatch):
 def test_kernel_network_is_a_public_only_choice(tmp_path, monkeypatch):
     import pytest
 
-    from bioquorum.cli import workspace as wsp
+    from bioquorum.application import workspace as wsp
     from bioquorum.core.enums import Classification
     from bioquorum.runtime.sandbox import Isolation
 
@@ -178,11 +191,11 @@ def test_kernel_network_is_a_public_only_choice(tmp_path, monkeypatch):
         _project(tmp_path / "int", Classification.INTERNAL, toml).kernel_isolation()
 
 
-def test_agent_switches_default_on_and_can_be_turned_off(tmp_path):
+def test_agent_binding_defaults_and_retry_opt_in(tmp_path):
     ws = wsp.init_project(tmp_path)
-    assert ws.agent_options() == wsp.AgentOptions(binding=True, binding_retries=2)
-    (tmp_path / "bioquorum.toml").write_text("[agent]\nbinding = false\nbinding_retries = 0\n")
-    assert wsp.load(tmp_path).agent_options() == wsp.AgentOptions(binding=False, binding_retries=0)
+    assert ws.agent_options() == wsp.AgentOptions(binding=True, binding_retries=0)
+    (tmp_path / "bioquorum.toml").write_text("[agent]\nbinding = false\nbinding_retries = 2\n")
+    assert wsp.load(tmp_path).agent_options() == wsp.AgentOptions(binding=False, binding_retries=2)
     (tmp_path / "bioquorum.toml").write_text("[agent]\nbinding_retries = 5\n")
     with pytest.raises(wsp.WorkspaceError):
         wsp.load(tmp_path).agent_options()  # above the cap of 2 (ARCHITECTURE.md §6.5)

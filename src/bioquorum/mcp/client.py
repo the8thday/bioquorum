@@ -7,14 +7,20 @@ tools as ToolSpecs happens one layer up in ``tools/external.py``: this package s
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
-from contextlib import AsyncExitStack
+from collections.abc import Callable
+from contextlib import AbstractContextManager, AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx2
 from mcp import Client, StdioServerParameters
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
+from mcp.types import CONNECTION_CLOSED, INVALID_REQUEST
 
 from bioquorum.core.enums import Classification
 
@@ -41,6 +47,8 @@ class ServerConfig:
     replay: str | None = None
     """Path to a recorded cassette. When set, the live server is never contacted."""
     protocol: str | None = None
+    isolated: bool = False
+    read_paths: tuple[str, ...] = ()
     """MCP version negotiation: ``legacy`` (initialize handshake) or ``auto`` (probe first).
     Default: ``legacy`` for stdio servers, since some (e.g. BioMCP 0.9) crash after the
     ``auto`` probe; ``auto`` for URLs."""
@@ -58,6 +66,10 @@ class ServerConfig:
             raise ValueError(f"mcp server '{self.name}': needs command, url or replay")
         if _NAME_OK.search(self.name):
             raise ValueError(f"mcp server name '{self.name}' may only use [A-Za-z0-9_-]")
+        if type(self.isolated) is not bool or (self.isolated and (not self.command or self.env)):
+            raise ValueError(
+                "Offline MCP isolation requires a stdio command with no custom environment"
+            )
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> ServerConfig:
@@ -72,6 +84,8 @@ class ServerConfig:
             timeout_s=float(data.get("timeout_s", 60.0)),
             replay=data.get("replay"),
             protocol=data.get("protocol"),
+            isolated=data.get("isolated", False),
+            read_paths=tuple(data.get("read_paths", ())),
         )
 
 
@@ -87,6 +101,13 @@ class RemoteTool:
 class RemoteImage:
     mime: str
     data: bytes
+
+
+@dataclass(frozen=True)
+class StdioLaunch:
+    argv: tuple[str, ...]
+    cwd: str
+    env: dict[str, str]
 
 
 @dataclass
@@ -128,8 +149,24 @@ class McpConnection:
     ``target`` overrides the config's transport; tests pass an in-process server.
     """
 
-    def __init__(self, config: ServerConfig, *, target: Any = None) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        *,
+        target: Any = None,
+        outbound_proxy: str | None = None,
+        isolated_stdio: Callable[[], AbstractContextManager[StdioLaunch]] | None = None,
+    ) -> None:
         self.config = config
+        self._outbound_proxy = outbound_proxy
+        self._isolated_stdio = isolated_stdio if target is None and config.replay is None else None
+        if config.replay is None and target is None:
+            if config.isolated and isolated_stdio is None:
+                raise ValueError("Offline MCP isolation is unavailable")
+            if config.command and outbound_proxy and not config.isolated:
+                raise ValueError(
+                    "The outbound proxy requires stdio MCP commands to run offline in isolation"
+                )
         if target is None and config.replay is not None:
             from bioquorum.mcp.replay import Cassette, replay_server
 
@@ -142,24 +179,111 @@ class McpConnection:
                 target = StdioServerParameters(
                     command=config.command, args=list(config.args), env=config.env
                 )
-        self._client = Client(target, read_timeout_seconds=config.timeout_s, mode=config.mode)
-        self._stack: AsyncExitStack | None = None
+        self._target = target
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task[None] | None = None
+        self._stop = asyncio.Event()
+        self._client: Client | None = None
+        self._active = False
+
+    def _new_client(self, target: Any) -> Client:
+        return Client(target, read_timeout_seconds=self.config.timeout_s, mode=self.config.mode)
+
+    async def _keep_open(self, ready: asyncio.Future[Client], stop: asyncio.Event) -> None:
+        # SDK transports own AnyIO task groups. Enter and exit them in the same task,
+        # independently of which caller observes a disconnect or starts the next request.
+        try:
+            async with AsyncExitStack() as stack:
+                target = self._target
+                if self._isolated_stdio is not None:
+                    prepared = stack.enter_context(self._isolated_stdio())
+                    target = StdioServerParameters(
+                        command=prepared.argv[0],
+                        args=list(prepared.argv[1:]),
+                        env=prepared.env,
+                        cwd=prepared.cwd,
+                    )
+                if self._outbound_proxy is not None and isinstance(target, str):
+                    http = await stack.enter_async_context(
+                        httpx2.AsyncClient(
+                            proxy=self._outbound_proxy,
+                            trust_env=False,
+                            timeout=httpx2.Timeout(self.config.timeout_s),
+                        )
+                    )
+                    target = streamable_http_client(target, http_client=http)
+                client = await stack.enter_async_context(self._new_client(target))
+                ready.set_result(client)
+                await stop.wait()
+        except Exception as exc:
+            if not ready.done():
+                ready.set_exception(exc)
+
+    async def _close(self) -> None:
+        self._client = None
+        if self._owner is not None:
+            self._stop.set()
+            await self._owner
+            self._owner = None
+
+    async def _connected(self) -> Client:
+        async with self._lock:
+            if not self._active:
+                raise RuntimeError("MCP connection is not open")
+            if self._client is not None and self._owner is not None and not self._owner.done():
+                return self._client
+            await self._close()
+            ready = asyncio.get_running_loop().create_future()
+            self._stop = asyncio.Event()
+            self._owner = asyncio.create_task(self._keep_open(ready, self._stop))
+            try:
+                client = await asyncio.shield(ready)
+            except BaseException:
+                self._owner.cancel()
+                await asyncio.gather(self._owner, return_exceptions=True)
+                self._owner = None
+                if ready.done() and not ready.cancelled():
+                    ready.exception()
+                raise
+            self._client = client
+            return client
+
+    async def _invalidate(self, client: Client, exc: Exception) -> None:
+        closed = isinstance(exc, MCPError) and (
+            exc.code == CONNECTION_CLOSED
+            or (exc.code == INVALID_REQUEST and exc.message == "Session terminated")
+        )
+        if closed or isinstance(exc, ConnectionError | httpx2.TransportError):
+            async with self._lock:
+                if self._client is client:
+                    self._client = None
 
     async def __aenter__(self) -> McpConnection:
-        self._stack = AsyncExitStack()
-        await self._stack.enter_async_context(self._client)
+        if self._active:
+            raise RuntimeError("MCP connection is already open")
+        self._active = True
+        try:
+            await self._connected()
+        except BaseException:
+            self._active = False
+            raise
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        if self._stack is not None:
-            await self._stack.aclose()
-            self._stack = None
+        async with self._lock:
+            self._active = False
+            await self._close()
 
     async def list_tools(self) -> list[RemoteTool]:
+        client = await self._connected()
         tools: list[RemoteTool] = []
         cursor: str | None = None
         while True:
-            page = await self._client.list_tools(cursor=cursor)
+            try:
+                page = await client.list_tools(cursor=cursor)
+            except Exception as exc:
+                await self._invalidate(client, exc)
+                raise
             tools.extend(
                 RemoteTool(
                     server=self.config.name,
@@ -174,5 +298,12 @@ class McpConnection:
                 return tools
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> RemoteResult:
-        result = await self._client.call_tool(name, args)
+        client = await self._connected()
+        try:
+            result = await client.call_tool(name, args)
+        except Exception as exc:
+            # A lost reply gives no guarantee the remote tool did not run. Leave
+            # this call failed in the audit trail and reconnect for the next call.
+            await self._invalidate(client, exc)
+            raise
         return _convert(result)

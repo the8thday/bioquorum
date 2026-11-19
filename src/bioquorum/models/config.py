@@ -24,6 +24,7 @@ when the client is built and is registered for redaction; it never enters events
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any
 from urllib.parse import urlparse
 
@@ -114,6 +115,8 @@ class ModelsConfig:
     review_scores: dict[str, float] = field(default_factory=dict)
     prefer_different_family: bool = False
     reviewer_auto: bool = False
+    prices: dict[str, tuple[float, float]] = field(default_factory=dict)
+    vision_models: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelsConfig:
@@ -140,6 +143,31 @@ class ModelsConfig:
             for k, v in data.get("models", {}).items()
             if isinstance(v, dict) and "review_score" in v
         }
+        prices: dict[str, tuple[float, float]] = {}
+        vision_models: set[str] = set()
+        for spec, values in data.get("models", {}).items():
+            if not isinstance(values, dict):
+                continue
+            vision = values.get("vision", False)
+            if type(vision) is not bool:
+                raise ConfigError(f"{spec}: vision must be true or false")
+            if vision:
+                vision_models.add(spec)
+            names = ("input_usd_per_million", "output_usd_per_million")
+            if not any(name in values for name in names):
+                continue
+            rates: list[float] = []
+            for name in names:
+                price: object = values.get(name)
+                if (
+                    isinstance(price, bool)
+                    or not isinstance(price, int | float)
+                    or not isfinite(price)
+                    or price < 0
+                ):
+                    raise ConfigError(f"{spec}: configure both nonnegative model prices")
+                rates.append(float(price))
+            prices[spec] = (rates[0], rates[1])
         return cls(
             providers=providers,
             roles=roles,
@@ -148,4 +176,6 @@ class ModelsConfig:
                 data.get("roles", {}).get("prefer_different_family", False)
             ),
             reviewer_auto=reviewer_auto,
+            prices=prices,
+            vision_models=frozenset(vision_models),
         )

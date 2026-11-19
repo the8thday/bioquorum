@@ -1,0 +1,6 @@
+{
+  "name": "bioquorum-workbench-tests",
+  "private": true,
+  "scripts": {"test": "node workbench.cjs"},
+  "devDependencies": {"playwright": "1.62.1"}
+}

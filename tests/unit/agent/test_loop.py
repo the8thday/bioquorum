@@ -124,6 +124,108 @@ async def test_unknown_tool_and_step_limit(ctx, store):
     assert [e.type for e in store.read("S")].count("tool_call_failed") == 3
 
 
+async def test_token_budget_closes_pending_tools_and_answers(ctx, store, kernel):
+    from bioquorum.agent.budget import Budget
+    from bioquorum.core import events as ev
+
+    model, seen = scripted(tool_call("python_execute", {"code": "x"}), text("partial"))
+    turn = await run_turn(
+        "q",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        budget=Budget(tokens=1),
+    )
+    assert turn.answer.text() == "partial"
+    assert turn.stop_reason == "token budget"
+    assert len(seen) == 2 and len(returned_texts(seen[1])) == 1
+    assert not any(isinstance(e.parsed(), ev.RunStarted) for e in store.read("S"))
+    (stop,) = [e.parsed() for e in store.read("S") if e.type == "exploration_stopped"]
+    assert isinstance(stop, ev.ExplorationStopped) and stop.reason == turn.stop_reason
+
+
+async def test_time_and_dollar_budgets(ctx, store, monkeypatch):
+    from bioquorum.agent import budget
+
+    now = 0.0
+
+    def respond(messages, info):
+        nonlocal now
+        now += 2
+        return tool_call("missing", {})
+
+    monkeypatch.setattr(budget, "monotonic", lambda: now)
+    model = FunctionModel(respond)
+    turn = await run_turn(
+        "q",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        budget=budget.Budget(seconds=1),
+    )
+    assert turn.stop_reason == "time budget"
+    assert not turn.answer.tool_calls()
+    with pytest.raises(ValueError, match="price"):
+        await run_turn(
+            "q",
+            client=client(store, model),
+            registry=default_registry(),
+            ctx=ctx,
+            budget=budget.Budget(usd=0.01),
+        )
+
+
+async def test_priced_dollar_budget_counts_reported_usage(ctx, store):
+    from bioquorum.agent.budget import Budget
+    from bioquorum.core import events as ev
+
+    model, _ = scripted(tool_call("missing", {}), text("partial"))
+    priced = ModelClient(
+        Router(CFG), store, factory=lambda route: model, prices={"deepseek:w": (1.0, 2.0)}
+    )
+    turn = await run_turn(
+        "q",
+        client=priced,
+        registry=default_registry(),
+        ctx=ctx,
+        budget=Budget(usd=0.000001),
+    )
+    assert turn.stop_reason == "cost budget"
+    calls = [p for e in store.read("S") if isinstance(p := e.parsed(), ev.ModelCallFinished)]
+    assert len(calls) == 2 and all(p.cost_known and p.cost_usd > 0 for p in calls)
+
+
+async def test_compaction_replays_summary_and_complete_recent_tool_exchange(ctx, store, kernel):
+    from bioquorum.core import events as ev
+    from bioquorum.core.messages import Message
+
+    old = "old question " * 200
+    store.append(ev.UserMessage(message=Message.user(old)), session_id="S", actor=Actor.USER)
+    store.append(
+        ev.AssistantMessage(message=Message.assistant("old answer " * 200)),
+        session_id="S",
+        actor=Actor.AGENT,
+    )
+    model, seen = scripted(
+        tool_call("python_execute", {"code": "x"}), text("compressed notes"), text("done")
+    )
+    await run_turn(
+        "current question",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        compact_at_bytes=500,
+    )
+    events = store.read("S")
+    assert sum(isinstance(e.parsed(), ev.ContextCompacted) for e in events) == 1
+    assert old in [m.text() for m in conversation(events)]
+    projected = conversation(events, compacted=True)
+    assert old not in [m.text() for m in projected]
+    assert "current question" in [m.text() for m in projected]
+    assert "compressed notes" in projected[0].text()
+    assert returned_texts(seen[2]) and "current question" in repr(seen[2])
+
+
 async def test_session_grant_reused_across_calls(ctx, store, kernel):
     asked = []
 
@@ -214,7 +316,9 @@ async def test_unresolved_bindings_are_sent_back(ctx, store, kernel):
         tool_call("python_execute", {"code": "bq.value('n_de', 412, unit='genes')"}),
         text("1. {{n_de}} genes changed."),
     )
-    turn = await run_turn("q", client=client(store, model), registry=default_registry(), ctx=ctx)
+    turn = await run_turn(
+        "q", client=client(store, model), registry=default_registry(), ctx=ctx, binding_retries=2
+    )
     assert turn.answer.text() == "1. {{n_de}} genes changed." and turn.binding_retries == 1
     feedback = [e for e in store.read("S") if e.type == "user_message"][1]
     assert feedback.actor is Actor.SYSTEM and "n_genes" in feedback.parsed().message.text()
@@ -226,5 +330,14 @@ async def test_unresolved_bindings_are_sent_back(ctx, store, kernel):
 
 async def test_binding_retries_are_capped(ctx, store):
     model, seen = scripted(text("{{nope}}"))  # never fixes it
-    turn = await run_turn("q", client=client(store, model), registry=default_registry(), ctx=ctx)
+    turn = await run_turn(
+        "q", client=client(store, model), registry=default_registry(), ctx=ctx, binding_retries=2
+    )
     assert turn.answer.text() == "{{nope}}" and turn.binding_retries == 2 and len(seen) == 3
+
+
+async def test_unresolved_binding_does_not_trigger_a_retry_by_default(ctx, store):
+    model, seen = scripted(text("{{nope}}"))
+    turn = await run_turn("q", client=client(store, model), registry=default_registry(), ctx=ctx)
+    assert "{{nope}}" in turn.answer.text()
+    assert turn.binding_retries == 0 and len(seen) == 1

@@ -5,10 +5,18 @@ from bioquorum.review.checks.citations import CitationResolves
 from bioquorum.review.checks.execution import ExecutionEvidence
 from bioquorum.review.checks.plan import PlanComplete
 from bioquorum.review.checks.values import ValueMatch
+from bioquorum.tools.context import ToolContext
 
 
-def deterministic_checks() -> list[Check]:
-    return [ExecutionEvidence(), ValueMatch(), CitationResolves(), PlanComplete()]
+def deterministic_checks(
+    online_citations: ToolContext | None = None, *, causation_id: str | None = None
+) -> list[Check]:
+    return [
+        ExecutionEvidence(),
+        ValueMatch(),
+        CitationResolves(online_citations, causation_id=causation_id),
+        PlanComplete(),
+    ]
 
 
 __all__ = [

@@ -19,7 +19,7 @@ from typing import Any
 from jupyter_client.manager import AsyncKernelManager
 
 from bioquorum.core.enums import DataKind, OutputStream
-from bioquorum.core.hashing import DATAFRAME_PARQUET_KWARGS
+from bioquorum.core.hashing import DATAFRAME_PARQUET_KWARGS, sha256_text
 from bioquorum.core.ids import new_id
 from bioquorum.core.refs import DataRef
 from bioquorum.runtime.kernel import (
@@ -29,7 +29,8 @@ from bioquorum.runtime.kernel import (
     KernelEvent,
     KernelOutput,
 )
-from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env
+from bioquorum.runtime.lineage import PRELUDE as LINEAGE_PRELUDE
+from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env, seatbelt_argv
 from bioquorum.runtime.values import PRELUDE
 
 _DRAIN_S = 5.0  # how long to wait for the kernel to go idle after an interrupt
@@ -61,6 +62,15 @@ del __bq_snapshot
 """.replace("__BQ_KW__", repr(DATAFRAME_PARQUET_KWARGS))
 
 
+_ENVIRONMENT = """
+def __bq_environment():
+    import json, platform, sys
+    from importlib.metadata import distributions
+    packages = sorted((dist.metadata["Name"] or "", dist.version) for dist in distributions())
+    print(json.dumps([sys.version, platform.system(), platform.machine(), packages]))
+__bq_environment()
+del __bq_environment
+"""
 _MAX_SOCKET_PATH = 90  # AF_UNIX paths are limited to ~104-108 bytes; leave room for "-k-N"
 
 
@@ -80,12 +90,20 @@ class _SandboxedKernelManager(AsyncKernelManager):
     """Starts the kernel command inside bubblewrap (ADR-017)."""
 
     bq_sandbox: SandboxSpec | None = None
+    bq_python: str | None = None
     bq_writable: tuple[str, ...] = ()
+    bq_isolation: Isolation = Isolation.BWRAP
 
     def format_kernel_cmd(self, extra_arguments: list[str] | None = None) -> list[str]:
         cmd = super().format_kernel_cmd(extra_arguments)
+        if self.bq_python:
+            cmd[0] = self.bq_python
         if self.bq_sandbox is None:
             return cmd
+        if self.bq_isolation is Isolation.SEATBELT:
+            return (
+                seatbelt_argv(self.bq_sandbox, executable=cmd[0], writable=self.bq_writable) + cmd
+            )
         prefix = bwrap_argv(self.bq_sandbox, executable=cmd[0], writable=self.bq_writable)
         return prefix + cmd
 
@@ -98,6 +116,9 @@ class JupyterKernel:
         language: str = "python",
         cwd: str | Path | None = None,
         sandbox: SandboxSpec | None = None,
+        isolation: Isolation | None = None,
+        python_executable: Path | None = None,
+        observe_lineage: bool = False,
     ) -> None:
         """``sandbox`` set: the kernel runs inside bubblewrap. The caller has already checked
         that isolation is available (``runtime.sandbox.choose_isolation``)."""
@@ -105,13 +126,25 @@ class JupyterKernel:
         self._language = language
         self._cwd = str(cwd) if cwd is not None else None
         self._sandbox = sandbox
+        self._isolation = (
+            isolation
+            if isolation is not None
+            else (
+                Isolation.NONE
+                if sandbox is None
+                else Isolation.BWRAP_NET
+                if sandbox.network
+                else Isolation.BWRAP
+            )
+        )
+        self._observe_lineage = observe_lineage
         if sandbox is not None and sys.platform == "win32":
             raise RuntimeError("kernel sandboxing is not supported on Windows")
         # IPC (Unix sockets, user-only permissions) instead of unencrypted localhost TCP,
         # which any local user could connect to and run code through.
         self._sock_dir: str | None = None
         if sys.platform == "win32":
-            self._km = AsyncKernelManager(kernel_name=kernel_name)
+            self._km = _SandboxedKernelManager(kernel_name=kernel_name)
         else:
             # Absolute socket path in a 0700 dir: the kernel runs in `cwd`, the client does
             # not, so a relative path would point at two different places.
@@ -125,6 +158,9 @@ class JupyterKernel:
                 self._km.connection_file = os.path.join(self._sock_dir, "connection.json")
                 self._km.bq_sandbox = sandbox
                 self._km.bq_writable = (self._sock_dir,)
+        self._km.bq_python = str(python_executable) if python_executable else None
+        self._km.bq_isolation = self._isolation
+        self.environment: str | None = None
         self._kc: Any = None
         self._cancel_requested = False
 
@@ -138,14 +174,21 @@ class JupyterKernel:
 
     @property
     def isolation(self) -> str:
-        if self._sandbox is None:
-            return Isolation.NONE
-        return Isolation.BWRAP_NET if self._sandbox.network else Isolation.BWRAP
+        return self._isolation
 
     async def start(self, *, ready_timeout: float = 60.0) -> JupyterKernel:
         # Secrets stay out of kernel code in every mode: the sandbox clears the environment,
         # an unsandboxed kernel gets it with secret-looking names removed.
         kw: dict[str, Any] = {"env": scrub_env(os.environ)}
+        if self._isolation is Isolation.SEATBELT:
+            assert self._sock_dir is not None
+            kw["env"] = {
+                "PATH": "/usr/bin:/bin",
+                "HOME": self._sock_dir,
+                "TMPDIR": self._sock_dir,
+                "LANG": "en_US.UTF-8",
+                "JUPYTER_CONFIG_DIR": self._sock_dir,
+            }
         if self._cwd:
             kw["cwd"] = self._cwd
         await self._km.start_kernel(**kw)
@@ -167,6 +210,20 @@ class JupyterKernel:
             if isinstance(item, ExecutionEnd) and item.status is not EndStatus.OK:
                 detail = item.error.short() if item.error else item.status.value
                 raise RuntimeError(f"kernel prelude failed: {detail}")
+
+        if self.language == "python":
+            chunks = []
+            async for part in self.execute(_ENVIRONMENT, timeout=20, silent=True):
+                if isinstance(part, KernelOutput) and part.stream is OutputStream.STDOUT:
+                    chunks.append(part.text or "")
+                elif isinstance(part, ExecutionEnd) and part.status is not EndStatus.OK:
+                    chunks.clear()
+            fingerprint = "".join(chunks).strip()
+            self.environment = sha256_text(fingerprint) if fingerprint else None
+
+        if self.language == "python" and self._observe_lineage:
+            async for _ in self.execute(LINEAGE_PRELUDE, timeout=45, silent=True):
+                pass
 
     # ------------------------------------------------------------- Kernel
 

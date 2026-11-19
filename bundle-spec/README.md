@@ -1,6 +1,21 @@
-# BioQuorum Research Bundle Specification
+# BioQuorum research bundle
 
-A research bundle is a directory that lets anyone rerun an analysis **without installing BioQuorum** (only `pixi`). See `docs/ARCHITECTURE.md §6.3` and ADR-010.
+- [Manifest v0](manifest-v0.schema.json) is the pre-export record schema.
+- [Manifest v1](manifest-v1.schema.json) is the portable archive schema. It keeps
+  v0 fields and adds per-run input paths, prior cell IDs, stdout hashes,
+  environment fingerprints, and the locations of claim bindings and the pixi lock.
 
-- `manifest-v0.schema.json`: JSON Schema of `manifest.json`, generated from `bioquorum.core.bundle.Manifest`. Fields are only ever added, never removed.
-- Layout, `rerun.sh` semantics and v1.0 of the spec arrive with ROADMAP v0.3.
+All filenames in the manifest are archive-relative. Objects are addressed as
+`objects/<sha256>`. A replay restores declared inputs into a fresh directory,
+executes prior successful cells from the same kernel, and compares named values,
+stdout and captured image hashes. It records environment identity separately.
+A manifest verifies bytes against its own checksums. Authenticity and distribution
+permissions remain the responsibility of the sender and receiver.
+
+An evidence-only archive can have empty `runs` and `run_records`. Run `sh rerun.sh --verify-only`
+to check integrity. `Methods.md` is an editable draft listed in the file hashes when present.
+
+`conversation.jsonl` is a scoped export, omitting raw provider payloads and
+unrelated event streams. See [the verification walkthrough](../docs/demo-v0.4.md)
+for instructions and environment constraints. The schema files are generated
+with `uv run python scripts/gen_bundle_schema.py`.

@@ -22,6 +22,8 @@ class ToolContext:
     cas: ContentStore | None = None
     kernels: KernelManager | None = None
     env_lock_hash: str | None = None
+    outbound_proxy: str | None = None
+    verification_run: bool = False
     workdir: Path = field(default_factory=Path.cwd)
     actor: Actor = Actor.AGENT
     # Set by invoke() for the duration of one call:

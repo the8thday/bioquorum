@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,6 +33,7 @@ from bioquorum.core.ids import id_time, new_id, utc_now
 from bioquorum.core.messages import Message, OpaqueBytes, ToolResultPart
 from bioquorum.core.refs import ClaimRef, DataRef, NamedValue
 from bioquorum.core.status import StatusTrigger, VerificationStatus
+from bioquorum.core.verification import Tolerance, ValueComparison, VerificationOutcome
 
 # ----------------------------------------------------------------- registry
 
@@ -160,6 +161,24 @@ class ProjectCreated(EventPayload):
 
 
 @register
+class ProjectNoteSaved(EventPayload):
+    event_type: ClassVar[str] = "project_note_saved"
+    project_id: str
+    editor_session_id: str
+    prior_revision: str | None
+    body: str = Field(max_length=6000)
+    draft_event_id: str | None = None
+
+
+@register
+class ProjectNoteDrafted(EventPayload):
+    event_type: ClassVar[str] = "project_note_drafted"
+    project_id: str
+    prior_revision: str | None
+    body: str = Field(max_length=6000)
+
+
+@register
 class SessionCreated(EventPayload):
     event_type: ClassVar[str] = "session_created"
     project_id: str
@@ -182,6 +201,27 @@ class SessionTitleSet(EventPayload):
 
 
 # ----------------------------------------------------------------- conversation & model
+
+
+@register
+class TurnRequested(EventPayload):
+    event_type: ClassVar[str] = "turn_requested"
+    question: str
+    plan_id: str | None = None
+
+
+@register
+class TurnStarted(EventPayload):
+    event_type: ClassVar[str] = "turn_started"
+    turn_id: str
+
+
+@register
+class TurnFinished(EventPayload):
+    event_type: ClassVar[str] = "turn_finished"
+    turn_id: str
+    outcome: Literal["completed", "failed", "interrupted", "declined"]
+    error: str = ""
 
 
 @register
@@ -221,6 +261,7 @@ class ModelCallFinished(EventPayload):
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     cost_usd: float = 0.0
+    cost_known: bool = False
     latency_ms: int = 0
     provider_raw: OpaqueBytes | None = None
 
@@ -288,6 +329,14 @@ class PlanStepDone(EventPayload):
 
 
 @register
+class PlanDeviation(EventPayload):
+    event_type: ClassVar[str] = "plan_deviation"
+    plan_id: str
+    reason: str
+    change: str
+
+
+@register
 class PlanAbandoned(EventPayload):
     event_type: ClassVar[str] = "plan_abandoned"
     plan_id: str
@@ -325,8 +374,12 @@ class RunStarted(EventPayload):
     code: str
     code_hash: str
     env_lock_hash: str | None = None
+    input_paths: list[str] = Field(default_factory=list)
+    environment: str | None = None
+    synthetic: bool = False
+    verification_run: bool = False
     inputs: list[DataRef] = Field(default_factory=list)
-    # How the kernel was isolated: "bwrap", "bwrap+net" or "none" (ADR-017). None = recorded
+    # Kernel isolation: "bwrap", "bwrap+net", "seatbelt" or "none" (ADR-017/026). None = recorded
     # before isolation existed.
     isolation: str | None = None
 
@@ -338,6 +391,16 @@ class RunOutput(EventPayload):
     stream: OutputStream
     text: str | None = None
     ref: DataRef | None = None
+
+
+@register
+class LineageObserved(EventPayload):
+    event_type: ClassVar[str] = "lineage_observed"
+    run_id: str
+    path: str
+    direction: Literal["input", "output"]
+    function: str
+    post_run_hash: str | None = None
 
 
 @register
@@ -468,17 +531,41 @@ class FindingResolved(EventPayload):
 class RerunStarted(EventPayload):
     event_type: ClassVar[str] = "rerun_started"
     rerun_id: str
-    artifact_version_id: str
+    artifact_version_id: str | None = None
     run_ids: list[str]
+    claim_id: str | None = None
 
 
 @register
 class RerunFinished(EventPayload):
     event_type: ClassVar[str] = "rerun_finished"
     rerun_id: str
-    artifact_version_id: str
+    artifact_version_id: str | None = None
     matched: bool
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+@register
+class ReplicationStarted(EventPayload):
+    event_type: ClassVar[str] = "replication_started"
+    replication_id: str
+    claim_id: str
+    blind_session_id: str
+    question: str
+    definitions: dict[str, str]
+    tolerance: Tolerance
+    estimated_usd: float
+    max_estimated_usd: float
+
+
+@register
+class ReplicationFinished(EventPayload):
+    event_type: ClassVar[str] = "replication_finished"
+    replication_id: str
+    claim_id: str
+    outcome: VerificationOutcome
+    comparisons: list[ValueComparison] = Field(default_factory=list)
+    note: str = ""
 
 
 @register
@@ -490,6 +577,48 @@ class BundleExported(EventPayload):
 
 
 # ----------------------------------------------------------------- compaction & errors
+
+
+@register
+class ExplorationStopped(EventPayload):
+    event_type: ClassVar[str] = "exploration_stopped"
+    reason: str
+
+
+class LiteratureExcerpt(BaseModel):
+    call_id: str
+    source_event_id: str
+    tool: str
+    text: str = Field(min_length=12, max_length=360)
+    identifier: str | None = None
+
+
+@register
+class LiteratureStarted(EventPayload):
+    event_type: ClassVar[str] = "literature_started"
+    task_id: str
+    parent_call_id: str
+    question: str = Field(max_length=1200)
+    prefetched: bool = False
+
+
+@register
+class LiteratureFinished(EventPayload):
+    event_type: ClassVar[str] = "literature_finished"
+    task_id: str
+    parent_call_id: str
+    outcome: Literal["completed", "inconclusive", "cancelled"]
+    prefetched: bool = False
+    summary: str = Field(default="", max_length=1200)
+    sources: list[LiteratureExcerpt] = Field(default_factory=list, max_length=4)
+    reason: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    cost_known: bool = False
+    priced_calls: int = 0
+    model_calls: int = 0
+    failed_calls: int = 0
 
 
 @register

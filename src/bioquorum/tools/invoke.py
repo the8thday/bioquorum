@@ -20,6 +20,7 @@ a result (providers reject such histories).
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import time
 from typing import Any
@@ -115,7 +116,18 @@ async def invoke(
             actor=Actor.SYSTEM,
             causation_id=causation_id,
         )
-        decision = await ctx.permissions.decide(req)
+        try:
+            decision = await ctx.permissions.decide(dataclasses.replace(req, request_id=request_id))
+        except asyncio.CancelledError:
+            store.append(
+                ev.PermissionDecided(
+                    request_id=request_id, permission=spec.permission, target=target, granted=False
+                ),
+                session_id=sid,
+                actor=Actor.SYSTEM,
+                causation_id=asked.id,
+            )
+            raise
         store.append(
             ev.PermissionDecided(
                 request_id=request_id,
@@ -152,6 +164,9 @@ async def invoke(
     started = time.monotonic()
     try:
         result = await spec.handler(parsed, call_ctx)
+    except asyncio.CancelledError:
+        _refuse(ctx, call_id, spec.name, "Research stopped", requested.id)
+        raise
     except Exception as exc:  # tool bugs must not crash the agent loop
         error = redact(f"{type(exc).__name__}: {exc}")[:_MAX_ERROR]
         store.append(
@@ -181,10 +196,17 @@ async def invoke(
 
 
 async def invoke_by_name(
-    registry: ToolRegistry, name: str, args: dict[str, Any], ctx: ToolContext, **kw: Any
+    registry: ToolRegistry,
+    name: str,
+    args: dict[str, Any],
+    ctx: ToolContext,
+    *,
+    skip_reason: str | None = None,
+    **kw: Any,
 ) -> ToolResultPart:
     """Convenience for callers holding a registry. Unknown tools are refused, not raised."""
-    if name not in registry:
+    if skip_reason is not None or name not in registry:
         call_id = kw.get("call_id") or new_id()
-        return _refuse(ctx, call_id, name, f"Unknown tool '{name}'", kw.get("causation_id"))
+        reason = f"Tool skipped: {skip_reason}" if skip_reason else f"Unknown tool '{name}'"
+        return _refuse(ctx, call_id, name, reason, kw.get("causation_id"))
     return await invoke(registry.get(name), args, ctx, **kw)

@@ -1,0 +1,84 @@
+# Synthetic records. Freeze the questions and rubric before reading any model output.
+- id: source-calibration
+  split: development
+  question: >
+    Read the simulated laboratory note with read_fixture. In two short claims, state
+    which instrument was retained and why the other instrument was excluded.
+  source: |
+    Bench study simulation. Instrument Cedar was retained for the final analysis.
+    Instrument Larch was excluded because its reference blank drifted during calibration.
+  rubric:
+    retained_cedar: '(?:\bcedar\b[^.\n]{0,42}\bretain\w*|\bretain\w*[^.\n]{0,42}\bcedar\b)'
+    excluded_for_blank_drift: '(?:blank[^.\n]{0,35}drift|drift[^.\n]{0,35}blank)'
+- id: source-allocation
+  split: heldout
+  question: >
+    Read the simulated study excerpt with read_fixture. Give the method that concealed
+    assignment until enrollment and state who remained unaware of group assignment
+    during outcome scoring. Use two short claims.
+  source: |
+    Trial methods simulation. A central web service concealed assignment until enrollment was complete.
+    Outcome assessors stayed unaware of group assignments for the entire scoring period.
+    Participants and laboratory technicians knew which group each sample came from.
+  rubric:
+    browser_service: '\bcentral web service\b'
+    assessor_blinding: '(?:assessors?[^.\n]{0,60}(?:unaware|blind|mask)|(?:unaware|blind|mask)\w*[^.\n]{0,45}assessors?)'
+- id: source-assay
+  split: heldout
+  question: >
+    Read the simulated assay note with read_fixture. What was the prespecified
+    primary readout? Which interference control was missing? Use two short claims.
+  source: |
+    Assay protocol simulation. The prespecified primary readout was the change in fluorescence from baseline.
+    The team included a buffer-only blank, but never ran a hemolysis interference control.
+    Absorbance was exploratory and did not drive the primary analysis.
+  rubric:
+    fluorescence_change: '(?:change[^.\n]{0,32}fluorescence[^.\n]{0,35}baseline|baseline[^.\n]{0,35}change[^.\n]{0,30}fluorescence)'
+    missing_hemolysis: '(?:(?:missing|absent|omit\w*|not run|no |never ran)[^.\n]{0,45}h[ae]+molysis|h[ae]+molysis[^.\n]{0,75}(?:missing|absent|omit|not |never))'
+- id: kernel-yield
+  split: development
+  question: >
+    Using python_execute on the synthetic observations.csv, calculate total usable
+    specimens across all rows and the fraction of collected specimens that were usable.
+    In your final answer include separate lines titled Total usable and Usable fraction.
+    Give the fraction as a percentage to one decimal place.
+  data: |
+    batch,collected,usable
+    A,51,25
+    B,49,38
+    C,60,23
+  rubric:
+    usable_count: '\btotal usable\s*[:=]\s*86\b'
+    pooled_percent: '\busable fraction\s*[:=]\s*53\.8\s*%'
+- id: kernel-weighted
+  split: heldout
+  question: >
+    Use python_execute to analyze the synthetic observations.csv. Compute the number
+    of samples across all batches and the sample-weighted mean concentration.
+    In your final answer include separate lines titled Total samples and Weighted mean.
+    Report the mean to two decimal places.
+  data: |
+    batch,samples,mean
+    A,19,4
+    B,31,8
+    C,10,6
+  rubric:
+    total_samples: '\btotal samples\s*[:=]\s*60\b'
+    weighted_mean: '\bweighted mean\s*[:=]\s*6\.4(?:0)?\b'
+- id: kernel-paired
+  split: heldout
+  question: >
+    Use python_execute to analyze the synthetic observations.csv. Compute the mean
+    of post minus pre across complete pairs and the count of complete pairs.
+    Exclude rows with a missing post value. In your final answer include separate
+    lines titled Mean change and Complete pairs.
+  data: |
+    subject,pre,post
+    A,14,19
+    B,17,25
+    C,19,
+    D,25,16
+    E,18,30
+  rubric:
+    mean_change: '\bmean change\s*[:=]\s*4(?:\.0+)?\b'
+    complete_pairs: '\bcomplete pairs\s*[:=]\s*4\b'

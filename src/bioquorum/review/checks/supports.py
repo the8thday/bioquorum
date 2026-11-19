@@ -15,10 +15,19 @@ from bioquorum.review.checks.base import Finding
 from bioquorum.review.evidence import ClaimInput, Evidence, cited_keys
 from bioquorum.review.modeljson import ask_json
 
+CITATION_SUPPORT_UNAVAILABLE = "citation_support_unavailable"
+
 SYSTEM = f"""You check whether cited sources support claims in a biomedical answer.
 A claim is supported only if the cited source states it: same population or model system
 (mouse is not patients), same endpoint, same direction, and no causal language where the
 source is associative. Judge only against the given sources. {UNTRUSTED_NOTICE}"""
+
+
+def _around_quote(text: str, quote: str) -> str:
+    position = text.find(quote)
+    if position < 0:
+        return text[:800]
+    return text[max(0, position - 350) : position + len(quote) + 350]
 
 
 class CitationSupports:
@@ -36,13 +45,20 @@ class CitationSupports:
     async def run(self, claims: Sequence[ClaimInput], evidence: Evidence) -> list[Finding]:
         items: list[str] = []
         checked: set[int] = set()
+        by_call = {source.call_id: source for source in evidence.sources}
         for claim in claims:
             sources = [evidence.citation(k) for k in cited_keys(claim.text)]
-            found = [s for s in sources if s is not None]
-            if not found:
+            passages = [f"[{s.key}] {s.title}\n{s.abstract}" for s in sources if s is not None]
+            for ref in claim.quote_refs:
+                if source := by_call.get(ref.call_id):
+                    passages.append(
+                        f"[{ref.source}] Exact bound passage: {ref.quote}\n"
+                        + _around_quote(source.text, ref.quote)
+                    )
+            if not passages:
                 continue
             checked.add(claim.index)
-            body = "\n".join(f"[{s.key}] {s.title}\n{s.abstract}" for s in found)
+            body = "\n".join(dict.fromkeys(passages))
             items.append(
                 f"## Claim {claim.index}\n{claim.text}\n### Cited sources\n{fence_untrusted(body)}"
             )
@@ -61,11 +77,15 @@ class CitationSupports:
             classification=self.classification,
         )
         findings: list[Finding] = []
+        answered: set[int] = set()
         for v in data.get("verdicts") or []:
-            if not isinstance(v, dict) or v.get("supported", True) is not False:
+            if not isinstance(v, dict) or type(v.get("supported")) is not bool:
                 continue
             idx = v.get("claim_index")
-            if isinstance(idx, int) and idx in checked:
+            if type(idx) is not int or idx not in checked:
+                continue
+            answered.add(idx)
+            if not v["supported"]:
                 reason = str(v.get("reason", ""))[:500]
                 findings.append(
                     Finding(
@@ -75,4 +95,13 @@ class CitationSupports:
                         reason or "source does not support the claim",
                     )
                 )
+        findings.extend(
+            Finding(
+                idx,
+                CITATION_SUPPORT_UNAVAILABLE,
+                Severity.WARNING,
+                "The citation reviewer returned no verdict for this claim.",
+            )
+            for idx in sorted(checked - answered)
+        )
         return findings

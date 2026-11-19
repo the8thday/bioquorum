@@ -1,17 +1,23 @@
 [project]
 name = "bioquorum"
-version = "0.1.0"
+version = "0.6.0.dev0"
 description = "Open, model-neutral AI workbench for biomedical research: cross-verified, reproducible, private by design."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY.md"]
 authors = [{ name = "BioQuorum contributors" }]
 dependencies = [
   "pydantic>=2.9,<3",
   "python-ulid>=3.0,<4",
   "sqlalchemy>=2.0,<3",
+  "alembic>=1.18,<2",
+  "fastapi>=0.138,<1",
+  "starlette>=1.0,<2",
+  "uvicorn>=0.40,<1",
   "typer>=0.12",
   "rich>=13",
+  "pyyaml>=6",                # Agent Skills frontmatter
   "jupyter_client>=8.6,<9",  # Kernel protocol, runtime/ only (ADR-009)
   "ipykernel>=6.29",          # default Python kernel until pixi envs (ROADMAP v0.2)
   "mcp>=2.3,<3",               # official MCP SDK, mcp/ only (ARCHITECTURE.md §4)
@@ -25,6 +31,7 @@ eval = ["anthropic>=0.40", "openai>=1.50", "pyyaml>=6"]
 
 [project.scripts]
 bq = "bioquorum.cli.main:app"
+bioquorum = "bioquorum.server.launch:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -88,7 +95,9 @@ include_external_packages = true
 name = "Layered architecture (ARCHITECTURE.md §2)"
 type = "layers"
 layers = [
-  "bioquorum.server | bioquorum.cli",
+  "bioquorum.cli",
+  "bioquorum.server",
+  "bioquorum.application",
   "bioquorum.agent",
   "bioquorum.review",
   "bioquorum.models",
@@ -108,7 +117,7 @@ source_modules = [
 ]
 forbidden_modules = [
   "bioquorum.agent", "bioquorum.review", "bioquorum.models",
-  "bioquorum.server", "bioquorum.cli",
+  "bioquorum.server", "bioquorum.cli", "bioquorum.application",
 ]
 
 [[tool.importlinter.contracts]]
@@ -128,20 +137,20 @@ allow_indirect_imports = true
 source_modules = [
   "bioquorum.core", "bioquorum.storage", "bioquorum.policy", "bioquorum.runtime",
   "bioquorum.provenance", "bioquorum.connectors", "bioquorum.skills", "bioquorum.mcp",
-  "bioquorum.tools", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
+  "bioquorum.tools", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli", "bioquorum.application",
 ]
 forbidden_modules = ["pydantic_ai", "openai", "anthropic"]  # provider SDKs too
 
 [[tool.importlinter.contracts]]
-name = "sqlalchemy only inside storage/ (ARCHITECTURE.md §2)"
+name = "SQLAlchemy and Alembic only inside storage/ (ARCHITECTURE.md §2)"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
   "bioquorum.core", "bioquorum.policy", "bioquorum.runtime", "bioquorum.provenance",
   "bioquorum.connectors", "bioquorum.skills", "bioquorum.mcp", "bioquorum.tools",
-  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
+  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli", "bioquorum.application",
 ]
-forbidden_modules = ["sqlalchemy"]
+forbidden_modules = ["sqlalchemy", "alembic"]
 
 [[tool.importlinter.contracts]]
 name = "jupyter_client only inside runtime/ (ADR-009)"
@@ -150,7 +159,7 @@ allow_indirect_imports = true
 source_modules = [
   "bioquorum.core", "bioquorum.storage", "bioquorum.policy", "bioquorum.provenance",
   "bioquorum.connectors", "bioquorum.skills", "bioquorum.mcp", "bioquorum.tools",
-  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
+  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli", "bioquorum.application",
 ]
 forbidden_modules = ["jupyter_client"]
 
@@ -168,6 +177,18 @@ allow_indirect_imports = true
 source_modules = [
   "bioquorum.core", "bioquorum.storage", "bioquorum.policy", "bioquorum.runtime",
   "bioquorum.provenance", "bioquorum.connectors", "bioquorum.skills", "bioquorum.tools",
-  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli",
+  "bioquorum.models", "bioquorum.review", "bioquorum.agent", "bioquorum.server", "bioquorum.cli", "bioquorum.application",
 ]
 forbidden_modules = ["mcp", "mcp_types"]
+
+[[tool.importlinter.contracts]]
+name = "FastAPI, Starlette and Uvicorn only inside server/ (ADR-021)"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+  "bioquorum.core", "bioquorum.storage", "bioquorum.policy", "bioquorum.runtime",
+  "bioquorum.provenance", "bioquorum.connectors", "bioquorum.skills", "bioquorum.mcp",
+  "bioquorum.tools", "bioquorum.models", "bioquorum.review", "bioquorum.agent",
+  "bioquorum.application", "bioquorum.cli",
+]
+forbidden_modules = ["fastapi", "starlette", "uvicorn"]

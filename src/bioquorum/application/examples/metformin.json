@@ -1,0 +1,20 @@
+[
+  {
+    "pmid": "11118008",
+    "title": "Mechanism by which metformin reduces glucose production in type 2 diabetes.",
+    "quote": "through a reduction in gluconeogenesis",
+    "setting": "Human clinical study"
+  },
+  {
+    "pmid": "21947382",
+    "title": "Metformin activates AMP-activated protein kinase in primary human hepatocytes by decreasing cellular energy status.",
+    "quote": "a decrease in cellular energy status",
+    "setting": "Primary human hepatocyte experiment"
+  },
+  {
+    "pmid": "27216492",
+    "title": "Once-daily delayed-release metformin lowers plasma glucose and enhances fasting and postprandial GLP-1 and PYY: results from two randomised trials.",
+    "quote": "enhances fasting and postprandial GLP-1 and PYY",
+    "setting": "Randomized delayed-release trials"
+  }
+]

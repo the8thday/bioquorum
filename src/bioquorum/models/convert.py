@@ -7,13 +7,13 @@ Rules:
   replayed), so no ID mapping has to be persisted.
 - Thinking: kept with the model *family* that produced it and replayed only to that
   family (DeepSeek rejects a turn whose reasoning_content is missing); dropped otherwise.
-- Untrusted tool output is fenced (ADR-007). Images are placeholders until vision lands.
+- Untrusted tool output is fenced (ADR-007). Only explicitly enabled, recent images are attached.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from pydantic_ai import messages as pa
@@ -31,6 +31,46 @@ from bioquorum.core.messages import (
     ToolResultPart,
     fence_untrusted,
 )
+from bioquorum.core.refs import DataRef
+
+ImageLoader = Callable[[DataRef], bytes | None]
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+
+
+def _tool_images(
+    messages: Sequence[Message], load: ImageLoader
+) -> dict[str, list[pa.BinaryContent]]:
+    attachments: dict[str, list[pa.BinaryContent]] = {}
+    seen: set[str] = set()
+    signatures = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff"}
+    for message in reversed(messages):
+        if message.role is MessageRole.USER:
+            break
+        if message.role is not MessageRole.TOOL:
+            continue
+        for part in reversed(message.parts):
+            if not isinstance(part, ToolResultPart) or part.is_error:
+                continue
+            for item in reversed(part.content):
+                if not isinstance(item, ImageRefPart) or item.mime not in signatures:
+                    continue
+                ref = item.ref
+                if not 0 < ref.size <= MAX_IMAGE_BYTES or ref.content_hash in seen:
+                    continue
+                data = load(ref)
+                if (
+                    data is None
+                    or len(data) != ref.size
+                    or not data.startswith(signatures[item.mime])
+                ):
+                    continue
+                attachments.setdefault(part.call_id, []).insert(
+                    0, pa.BinaryContent(data=data, media_type=item.mime)
+                )
+                seen.add(ref.content_hash)
+                if len(seen) == 2:
+                    return attachments
+    return attachments
 
 
 def tool_definitions(definitions: Sequence[dict[str, Any]]) -> list[ToolDefinition]:
@@ -74,11 +114,14 @@ def _thinking_to_pa(part: ThinkingPart) -> pa.ThinkingPart:
     )
 
 
-def to_provider(messages: Sequence[Message], *, family: str) -> list[pa.ModelMessage]:
+def to_provider(
+    messages: Sequence[Message], *, family: str, image_loader: ImageLoader | None = None
+) -> list[pa.ModelMessage]:
     """Canonical history -> Pydantic AI messages for a model of ``family``."""
     out: list[pa.ModelMessage] = []
     pending: list[Any] = []  # request parts waiting to be flushed into one ModelRequest
     tool_names: dict[str, str] = {}
+    images = _tool_images(messages, image_loader) if image_loader is not None else {}
 
     def flush() -> None:
         if pending:
@@ -93,10 +136,12 @@ def to_provider(messages: Sequence[Message], *, family: str) -> list[pa.ModelMes
         elif msg.role is MessageRole.TOOL:
             for p in msg.parts:
                 if isinstance(p, ToolResultPart):
+                    text = _result_text(p)
+                    attachments = images.get(p.call_id)
                     pending.append(
                         pa.ToolReturnPart(
                             tool_name=tool_names.get(p.call_id, "unknown"),
-                            content=_result_text(p),
+                            content=[text, *attachments] if attachments else text,
                             tool_call_id=p.call_id,
                         )
                     )

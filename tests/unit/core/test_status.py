@@ -57,7 +57,7 @@ def test_aggregate_is_the_weakest():
 
 
 def test_upward_moves_climb_one_level_at_most():
-    order = [S.UNVERIFIED, S.GROUNDED, S.REVIEWED, S.REPRODUCED]
+    order = [S.UNVERIFIED, S.GROUNDED, S.REVIEWED, S.REPRODUCED, S.REPLICATED]
     for (s, _t), end in TRANSITIONS.items():
         if s in order and end in order:
             assert order.index(end) <= order.index(s) + 1

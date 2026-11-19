@@ -11,12 +11,13 @@ from enum import StrEnum
 
 
 class VerificationStatus(StrEnum):
-    """The trust ladder (ADR-015). ``replicated`` is added in v0.4."""
+    """The trust ladder (ADR-015)."""
 
     UNVERIFIED = "unverified"  # an assertion only
     GROUNDED = "grounded"  # every number and quote is bound to evidence (ADR-014)
     REVIEWED = "reviewed"
     REPRODUCED = "reproduced"
+    REPLICATED = "replicated"
     DISPUTED = "disputed"
 
 
@@ -27,6 +28,8 @@ class StatusTrigger(StrEnum):
     REVIEW_FAILED = "review_failed"  # at least one ERROR-level finding
     RERUN_MATCHED = "rerun_matched"  # rerun outputs equal (within tolerance)
     RERUN_MISMATCHED = "rerun_mismatched"
+    REPLICATION_MATCHED = "replication_matched"
+    REPLICATION_MISMATCHED = "replication_mismatched"
 
 
 # Lowest first. Used by aggregate(): a response is as trustworthy as its weakest claim.
@@ -36,6 +39,7 @@ _RANK: dict[VerificationStatus, int] = {
     VerificationStatus.GROUNDED: 2,
     VerificationStatus.REVIEWED: 3,
     VerificationStatus.REPRODUCED: 4,
+    VerificationStatus.REPLICATED: 5,
 }
 
 S, T = VerificationStatus, StatusTrigger
@@ -75,6 +79,23 @@ TRANSITIONS: dict[tuple[VerificationStatus, StatusTrigger], VerificationStatus] 
     (S.DISPUTED, T.RERUN_MATCHED): S.DISPUTED,
     (S.DISPUTED, T.RERUN_MISMATCHED): S.DISPUTED,
 }
+
+for trigger in T:
+    if trigger in (T.REPLICATION_MATCHED, T.REPLICATION_MISMATCHED):
+        for status in S:
+            TRANSITIONS[status, trigger] = (
+                S.REPLICATED
+                if trigger is T.REPLICATION_MATCHED and status is S.REPRODUCED
+                else S.DISPUTED
+                if trigger is T.REPLICATION_MISMATCHED and status in (S.REPRODUCED, S.REPLICATED)
+                else status
+            )
+    else:
+        TRANSITIONS[S.REPLICATED, trigger] = (
+            S.DISPUTED
+            if trigger in (T.BINDINGS_FAILED, T.REVIEW_FAILED, T.RERUN_MISMATCHED)
+            else S.REPLICATED
+        )
 
 
 def transition(current: VerificationStatus, trigger: StatusTrigger) -> VerificationStatus:

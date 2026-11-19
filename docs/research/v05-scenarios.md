@@ -1,0 +1,43 @@
+# v0.5 场景 A、场景 B 与后续能力验收
+
+## A · IL23R 与 IBD 档案
+
+以题库 `q-A-01` 验收。`/literature` 子任务用本地 Qwen3:4B 向 Europe PMC 取得原始遗传研究的摘录。随后按预设步骤读取 GWAS Catalog、HPA、FDA 标签及原始试验论文，生成档案，由独立的一次 reviewer 调用给出语义判定。该调用沿用同一个本地模型。工作台引用回溯接口实际返回了子任务的原始工具结果。最终 **8 处原文引用全部绑定，6 条申报结论均完成语义审查并达到 `reviewed`**。证据型研究包包含 5 份工具来源，离线文件校验通过。
+
+- 遗传证据支持 R381Q 对克罗恩病的保护方向，GWAS Catalog 记录对应 A 效应等位基因。 [原始研究](https://pubmed.ncbi.nlm.nih.gov/17068223/) · [GWAS Catalog 数据](https://www.ebi.ac.uk/gwas/rest/api/v2/associations/216760354)
+- HPA 验收用的是基础 RNA 特异性分类。 [Human Protein Atlas](https://www.proteinatlas.org/ENSG00000162594-IL23R)
+- 临床证据覆盖 risankizumab 的配体 p19 机制、美国适应证以及 ADVANCE／MOTIVATE 试验。直接针对受体仍需要独立药理与临床证据。 [FDA 标签数据](https://api.fda.gov/drug/label.json?search=openfda.brand_name%3ASKYRIZI&sort=effective_time%3Adesc&limit=1) · [原始试验论文](https://pubmed.ncbi.nlm.nih.gov/35644154/)
+
+自由运行的小模型对照暴露了两种覆盖缺口。先做显式文献检索时，得到了正确的遗传引句，但后续自动汇总漏调表达和药品工具。直接路线调用了这两种工具和 GWAS Catalog，仍漏掉原始论文。最终流程保留模型文献子任务，固定档案来源和待审查的结论，语义审查由本地模型执行。此轮只验收 IL23R 样例。其它四道靶点题、完整竞争格局及外部连接器的广泛覆盖仍待验证。
+
+审查修复前，`[@sN "…"]` 绑定只做逐字比对。新流程将这类已解析源交给语义审查，单元对照确认错误引用可降为 `disputed`，审查漏答时保持 `grounded`。有限的引文上下文让最终运行可以在该模型的上下文限制内完成。
+
+## B · GSE96583 真实计数
+
+使用 batch 2 两个文库的 GEO 原始 UMI 矩阵和作者元数据。按文库和条形码序列匹配，保留作者的细胞类型与 singlet 标签。基线最低 200 个检测基因、线粒体 UMI 低于 10%，先作探索性 PCA 与 k-means，再用作者标注的 CD14+ 单核细胞做供者内配对。分析脚本在真实 Jupyter 内核执行，worker 的工具调用和数字审查由预设脚本驱动。 [GEO 系列](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE96583)
+
+| 结果 | 基线 | 线粒体阈值改为 5% | 最低检测基因改为 800 |
+|---|---:|---:|---:|
+| QC 后保留条形码 | 24,562 | 24,562 | 3,331 |
+| 供者配对 | 8 | 8 | 8 |
+| 检验基因 | 5,140 | 5,140 | 3,618 |
+| BH FDR ≤ 0.05 | 3,487 | 3,487 | 2,060 |
+
+对两档检测基因阈值，两个分析共同达到 FDR 阈值的 2,010 个基因方向一致。严格 QC 改变了纳入细胞和可检验基因，两个分母不同。差异采用原始计数 pseudobulk、配对 log-CPM 随机化和 BH 校正，反映该数据下的相对丰度变化。聚类是平衡抽样上的探索性结果，细胞类型来自作者标注。当前示例用一套公开数据验证工作流。
+
+基线把 10 个数字绑定、原始数据哈希、Methods 草稿与两张图带入研究记录。在同一台 Mac 解包到另一目录，用新内核重跑，命名数值、stdout、两张图和环境指纹均匹配。该机这次没有 bubblewrap 和 pixi 锁，应用中的结论保持 `reviewed`。
+
+## 工具数据与图片
+
+开关前后对照使用同一份合成检索记录和真实 Jupyter。关闭时没有声明值，开启后绑定值为 7，其输入路径和哈希进入 run。不经过同一会话的暂存记录，或暂存文件被改动时，声明输入会被拒绝。
+
+图片传输验证覆盖项目开关、具体模型声明和 OpenAI 兼容 Chat 请求体，PNG 在符合条件时按二进制附件抵达 mock 端点。文本对照收到原有图片引用。本机可用模型只有文本模型，视觉理解质量与跨 provider 的实跑仍待验收。
+
+随后已用系统视觉 OCR 实测图上标签，并完成四道靶点的自主检索评测。 [扩展验收](v05-target-expansion.md)
+
+## 入口
+
+- `evals/v05_scenario_a.py` 运行公开来源与本地 Ollama，`--guided` 启用预设档案步骤。
+- `evals/v05_scenario_b.py` 读取项目 `data/` 中的 GEO 文件和 `geo-inputs.json`，支持调整两种 QC 阈值。
+- `evals/v05_source_handoff.py` 重跑工具数据交接对照。
+- 本机结果保存在 `evals/results/v05/`，包括 JSON、可点击证据的项目事件库和研究包。

@@ -1,0 +1,470 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "enum": [
+        "figure",
+        "table",
+        "report",
+        "dataset",
+        "structure",
+        "notebook"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "Classification": {
+      "description": "Project data classification. Drives model routing (ARCHITECTURE.md §6.1).",
+      "enum": [
+        "public",
+        "internal",
+        "confidential"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "DataKind": {
+      "enum": [
+        "file",
+        "dataframe",
+        "anndata",
+        "figure",
+        "other"
+      ],
+      "title": "DataKind",
+      "type": "string"
+    },
+    "DataRef": {
+      "additionalProperties": false,
+      "description": "A snapshot of a file or in-memory object, identified by content hash.",
+      "properties": {
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "content_hash": {
+          "description": "SHA-256 hex, lowercase",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/DataKind",
+          "default": "file"
+        },
+        "weak_hash": {
+          "default": false,
+          "description": "True when the object had no canonical serialization (ADR-008).",
+          "title": "Weak Hash",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "uri",
+        "content_hash",
+        "size"
+      ],
+      "title": "DataRef",
+      "type": "object"
+    },
+    "ManifestArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "version_id": {
+          "title": "Version Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Run Id"
+        },
+        "status": {
+          "$ref": "#/$defs/VerificationStatus"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version_id",
+        "name",
+        "kind",
+        "version",
+        "content_hash",
+        "path",
+        "run_id",
+        "status"
+      ],
+      "title": "ManifestArtifact",
+      "type": "object"
+    },
+    "ManifestModel": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "role"
+      ],
+      "title": "ManifestModel",
+      "type": "object"
+    },
+    "ManifestProject": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "classification": {
+          "$ref": "#/$defs/Classification"
+        }
+      },
+      "required": [
+        "name",
+        "classification"
+      ],
+      "title": "ManifestProject",
+      "type": "object"
+    },
+    "ManifestRun": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "code_path": {
+          "description": "Path inside the bundle, e.g. runs/<id>/code.py",
+          "title": "Code Path",
+          "type": "string"
+        },
+        "code_hash": {
+          "title": "Code Hash",
+          "type": "string"
+        },
+        "env_lock_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Env Lock Hash"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/DataRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/DataRef"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "run_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Key"
+        },
+        "values": {
+          "description": "Named values declared with bq.value() (ADR-014)",
+          "items": {
+            "$ref": "#/$defs/NamedValue"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "language",
+        "code_path",
+        "code_hash",
+        "env_lock_hash"
+      ],
+      "title": "ManifestRun",
+      "type": "object"
+    },
+    "NamedValue": {
+      "additionalProperties": false,
+      "description": "A value declared in kernel code with ``bq.value()`` (ADR-014). Scalars only: tables\nand figures are referenced as artifacts.",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the value means",
+          "title": "Desc"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "NamedValue",
+      "type": "object"
+    },
+    "PortableRun": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "object"
+        },
+        "stdout_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stdout Sha256"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Environment"
+        },
+        "synthetic": {
+          "default": false,
+          "title": "Synthetic",
+          "type": "boolean"
+        },
+        "preceding_runs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preceding Runs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "inputs",
+        "stdout_sha256",
+        "environment"
+      ],
+      "title": "PortableRun",
+      "type": "object"
+    },
+    "VerificationStatus": {
+      "description": "The trust ladder (ADR-015).",
+      "enum": [
+        "unverified",
+        "grounded",
+        "reviewed",
+        "reproduced",
+        "replicated",
+        "disputed"
+      ],
+      "title": "VerificationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Spec Version",
+      "type": "string"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "project": {
+      "$ref": "#/$defs/ManifestProject"
+    },
+    "runs": {
+      "items": {
+        "$ref": "#/$defs/ManifestRun"
+      },
+      "title": "Runs",
+      "type": "array"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ManifestArtifact"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "models_used": {
+      "items": {
+        "$ref": "#/$defs/ManifestModel"
+      },
+      "title": "Models Used",
+      "type": "array"
+    },
+    "files": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Files",
+      "type": "object"
+    },
+    "run_records": {
+      "items": {
+        "$ref": "#/$defs/PortableRun"
+      },
+      "title": "Run Records",
+      "type": "array"
+    },
+    "claim_bindings_path": {
+      "default": "review/claims.json",
+      "title": "Claim Bindings Path",
+      "type": "string"
+    },
+    "pixi_lock_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pixi Lock Path"
+    }
+  },
+  "required": [
+    "tool",
+    "tool_version",
+    "created_at",
+    "project",
+    "runs",
+    "artifacts",
+    "models_used",
+    "files"
+  ],
+  "title": "ManifestV1",
+  "type": "object"
+}

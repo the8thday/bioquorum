@@ -68,6 +68,8 @@ class FakeKernel:
     def language(self) -> str:
         return self._language
 
+    synthetic = True
+
     @property
     def isolation(self) -> str:
         return "none"  # nothing runs, so there is nothing to isolate

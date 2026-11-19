@@ -1,0 +1,110 @@
+# Frozen synthetic tool outputs and deliberately wrong initial answers.
+- id: dev-missing
+  split: development
+  question: How many batches were usable?
+  values:
+    - {name: usable_batches, value: 27, unit: batches, desc: Usable batches}
+  initial: 'Usable batches: {{usable_batch_count}}'
+  targets:
+    - {label: Usable batches, value: usable_batches}
+- id: dev-clean
+  split: development
+  question: How many samples were retained?
+  values:
+    - {name: retained_samples, value: 41, unit: samples, desc: Samples retained after QC}
+  initial: 'Retained samples: {{retained_samples}}'
+  clean: true
+  targets:
+    - {label: Retained samples, value: retained_samples}
+- id: dev-source
+  split: development
+  question: How was assignment concealed in the final protocol?
+  sources:
+    - 'Pilot protocol. Assignment was concealed by a sealed envelope.'
+    - 'Final protocol. Assignment was concealed by a central web service.'
+  initial: 'Allocation: [@s1 "Assignment was concealed by a central web service."]'
+  targets:
+    - {label: Allocation, source: 2, description: Assignment was concealed by a central web service}
+- id: heldout-complete-pairs
+  split: heldout
+  question: How many complete pairs entered the analysis?
+  values:
+    - {name: eligible_pairs, value: 73, unit: pairs, desc: Pairs eligible before the missing-data filter}
+    - {name: complete_pairs, value: 64, unit: pairs, desc: Complete pairs in the analysis}
+  initial: 'Complete pairs: {{n_complete}} pairs'
+  targets:
+    - {label: Complete pairs, value: complete_pairs}
+- id: heldout-same-value
+  split: heldout
+  question: How many plates passed validation? Use the validation total.
+  values:
+    - {name: plates_prepared, value: 38, unit: plates, desc: Plates prepared in an independent prescreen}
+    - {name: plates_passed, value: 38, unit: plates, desc: Plates passing final validation}
+  initial: 'Plates passed: {{plate_pass}}'
+  targets:
+    - {label: Plates passed, value: plates_passed}
+- id: heldout-intact-neighbor
+  split: heldout
+  question: Report both the detected and confirmed counts. Keep the two outcomes separate.
+  values:
+    - {name: n_detected, value: 52, unit: samples, desc: Detected samples}
+    - {name: n_confirmed, value: 31, unit: samples, desc: Confirmed samples}
+  initial: |
+    Detected: {{n_detected}}
+    Confirmed: {{confirmed_count}}
+  targets:
+    - {label: Detected, value: n_detected}
+    - {label: Confirmed, value: n_confirmed}
+- id: heldout-mask
+  split: heldout
+  question: Who was masked during outcome scoring in the main trial?
+  sources:
+    - 'Pilot trial. Participants were masked during outcome scoring.'
+    - 'Main trial. Outcome assessors were masked during outcome scoring.'
+  initial: 'Masking: [@s1 "Outcome assessors were masked during outcome scoring."]'
+  targets:
+    - {label: Masking, source: 2, description: Outcome assessors were masked during outcome scoring}
+- id: heldout-endpoint
+  split: heldout
+  question: State the primary endpoint from the registered protocol.
+  sources:
+    - 'Registered protocol. Time to discharge was the primary endpoint.'
+    - 'Exploratory analysis. Time to symptom resolution was the primary outcome.'
+    - 'Study summary. Time to discharge was collected as a secondary endpoint in a separate cohort.'
+  initial: 'Primary endpoint: [@s3 "Time to discharge was the primary endpoint."]'
+  targets:
+    - {label: Primary endpoint, source: 1, description: Time to discharge was the primary endpoint}
+- id: heldout-control
+  split: heldout
+  question: State what the final protocol did about the negative control.
+  sources:
+    - 'Archive draft. The negative control was omitted.'
+    - 'Final protocol. The negative control was included in every batch.'
+  initial: 'Negative control: [@s1 "The negative control was included in every batch."]'
+  targets:
+    - {label: Negative control, source: 2, description: The negative control was included in every batch}
+- id: heldout-mixed
+  split: heldout
+  question: Give the final sample count and the final protocol's primary readout.
+  values:
+    - {name: samples_assayed, value: 46, unit: samples, desc: Samples in the final analysis}
+    - {name: samples_screened, value: 58, unit: samples, desc: Samples at screening}
+  sources:
+    - 'Pilot protocol. Absorbance was the primary readout.'
+    - 'Final protocol. Change in fluorescence was the primary readout.'
+  initial: |
+    Final samples: {{n_final}}
+    Primary readout: [@s1 "Change in fluorescence was the primary readout."]
+  targets:
+    - {label: Final samples, value: samples_assayed}
+    - {label: Primary readout, source: 2, description: Change in fluorescence was the primary readout}
+- id: heldout-clean
+  split: heldout
+  question: State how the final protocol stored the samples.
+  sources:
+    - 'Final protocol. Samples were stored in sealed opaque containers.'
+    - 'Pilot protocol. Samples were stored in clear containers.'
+  initial: 'Storage: [@s1 "Samples were stored in sealed opaque containers."]'
+  clean: true
+  targets:
+    - {label: Storage, source: 1, description: Samples were stored in sealed opaque containers}

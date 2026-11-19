@@ -2,6 +2,48 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## v0.6.0.dev0
+
+- Show a read-only, paginated session audit log and data classification in the workbench.
+- Add opt-in macOS kernel isolation and offline stdio MCP process isolation.
+- Add a local HTTPS egress proxy and route configured tool and provider HTTP traffic through it.
+- Add a non-root Docker CLI image definition and private deployment guidance.
+
+## v0.5 development
+
+- Add opt-in per-project Agent Skills with metadata discovery and permission-checked access
+  to instructions and text resources.
+- Add a researcher-controlled project note backed by events. Model drafts are scoped to
+  the originating session and stale edits cannot replace newer revisions.
+- Add opt-in literature subtasks with a fresh context, a retrieval-tool allowlist,
+  shared turn budgets and verbatim evidence linked to the original tool result.
+- Export evidence-only research bundles and generate an editable Methods draft from the archive.
+- Review semantic support for bound source aliases. Keep claims at their current level when a verdict is missing.
+- Add opt-in source staging for replayable kernel inputs and project- and model-scoped image attachments.
+
+
+## 0.4.0 (unreleased)
+
+- Replay recorded Python kernel cells with captured inputs in a fresh kernel, compare
+  outputs and advance eligible claims through reproduction.
+- Add an opt-in blind replication run with a separate session, an estimated budget,
+  isolated inputs, preregistered tolerances and a comparison record.
+- Export a portable manifest v1 bundle with an independent, hash-verifying replay runner.
+- Observe optional pandas, AnnData and Matplotlib file I/O; support provisioned pixi
+  kernels and an opt-in method review check.
+
+
+## 0.3.0 (unreleased)
+
+- Add the local FastAPI workbench with an event-backed research record, a reconnecting
+  activity stream, and evidence drawers for recorded figures, named values, and citations.
+- Support opt-in research plans, approval before execution, auditable plan deviations,
+  one-time browser permissions, interruption, and session forks.
+- Ship a static browser client and a metformin walkthrough that runs offline with
+  a model cassette and FakeKernel. Add the `bioquorum` launcher and `bq workbench`.
+- Leave grounded claims at their current level when a requested review check cannot finish.
+
+
 ## Unreleased (0.2.0)
 
 - **direction**: `docs/DESIGN.md`; ADR-014 (evidence binding), ADR-015 (trust ladder, replication), ADR-016 (record-centric web workbench, supersedes ADR-012), ADR-017 (kernel isolation), ADR-018 (harness mechanisms measured by lift). ARCHITECTURE and PRODUCT v0.4; roadmap reordered.
@@ -13,7 +55,14 @@ Extension interfaces (checks, connectors, providers, skills) may change before v
 - **evidence binding (ADR-014)**: kernels get a `bq` object at start and restart; `bq.value(name, value, unit, desc)` records a named scalar on `run_finished.values` (successful runs only). Answers write `{{name}}` / `{{name:spec}}` and `[@s3 "quote"]` / `[@PMID:123 "quote"]`; `review/binding.py` resolves them deterministically; tool results the model sees start with `[source sN]`. `bq run` prints the answer with recorded values filled in, failed bindings marked, and an evidence list.
 - First real-model runs (GPT-6.1, 2026-11-18) led to four fixes: label numbers (`type 2`, `outcome 0`, `IL-23`) no longer block `grounded`; checks receive bound values at full precision (a rounded `{{p:.3e}}` was disputed by `value_match`); quotes may contain straight quotes and malformed `[@` markers fail instead of passing as text; source labels in the CLI evidence list were swallowed by rich markup.
 - **status (ADR-015)**: new level `grounded` and triggers `bindings_resolved` / `bindings_failed`. Levels cannot be skipped: **an unbound claim that passes review now stays `unverified`** (it was `reviewed` in 0.1), and leaving `disputed` restarts from the bottom. Failed bindings are `binding` findings at error level.
-- **agent**: unresolved bindings are sent back to the model (`user_message` with `actor = system`), at most 2 rounds. Switches `[agent] binding` and `[agent] binding_retries` (ADR-018); both on by default, lift not yet measured.
+- **agent**: `[agent] binding` defaults to on. `[agent] binding_retries` defaults to 0 after the first ablation (ADR-018). Set it to 1 or 2 to send unresolved bindings back through a `user_message` with `actor = system`. See [the evaluation](docs/research/binding-eval.md).
+- **models**: DeepSeek Chat Completions uses the DeepSeek profile to preserve existing reasoning and include the required empty field on tool-call turns without recorded reasoning.
+- **agent**: optional per-turn token, estimated USD and elapsed-time budgets, compacted event-backed context and live CLI generation progress. The answer renderer labels unbound numbers and citations even when review is off.
+- **usage**: configure per-model input and output prices in TOML. CLI reports answer and review usage and distinguishes missing prices from configured zero cost.
+- **review**: `--online-citations` checks session-retrieved PMIDs and DOIs against their public registries. Consecutive kernel display values retain their boundaries in numeric review.
+- **tools**: external MCP connections recover on subsequent calls after transport failure. A failed call stays in the audit trail without resending it. Python runs can record the content-addressed snapshots of declared input files.
+- **storage**: packaged Alembic migrations add `model_calls.cost_known` when opening legacy SQLite databases.
+- **acceptance**: reproducible PBMC 3k QC and metformin evidence-review demos, and a local-model runtime-control ablation. See [the v0.2 walkthrough](docs/demo-v0.2.md).
 - **interface change**: `ClaimRef` gains `ValueRef` and `QuoteRef`; `Evidence` gains `values` and `sources`; `ReviewResult` gains `evidence`; checks receive rendered claim text; `value_match` also looks at non-literature tool results. Manifest runs gain `values` (bundle-spec regenerated). `run_turn` takes `binding` / `binding_retries` and returns `binding_retries`.
 
 ## 0.1.0 — 2026-11-17

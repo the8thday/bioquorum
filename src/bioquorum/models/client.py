@@ -8,19 +8,24 @@ what the conversation contains is the caller's job.
 
 from __future__ import annotations
 
+import asyncio
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx2
+from pydantic_ai import messages as pa
 from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.settings import ModelSettings
 
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, ModelRole
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import Message
 from bioquorum.models.cassette import CassetteMode, ModelCassette, request_key
-from bioquorum.models.convert import from_provider, to_provider, tool_definitions
+from bioquorum.models.convert import ImageLoader, from_provider, to_provider, tool_definitions
 from bioquorum.models.registry import ModelFactory, build_model
 from bioquorum.models.routing import Route, Router
 from bioquorum.policy.classification import PolicyViolation
@@ -41,6 +46,10 @@ class Completion:
     model_call_id: str
     usage: dict[str, int] = field(default_factory=dict)
     latency_ms: int = 0
+    cost_usd: float | None = None
+
+
+OnDelta = Callable[[str], None]
 
 
 def _usage(u: Any) -> dict[str, int]:
@@ -61,29 +70,77 @@ class ModelClient:
         cassette: ModelCassette | None = None,
         factory: ModelFactory = build_model,
         prices: dict[str, tuple[float, float]] | None = None,
+        image_loader: ImageLoader | None = None,
+        outbound_proxy: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> None:
         self.router = router
         self.store = store
         self.cassette = cassette
         self.factory = factory
-        self.prices = prices or {}  # spec -> (USD per 1M input, per 1M output)
+        self.prices = router.config.prices if prices is None else prices
+        self.image_loader = image_loader
+        self.outbound_proxy = outbound_proxy
+        self.max_output_tokens = max_output_tokens
 
-    def _cost(self, spec: str, usage: dict[str, int]) -> float:
-        p_in, p_out = self.prices.get(spec, (0.0, 0.0))
+    def _images_for(self, route: Route) -> ImageLoader | None:
+        return self.image_loader if str(route.spec) in self.router.config.vision_models else None
+
+    def _cost(self, spec: str, usage: dict[str, int]) -> float | None:
+        if spec not in self.prices:
+            return None
+        p_in, p_out = self.prices[spec]
+        if (p_in or p_out) and not (usage["input_tokens"] or usage["output_tokens"]):
+            return None
         return (usage["input_tokens"] * p_in + usage["output_tokens"] * p_out) / 1_000_000
 
     async def _call(
-        self, route: Route, messages: Sequence[Message], tools: Sequence[dict[str, Any]]
+        self,
+        route: Route,
+        messages: Sequence[Message],
+        tools: Sequence[dict[str, Any]],
+        on_delta: OnDelta | None = None,
     ) -> tuple[Message, dict[str, int]]:
         spec = str(route.spec)
-        key = request_key(spec, messages, tools)
+        image_loader = self._images_for(route)
+        variant = spec + "#vision" if image_loader is not None else spec
+        if self.max_output_tokens is not None:
+            variant += f"#max_output_tokens={self.max_output_tokens}"
+        key = request_key(variant, messages, tools)
         if self.cassette is not None and self.cassette.mode is CassetteMode.REPLAY:
-            return self.cassette.lookup(key)
-        model = self.factory(route)
+            message, usage = self.cassette.lookup(key)
+            if on_delta is not None and message.text():
+                on_delta(message.text())
+            return message, usage
         params = ModelRequestParameters(
             function_tools=tool_definitions(tools), allow_text_output=True
         )
-        response = await model.request(to_provider(messages, family=route.family), None, params)
+        history = to_provider(messages, family=route.family, image_loader=image_loader)
+        settings: ModelSettings | None = (
+            {"max_tokens": self.max_output_tokens} if self.max_output_tokens is not None else None
+        )
+        async with AsyncExitStack() as stack:
+            if self.outbound_proxy is not None and not route.provider.is_local:
+                http = await stack.enter_async_context(
+                    httpx2.AsyncClient(proxy=self.outbound_proxy, trust_env=False)
+                )
+                model = build_model(route, http_client=http)
+            else:
+                model = self.factory(route)
+            if on_delta is None:
+                response = await model.request(history, settings, params)
+            else:
+                async with model.request_stream(history, settings, params) as stream:
+                    async for event in stream:
+                        if isinstance(event, pa.PartStartEvent) and isinstance(
+                            event.part, pa.TextPart
+                        ):
+                            on_delta(event.part.content)
+                        elif isinstance(event, pa.PartDeltaEvent) and isinstance(
+                            event.delta, pa.TextPartDelta
+                        ):
+                            on_delta(event.delta.content_delta)
+                    response = stream.get()
         message, usage = from_provider(response, family=route.family), _usage(response.usage)
         if self.cassette is not None and self.cassette.mode is CassetteMode.RECORD:
             self.cassette.store(key, spec, message, usage)
@@ -98,6 +155,7 @@ class ModelClient:
         session_id: str,
         classification: Classification,
         causation_id: str | None = None,
+        on_delta: OnDelta | None = None,
     ) -> Completion:
         actor = _ACTOR.get(role, Actor.AGENT)
         try:
@@ -130,9 +188,30 @@ class ModelClient:
             )
             t0 = time.monotonic()
             try:
-                message, usage = await self._call(route, messages, tools)
+                if on_delta is None:
+                    message, usage = await self._call(route, messages, tools)
+                else:
+                    message, usage = await self._call(route, messages, tools, on_delta=on_delta)
+            except asyncio.CancelledError:
+                self.store.append(
+                    ev.ModelCallFailed(
+                        call_id=call_id,
+                        provider=route.spec.provider,
+                        model=route.spec.model,
+                        role=role,
+                        error="Research stopped",
+                    ),
+                    session_id=session_id,
+                    actor=actor,
+                    causation_id=started.id,
+                )
+                raise
             except Exception as exc:  # try the next route; never leak secrets
-                error = redact(f"{type(exc).__name__}: {exc}")[:2000]
+                error = (
+                    f"{type(exc).__name__}: Vision-enabled model request failed"
+                    if self._images_for(route) is not None
+                    else redact(f"{type(exc).__name__}: {exc}")[:2000]
+                )
                 errors.append(f"{route.spec}: {error}")
                 self.store.append(
                     ev.ModelCallFailed(
@@ -148,6 +227,7 @@ class ModelClient:
                 )
                 continue
             latency = int((time.monotonic() - t0) * 1000)
+            cost = self._cost(str(route.spec), usage)
             self.store.append(
                 ev.ModelCallFinished(
                     call_id=call_id,
@@ -155,7 +235,8 @@ class ModelClient:
                     model=route.spec.model,
                     role=role,
                     classification=classification,
-                    cost_usd=self._cost(str(route.spec), usage),
+                    cost_usd=cost or 0.0,
+                    cost_known=cost is not None,
                     latency_ms=latency,
                     input_tokens=usage["input_tokens"],
                     output_tokens=usage["output_tokens"],
@@ -166,5 +247,5 @@ class ModelClient:
                 actor=actor,
                 causation_id=started.id,
             )
-            return Completion(message, route, call_id, usage, latency)
+            return Completion(message, route, call_id, usage, latency, cost)
         raise ModelUnavailableError("; ".join(errors) or f"no route for {role}")

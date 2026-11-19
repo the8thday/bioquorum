@@ -1,0 +1,57 @@
+- id: plant-growth
+  dataset: PlantGrowth
+  split: development
+  question: >
+    Use the dataset to summarize mean dried plant weight in the control group and
+    the treatment 2 minus control mean difference. State how yield was measured
+    using the study note. Give numeric answers to three decimal places.
+  metrics: {Control mean: 5.032, Treatment 2 minus control: 0.494}
+  design: {Yield measure: '(?:dri(?:ed|er)|dry)\b.*\b(?:weight|mass)'}
+  source_url: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/PlantGrowth.html
+  excerpt: 'Results from an experiment to compare yields (as measured by dried weight of plants)'
+- id: tooth-growth
+  dataset: ToothGrowth
+  split: heldout
+  question: >
+    Calculate OJ minus VC mean tooth length separately at each vitamin C dose,
+    using the numeric dose column. Report each difference to two decimal places.
+    Identify the experimental unit from the study note.
+  metrics: {Low dose difference: 5.25, Middle dose difference: 5.93, High dose difference: -0.08}
+  design: {Experimental unit: '\b(?:individual\s+)?guinea\s+pigs?\b'}
+  source_url: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/ToothGrowth.html
+  excerpt: 'The response is the length of odontoblasts (cells responsible for tooth growth) in 60 guinea pigs.'
+- id: grass-co2
+  dataset: CO2
+  split: heldout
+  question: >
+    For Quebec plants only, calculate the within-plant change in uptake at concentration
+    1000 minus 175, then average changes separately for chilled and nonchilled plants.
+    Report both means to two decimal places, the number of plants with both measurements,
+    and when the chilling occurred, as described in the study note.
+  metrics: {Chilled mean change: 16.70, Nonchilled mean change: 13.13, Paired plants: 6}
+  design: {Chilling timing: '\bovernight\b'}
+  source_url: https://stat.ethz.ch/R-manual/R-devel/library/datasets/help/CO2.html
+  excerpt: 'Half the plants of each type were chilled overnight before the experiment was conducted.'
+- id: chick-growth
+  dataset: ChickWeight
+  split: heldout
+  question: >
+    Compare diets 1 and 4 using complete chick pairs at birth and day 21. For each diet,
+    count complete pairs and compute mean day-21 minus birth weight to two decimals.
+    Report what the Time column represents according to the study note.
+  metrics: {Diet 1 pairs: 16, Diet 4 pairs: 9, Diet 1 mean gain: 136.19, Diet 4 mean gain: 197.67}
+  design: {Time definition: '\bdays?\b.*\b(?:birth|born|hatching)\b'}
+  source_url: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/ChickWeight.html
+  excerpt: 'a numeric vector giving the number of days since birth when the measurement was made.'
+- id: paired-sleep
+  dataset: sleep
+  split: heldout
+  question: >
+    Pair rows by patient ID. Compute condition 2 minus condition 1 for each patient,
+    then report the number of complete pairs, the mean difference in hours to two decimals,
+    and the number of strictly positive differences. Describe the unit and pairing
+    structure based on the study note.
+  metrics: {Complete pairs: 10, Mean difference: 1.58, Positive differences: 9}
+  design: {Study design: '\b(?:pair\w*|same|repeated|within)\b.*\b(?:patients?|persons?|people|individuals?|participants?)\b|\b(?:patients?|persons?|people|individuals?|participants?)\b.*\b(?:pair\w*|twice|same|both|repeat\w*)\b'}
+  source_url: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/sleep.html
+  excerpt: 'They represent measurements on 10 persons, not in groups.'

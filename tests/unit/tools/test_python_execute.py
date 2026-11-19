@@ -2,9 +2,10 @@ import base64
 
 import pytest
 
-from bioquorum.core.enums import OutputStream
+from bioquorum.core import events as ev
+from bioquorum.core.enums import Actor, OutputStream
 from bioquorum.core.hashing import code_hash, run_key
-from bioquorum.core.messages import ImageRefPart
+from bioquorum.core.messages import DataRefPart, ImageRefPart, ToolResultPart
 from bioquorum.core.refs import NamedValue
 from bioquorum.runtime import KernelError, KernelOutput, Script
 from bioquorum.runtime.values import VALUE_MIME, value_output
@@ -132,3 +133,53 @@ async def test_malformed_value_payload_is_reported_not_recorded(ctx, store, kern
     part = await invoke(SPEC, {"code": "..."}, ctx)
     assert run_events(store)[-1].parsed().values == []
     assert "rejected" in part.text()
+
+
+async def test_declared_download_is_hashed_and_checked_before_run(ctx, store, kernel):
+    path = ctx.workdir / "downloads" / "table.csv"
+    path.parent.mkdir()
+    path.write_text("observed\n2\n")
+    assert ctx.cas is not None
+    ref = ctx.cas.put_file(path)
+    store.append(
+        ev.ToolCallFinished(
+            call_id="download",
+            tool="download_file",
+            result=ToolResultPart(
+                call_id="download",
+                content=[
+                    DataRefPart(ref=ref, summary="downloads/table.csv, downloaded from example")
+                ],
+            ),
+        ),
+        session_id="S",
+        actor=Actor.TOOL,
+    )
+    args = {"code": "pass", "input_files": ["downloads/table.csv"]}
+    assert not (await invoke(SPEC, args, ctx)).is_error
+    started, finished = (e.parsed() for e in run_events(store) if e.type != "run_output")
+    assert isinstance(started, ev.RunStarted) and started.inputs == [ref]
+    assert isinstance(finished, ev.RunFinished)
+    assert finished.run_key == run_key(code_hash("pass"), None, [ref.content_hash])
+    path.write_text("mutated")
+    assert (await invoke(SPEC, args, ctx)).is_error
+    assert len([e for e in run_events(store) if e.type == "run_started"]) == 1
+
+
+async def test_local_data_input_requires_read_permission(ctx, store):
+    from bioquorum.core.enums import PermissionClass, PermissionScope
+    from bioquorum.policy import PermissionPolicy
+
+    ctx.permissions = PermissionPolicy()
+    ctx.permissions.grant(PermissionClass.EXECUTE, "python", PermissionScope.GLOBAL)
+    path = ctx.workdir / "public.csv"
+    path.write_text("counts\n2\n")
+    args = {"code": "pass", "input_files": ["public.csv"]}
+    assert (await invoke(SPEC, args, ctx)).is_error
+    ctx.permissions.grant(PermissionClass.READ_FS, str(path), PermissionScope.GLOBAL)
+    assert not (await invoke(SPEC, args, ctx)).is_error
+    started = run_events(store)[0].parsed()
+    assert isinstance(started, ev.RunStarted) and len(started.inputs) == 1
+    (ctx.workdir / ".env").write_text("sample")
+    ctx.permissions.grant(PermissionClass.READ_FS, str(ctx.workdir), PermissionScope.GLOBAL)
+    assert (await invoke(SPEC, {"code": "pass", "input_files": [".env"]}, ctx)).is_error

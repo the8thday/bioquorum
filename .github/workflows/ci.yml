@@ -15,3 +15,21 @@ jobs:
       - run: uv run pyright
       - run: uv run lint-imports
       - run: uv run pytest --cov=bioquorum --cov-report=term-missing
+  workbench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - run: uv sync --locked
+      - run: npm ci --prefix tests/e2e --ignore-scripts
+      - run: npm test --prefix tests/e2e
+      - run: BQ_TEST_PROJECT_NOTE=1 npm test --prefix tests/e2e
+      - run: uv build --wheel
+      - run: |
+          wheels=(dist/*.whl)
+          uvx --from "${wheels[0]}" bioquorum --help

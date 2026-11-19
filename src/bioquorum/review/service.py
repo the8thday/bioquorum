@@ -18,10 +18,12 @@ from dataclasses import dataclass, field, replace
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, Severity
 from bioquorum.core.ids import new_id
-from bioquorum.core.refs import CitationRef, ClaimRef, RunRef, ValueRef
+from bioquorum.core.refs import CitationRef, ClaimRef, QuoteRef, RunRef, ValueRef
 from bioquorum.core.status import StatusTrigger, VerificationStatus, aggregate, transition
 from bioquorum.review.binding import Grounding, ground_claim, render
 from bioquorum.review.checks.base import Check, Finding
+from bioquorum.review.checks.citations import CITATION_UNAVAILABLE
+from bioquorum.review.checks.supports import CITATION_SUPPORT_UNAVAILABLE
 from bioquorum.review.evidence import ClaimInput, Evidence, cited_keys, normalise_key
 from bioquorum.storage.events import EventStore
 
@@ -141,6 +143,7 @@ async def review(
         replace(
             c,
             text=render(c.text, evidence, exact=True),
+            quote_refs=tuple(ref for ref in r.grounding.refs if isinstance(ref, QuoteRef)),
             run_refs=tuple(
                 dict.fromkeys(
                     [
@@ -193,6 +196,13 @@ async def review(
             bad = [b.raw[:60] for b in r.grounding.bindings if not b.ok]
             move(r, StatusTrigger.BINDINGS_FAILED, "unresolved: " + ", ".join(bad))
         failed = any(f.severity is Severity.ERROR for f in r.findings)
+        if not failed and (
+            errors
+            or any(
+                f.check in (CITATION_UNAVAILABLE, CITATION_SUPPORT_UNAVAILABLE) for f in r.findings
+            )
+        ):
+            continue
         trigger = StatusTrigger.REVIEW_FAILED if failed else StatusTrigger.REVIEW_PASSED
         reason = "; ".join(f"{f.check}: {f.evidence}" for f in r.findings)
         move(r, trigger, reason or "all checks passed")

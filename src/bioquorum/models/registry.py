@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import httpx2
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from bioquorum.models.routing import Route
@@ -14,10 +16,15 @@ from bioquorum.policy.secrets import resolve_secret
 ModelFactory = Callable[[Route], Model]
 
 
-def build_model(route: Route) -> Model:
+def build_model(route: Route, *, http_client: httpx2.AsyncClient | None = None) -> Model:
     p = route.provider
     key = resolve_secret(p.api_key) or "none"  # local servers often ignore the key
-    provider = OpenAIProvider(base_url=p.base_url, api_key=key)
+    provider = (
+        OpenAIProvider(base_url=p.base_url, api_key=key, http_client=http_client)
+        if http_client is not None
+        else OpenAIProvider(base_url=p.base_url, api_key=key)
+    )
     if p.api == "responses":
         return OpenAIResponsesModel(route.spec.model, provider=provider)
-    return OpenAIChatModel(route.spec.model, provider=provider)
+    profile = DeepSeekProvider.model_profile(route.spec.model) if p.kind == "deepseek" else None
+    return OpenAIChatModel(route.spec.model, provider=provider, profile=profile)

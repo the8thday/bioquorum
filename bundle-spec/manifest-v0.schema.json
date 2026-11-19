@@ -307,12 +307,13 @@
       "type": "object"
     },
     "VerificationStatus": {
-      "description": "The trust ladder (ADR-015). ``replicated`` is added in v0.4.",
+      "description": "The trust ladder (ADR-015).",
       "enum": [
         "unverified",
         "grounded",
         "reviewed",
         "reproduced",
+        "replicated",
         "disputed"
       ],
       "title": "VerificationStatus",

@@ -3,52 +3,43 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
+from rich.status import Status
 from rich.table import Table
 
-from bioquorum.agent import Hooks, run_turn
-from bioquorum.cli import workspace as wsp
+from bioquorum.agent import Hooks
+from bioquorum.application import research
+from bioquorum.application import workspace as wsp
 from bioquorum.core import events as ev
-from bioquorum.core.enums import PermissionClass, PermissionScope
+from bioquorum.core.enums import Actor, PermissionClass, PermissionScope
 from bioquorum.core.messages import ToolCallPart, ToolResultPart
 from bioquorum.core.refs import QuoteRef, ValueRef
 from bioquorum.core.status import VerificationStatus
-from bioquorum.mcp.client import McpConnection
-from bioquorum.models import CassetteMode, ModelCassette, ModelClient, Router
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
-from bioquorum.review import ReviewResult, review_answer
-from bioquorum.review.binding import find_bindings, render
+from bioquorum.review import ReviewResult
+from bioquorum.review.binding import ground_claim, render
 from bioquorum.review.evidence import Evidence
 from bioquorum.storage.events import EventStore
-from bioquorum.tools import ToolRegistry, default_registry
-from bioquorum.tools.external import register_external
 
 STATUS_STYLE = {
     VerificationStatus.GROUNDED: "cyan",
     VerificationStatus.REVIEWED: "green",
     VerificationStatus.REPRODUCED: "bold green",
+    VerificationStatus.REPLICATED: "bold green",
     VerificationStatus.UNVERIFIED: "yellow",
     VerificationStatus.DISPUTED: "bold red",
 }
 
 
-def model_client(ws: wsp.Workspace, store: EventStore) -> ModelClient:
-    """``BQ_MODEL_CASSETTE`` (+ ``BQ_MODEL_CASSETTE_MODE`` = replay|record) for offline demos/tests."""
-    cassette = None
-    path = os.environ.get("BQ_MODEL_CASSETTE")
-    if path:
-        cassette = ModelCassette(
-            path, CassetteMode(os.environ.get("BQ_MODEL_CASSETTE_MODE", "replay"))
-        )
-    return ModelClient(Router(ws.models_config()), store, cassette=cassette)
+model_client = research.model_client
+answer_evidence = research.answer_evidence
+citation_context = research.citation_context
 
 
 def terminal_asker(console: Console):
@@ -107,23 +98,65 @@ class Printer:
         self.console.print(f"  [{style}]{head}{' ...' if len(lines) > 3 else ''}[/]")
 
 
+@dataclass
+class StreamProgress:
+    status: Status
+    characters: int = 0
+
+    def delta(self, text: str) -> None:
+        self.characters += len(text)
+        self.status.update(f"Generating · {self.characters:,} text characters received")
+
+    def pause(self) -> None:
+        self.status.stop()
+        self.characters = 0
+        self.status.update("Generating")
+
+    def resume(self) -> None:
+        self.status.start()
+
+
+def print_usage(console: Console, events: list[ev.Event], *, after_seq: int, label: str) -> None:
+    calls = [
+        p
+        for e in events
+        if e.seq > after_seq
+        and e.type in (ev.ModelCallFinished.event_type, ev.LiteratureFinished.event_type)
+        and isinstance(p := e.parsed(), ev.ModelCallFinished | ev.LiteratureFinished)
+    ]
+    if not calls:
+        return
+    known = [p for p in calls if p.cost_known]
+    cost = f"estimated USD ${sum(p.cost_usd for p in known):.6f}" if known else "price unavailable"
+    unpriced = sum(
+        p.model_calls - p.priced_calls
+        if isinstance(p, ev.LiteratureFinished)
+        else int(not p.cost_known)
+        for p in calls
+    )
+    if known and unpriced:
+        cost += f" ({unpriced} unpriced)"
+    failures = sum(e.seq > after_seq and e.type == ev.ModelCallFailed.event_type for e in events)
+    failures += sum(p.failed_calls for p in calls if isinstance(p, ev.LiteratureFinished))
+    if failures:
+        cost += f" ({failures} failed calls excluded)"
+    console.print(
+        f"[dim]{label}: {sum(p.input_tokens for p in calls):,} input + "
+        f"{sum(p.output_tokens for p in calls):,} output tokens · {cost}[/]"
+    )
+
+
 def _unresolved(b) -> str:
     return f"**[unresolved {b.raw}]**"
-
-
-def answer_evidence(store: EventStore, session_id: str, answer_event_id: str) -> Evidence:
-    """What the answer's bindings resolve against: the session up to the answer."""
-    events = store.read(session_id)
-    seq = next(e.seq for e in events if e.id == answer_event_id)
-    return Evidence.from_events([e for e in events if e.seq < seq])
 
 
 def print_answer(console: Console, text: str, evidence: Evidence) -> None:
     """The answer as the reader should see it (ADR-014): recorded values filled in, quotes
     spelled out, failed bindings marked; then where each binding points."""
     console.print(Markdown(render(text, evidence, failed=_unresolved) or "_(no text)_"))
+    grounding = ground_claim(text, evidence)
     lines: list[str] = []
-    for b in find_bindings(text, evidence):
+    for b in grounding.bindings:
         if isinstance(b.ref, ValueRef):
             nv = evidence.values[b.ref.name].value
             unit = f" {nv.unit}" if nv.unit else ""
@@ -140,6 +173,9 @@ def print_answer(console: Console, text: str, evidence: Evidence) -> None:
         console.print("[bold]evidence[/]")
         for line in dict.fromkeys(lines):
             console.print(f"  {line}", markup=True, highlight=False)
+    if grounding.unbound:
+        console.print("[yellow]Unbound numbers and citations · assertions only[/]")
+        console.print("  " + ", ".join(dict.fromkeys(grounding.unbound)), markup=False)
 
 
 def print_review(console: Console, result: ReviewResult) -> None:
@@ -164,19 +200,6 @@ def print_review(console: Console, result: ReviewResult) -> None:
         console.print(f"[yellow]check not run: {e}[/]")
 
 
-async def connect_external(
-    stack: AsyncExitStack, registry: ToolRegistry, ws: wsp.Workspace, err: Console
-):
-    servers = ws.mcp_servers()
-    for cfg in servers:
-        try:
-            conn = await stack.enter_async_context(McpConnection(cfg))
-            await register_external(registry, conn)
-        except Exception as exc:
-            err.print(f"[yellow]mcp server {cfg.name} unavailable: {exc}[/]")
-    return servers
-
-
 async def run_question(
     ws: wsp.Workspace,
     question: str,
@@ -186,52 +209,79 @@ async def run_question(
     session_id: str | None,
     yes: bool,
     review: bool,
-    max_steps: int,
+    max_steps: int | None,
+    stream: bool | None = None,
+    online_citations: bool = False,
 ) -> int:
+    try:
+        research.literature_request(question)
+    except ValueError as exc:
+        raise wsp.WorkspaceError(str(exc)) from None
     store = EventStore(ws.database())
     options = ws.agent_options()
     sid = session_id or wsp.start_session(ws, store, question[:80])
+    start_seq = max((e.seq for e in store.read(sid)), default=-1)
     client = model_client(ws, store)
-    registry = default_registry()
-    async with AsyncExitStack() as stack:
-        servers = await connect_external(stack, registry, ws, err)
-        ctx = wsp.tool_context(
-            ws, store, sid, permissions(ws, yes=yes, console=console, servers=servers)
+    printer = Printer(console)
+    streaming = options.stream if stream is None else stream
+    progress = StreamProgress(err.status("Generating")) if streaming else None
+
+    def tool_call(call: ToolCallPart) -> None:
+        if progress:
+            progress.pause()
+        printer.tool_call(call)
+
+    def tool_result(call: ToolCallPart, result: ToolResultPart) -> None:
+        printer.tool_result(call, result)
+        if progress:
+            progress.resume()
+
+    try:
+        if progress:
+            progress.resume()
+        turn = await research.execute(
+            ws,
+            store,
+            sid,
+            question,
+            client=client,
+            permissions=lambda servers: permissions(ws, yes=yes, console=console, servers=servers),
+            max_steps=max_steps,
+            hooks=Hooks(
+                on_tool_call=tool_call,
+                on_tool_result=tool_result,
+                on_model_delta=progress.delta if progress else None,
+            ),
+            warnings=lambda message: err.print(message, markup=False),
         )
-        printer = Printer(console)
-        try:
-            turn = await run_turn(
-                question,
-                client=client,
-                registry=registry,
-                ctx=ctx,
-                max_steps=max_steps,
-                hooks=Hooks(on_tool_call=printer.tool_call, on_tool_result=printer.tool_result),
-                binding=options.binding,
-                binding_retries=options.binding_retries,
-            )
-        finally:
-            assert ctx.kernels is not None
-            await ctx.kernels.shutdown_all()
+    finally:
+        if progress:
+            progress.pause()
     console.rule("answer")
-    evidence = answer_evidence(store, sid, turn.answer_event_id)
+    evidence = research.answer_evidence(store, sid, turn.answer_event_id)
     print_answer(console, turn.answer.text(), evidence)
     retried = f" · {turn.binding_retries} binding retries" if turn.binding_retries else ""
     console.print(
         f"[dim]session {sid} · {turn.steps} steps · {turn.tool_calls} tool calls{retried} · {', '.join(dict.fromkeys(turn.model_specs))}[/]"
     )
     if turn.stopped_early:
-        console.print("[yellow]stopped at the step limit[/]")
+        console.print(f"[yellow]exploration stopped: {turn.stop_reason}[/]")
+    explored = store.read(sid)
+    if options.show_cost:
+        print_usage(console, explored, after_seq=start_seq, label="Answer usage")
     if review:
         console.rule("review")
-        result = await review_answer(
+        result = await research.audit(
+            ws,
             store,
+            sid,
             client,
-            session_id=sid,
-            classification=ws.classification,
             answer_event_id=turn.answer_event_id,
+            online_citations=online_citations,
         )
         print_review(console, result)
+        if options.show_cost:
+            print_usage(console, store.read(sid), after_seq=explored[-1].seq, label="Review usage")
     return 0
 
 
@@ -242,8 +292,8 @@ async def review_session(
     session_id: str,
     answer_file: Path | None,
     model_checks: bool,
+    online_citations: bool = False,
 ) -> ReviewResult:
-    from bioquorum.core.enums import Actor
     from bioquorum.core.messages import Message
 
     store = EventStore(ws.database())
@@ -256,11 +306,12 @@ async def review_session(
             actor=Actor.AGENT,
         ).id
     client = model_client(ws, store)
-    return await review_answer(
+    return await research.audit(
+        ws,
         store,
+        session_id,
         client,
-        session_id=session_id,
-        classification=ws.classification,
         answer_event_id=target,
-        use_model_checks=model_checks,
+        model_checks=model_checks,
+        online_citations=online_citations,
     )

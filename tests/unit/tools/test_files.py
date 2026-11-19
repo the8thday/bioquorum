@@ -50,3 +50,17 @@ async def test_list_files(ctx, tmp_path):
     (tmp_path / "f.txt").write_text("abc")
     part = await invoke(REG.get("list_files"), {"path": "."}, ctx)
     assert "d/" in part.text() and "f.txt\t3" in part.text()
+
+
+async def test_general_file_tools_do_not_expose_private_project_state(ctx, tmp_path):
+    state = tmp_path / ".bioquorum"
+    state.mkdir()
+    (state / "research.db").write_text("Private state")
+    (tmp_path / "alias.txt").symlink_to(state / "research.db")
+    for path in (".bioquorum/research.db", "alias.txt"):
+        result = await invoke(REG.get("read_file"), {"path": path}, ctx)
+        assert result.is_error and "Private state" not in result.text()
+    result = await invoke(REG.get("list_files"), {"path": "."}, ctx)
+    assert ".bioquorum" not in result.text() and "alias.txt" not in result.text()
+    result = await invoke(REG.get("list_files"), {"path": ".bioquorum"}, ctx)
+    assert result.is_error

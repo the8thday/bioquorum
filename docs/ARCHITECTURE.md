@@ -77,7 +77,7 @@ tools  →  runtime, provenance, connectors, skills, mcp  →  policy, storage  
 - 科学层（`tools` 及其下层）禁止 import `agent`、`review`、`models`、`server`、`cli`。
 - `core` 不 import 项目内任何其他包，也不 import Pydantic AI、FastAPI、SQLAlchemy。
 - `models` 是唯一允许 import `pydantic_ai` 的包。
-- `storage` 是唯一允许 import `sqlalchemy` 的包。
+- `storage` 是唯一允许 import `sqlalchemy` 和 `alembic` 的包（ADR-020）。
 - `runtime` 是唯一允许 import `jupyter_client` 的包。
 
 ---
@@ -175,18 +175,21 @@ Event(
 | 类别 | 类型 |
 |---|---|
 | 项目 | `project_created`（唯一一个 session_id 为空的事件类型） |
+| 项目笔记 | `project_note_saved`, `project_note_drafted` |
 | 会话 | `session_created`, `session_forked`, `session_title_set` |
 | 对话 | `user_message`, `assistant_message` |
 | 模型 | `model_call_started`, `model_call_finished`, `model_call_failed` |
 | 工具 | `tool_call_requested`, `tool_call_finished`, `tool_call_failed` |
-| 计划 | `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned` |
+| 计划 | `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
 | 权限 | `permission_requested`, `permission_decided` |
-| 执行 | `run_started`, `run_output`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
+| 执行 | `run_started`, `run_output`, `lineage_observed`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
 | 产物 | `artifact_version_created`, `artifact_status_changed` |
 | 结论 | `claim_extracted`, `claim_status_changed` |
 | 审查 | `review_started`, `review_finding`, `review_finished`, `finding_resolved` |
-| 复现 | `rerun_started`, `rerun_finished`, `bundle_exported` |
-| 压缩 | `context_compacted` |
+| 复现 | `rerun_started`, `rerun_finished`, `replication_started`, `replication_finished`, `bundle_exported` |
+| 研究交互 | `turn_requested`, `turn_started`, `turn_finished` |
+| 文献子任务 | `literature_started`, `literature_finished` |
+| 探索控制 | `context_compacted`, `exploration_stopped` |
 | 系统 | `error` |
 
 ### 5.4 规范消息格式
@@ -240,12 +243,12 @@ ReviewFinding(id, session_id, claim_id?, artifact_version_id?, check: str,
 
 ModelCall(id, event_id, provider, model, role, classification,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-          cost_usd, latency_ms)
+          cost_usd, cost_known, latency_ms)
 
 AuditEntry(id, ts, actor, action, target, classification, detail)
 ```
 
-所有投影表都可以用 `bq rebuild` 从事件重建；重建结果必须与原表一致，这是 storage 层的核心测试。
+所有投影表都可以用 `bq rebuild` 从事件重建；重建结果必须与原表一致，这是 storage 层的核心测试。SQLite 表结构由 Alembic 管理，旧库在打开时升级（ADR-020）。
 
 ### 5.6 哈希与身份规则
 
@@ -341,7 +344,8 @@ class Kernel(Protocol):
 ```
 bundle/
 ├── manifest.json
-├── README.md            # 自动生成：做了什么、怎么重跑、Methods 草稿
+├── README.md            # 校验、重跑与分享说明
+├── Methods.md           # 从归档研究记录导出的 Methods 草稿
 ├── conversation.jsonl   # 事件日志，可选脱敏
 ├── runs/<id>/code.py
 ├── env/pixi.lock
@@ -380,6 +384,7 @@ ToolSpec(
   - 分层：`mcp/` 在 `tools/` 之下，不能 import 工具层。所以 `mcp/client.py` 和 `mcp/server.py` 只做协议转换，输入输出都是中立类型；包装成 ToolSpec 在 `tools/external.py`，MCP 出口接到 `invoke()` 在 `tools/exits.py`，组装在 `cli/`。`mcp` SDK 只允许在 `mcp/` 内 import（import-linter）。
   - MCP 出口返回的 untrusted 文本用 `core.messages.fence_untrusted()` 包裹，agent 出口用同一套分隔符；服务器的 `instructions` 说明分隔符的含义。
   - 录制与回放（`mcp/replay.py`）：`bq mcp record` 把真实服务器的工具列表和调用结果存为 cassette，配置里写 `replay = "<path>"` 就改用进程内回放，不联网。测试默认用回放，`live` 测试每晚检查上游是否漂移。
+  - 传输断开时保留该次工具调用的失败记录，下次请求新建连接。SDK 连接由单独的任务持有和关闭。
 
 ### 6.5 审查层 `review/`
 
@@ -390,7 +395,7 @@ ToolSpec(
 |---|---|---|
 | `execution_evidence` | 否 | 声称算过的东西，事件里有没有成功的 Run |
 | `value_match` | 否 | 结论里的数值与 Run 输出或源文件是否一致 |
-| `citation_resolves` | 否 | DOI / PMID 能否解析，标题作者是否匹配 |
+| `citation_resolves` | 否 | 检查会话是否取得该引用；public 项目可开启 DOI / PMID 注册表核验 |
 | `plan_complete` | 否 | 已批准计划的步骤是否都完成 |
 | `citation_supports` | **是** | reviewer 模型读摘要，判断是否支持结论 |
 | `method_sanity` | **是** | 常见统计错误，如未做多重检验校正、样本量过小 |
@@ -399,6 +404,7 @@ ToolSpec(
    - 规则写成通用规则，不针对语料里的个案；实测与局限见 [research/review-checks.md](research/review-checks.md)。`tests/unit/review/test_corpus.py` 把语料上的结果固定为回归基线。
    - 审查流程（`review/service.py`）：`review_started` → 每条 `claim_extracted` → 每条 `review_finding` → `review_finished` → 每条 `claim_status_changed`。确定性检查的 finding 记 `reviewer_model = "deterministic"`。模型检查出错不影响确定性检查的结果，错误单独返回。
    - 发给 reviewer 的来源摘要是工具输出，按 ADR-007 用 `fence_untrusted()` 包裹。
+   - 公开标识符在线核验走 `citation_lookup` 的权限和审计路径。注册表不可用时，受影响的结论保持原有证据级别并列出待核验发现。
    前四个是确定性检查，不消耗模型调用，v0.1 先做。评测报告要分别报告两组的召回率和误报率，不能混在一起。v0.0 对照实验在确定性可核实的错误上没有发现同家族盲区（docs/research/reviewer-experiment.md）；判断类检查上的家族差异在 v0.2 补测。
 3. **重跑**（可选）：关键 Run 在全新 kernel 里重新执行，走 §6.3 的 rerun。
 4. **输出**：`review_finding` 写入事件流。主 agent 在下一轮必须对每条 `error` 级 finding 作出回应；【承重】同一条 finding 的往返次数上限为 2，超过则保持 `disputed` 并交给用户。
@@ -420,12 +426,12 @@ ToolSpec(
 - Prompt 中 untrusted 内容用固定分隔符包裹，系统提示明确说明分隔符内的指令不得执行。
 - 实现要点（v0.1，`agent/loop.py`）：每一步都用 `agent/context.conversation()` 从事件重建上下文；工具调用一律 `invoke_by_name()`；没有工具调用的 assistant 消息即为回答；到达步数上限时不带工具再问一次，保证用户拿到回答。`invoke()` 保证每个调用 ID 都以 `tool_call_finished` / `tool_call_failed` 结束（拒绝也算），否则重建的历史里会有没有结果的工具调用，provider 会拒绝。
 - 【承重】机制与开关（ADR-018）：下列机制各有独立配置开关，关掉后循环仍能跑；每个机制合入时附带 harness 提升评测的前后对比。主循环保持小，机制以可插拔步骤接入。
-  - 预算（v0.2）：按 token、费用和时间限额运行，取代固定的 12 步上限；到限额时的收尾方式不变。
-  - 压缩（v0.2）、流式输出（v0.2）。
-  - 证据绑定（已实现）：`[agent] binding`（提示词里的绑定说明和 `[source sN]` 行，关掉即 v0.1 的提示词，作提升评测的对照组）；`[agent] binding_retries`（0 到 2，回答里有解析失败的绑定时，以 `user_message`、`actor = system` 列出失败项让模型修正）。两者默认开启；提升评测的前后对比尚未做（ROADMAP v0.2 评测项），没有提升就按 ADR-018 关掉。
+  - 预算（v0.2，ADR-019）：token、估算费用和用时阈值独立可配。已配置预算的运行省略显式步数上限时按预算推进。探索结束后可执行一次无工具回答，审查单独计量。
+  - 压缩（v0.2）：`compact_at_bytes` 触发对话前缀摘要，保留最近问题与完整工具交互；证据仍取自完整事件。流式输出（v0.2）：`stream` 更新即时生成进度，解析绑定后的正文在完整回答写入后显示。
+  - 证据绑定（已实现）：`[agent] binding` 默认开启，控制提示词里的绑定说明和 `[source sN]` 行，关闭时使用 v0.1 提示词。解析失败时，`[agent] binding_retries` 控制退回轮数（0 到 2），通过 `user_message`、`actor = system` 列出失败项。退回收益未证实，按 ADR-018 默认设为 0。配对结果见 [绑定评测](research/binding-eval.md)。
   - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
-  - 子任务（v0.5）：子 agent 用全新上下文完成一件事（例如文献检索），只把有限长度的总结和证据引用交回主上下文；它的工具调用同样经过 `invoke()`，写进同一个事件日志。
-  - skills、项目笔记（v0.5）：SKILL.md 渐进加载；每个项目一份跨会话的笔记，由 agent 维护、用户可改。
+  - 文献子任务（ADR-024）：空白上下文、已有权限、明确列出的文献工具，使用量计入父轮预算。子流与主对话分离，主会话只收到有限摘要和核对过的原文摘录。
+  - Skills、项目笔记（ADR-023）：分开启用。先给 Skill 目录，正文和引用经工具按需打开；笔记保存在项目事件流，模型只能建议，作者保存后才跨会话生效。
 - 入口：`bq run` 提问 → 循环 → 回答 → 自动审查（`review.review_answer`）；`bq review [--answer-file]` 审查会话最后一条回答，或审查外部（例如 Claude Code 经 MCP）写出的回答，证据都取自会话事件。
 
 ### 6.7 策略层 `policy/`
@@ -455,9 +461,9 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - 【承重】界面状态 = 事件的函数。刷新页面、换一台设备打开，看到的东西相同。流式 token 是 SSE 瞬时帧，断线重连后从最近的事件 `seq` 续上。
 - `web/`：以研究记录为中心。四个部分：记录（结论带状态标记）、证据抽屉（数字 → 代码、输出、输入 hash；引用 → 原文与高亮的原话）、活动流与输入框、卡片（计划、权限、审查）。
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
-- 【可调】React + Vite + TypeScript + shadcn/ui；布局细节。
+- 前端采用随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）。
 - 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
-- 依赖方向：`server → agent`；只有 `server` import FastAPI（落地时加 import-linter 契约）。
+- 依赖方向：`cli → server → application → agent`；CLI 也直接调用 `application`。仅 `server` 可导入 FastAPI、Starlette 和 Uvicorn。
 
 ---
 
@@ -531,3 +537,11 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 016 | 以研究记录为中心的 Web 工作台，提前到 v0.3 |
 | 017 | kernel 在 OS 级隔离里运行，网络默认关闭 |
 | 018 | harness 的每个机制可单独开关，并用评测上的提升说话 |
+| 019 | 运行预算、压缩与 CLI 流式进度 |
+| 021 | 本地工作台、计划和会话分叉 |
+| 022 | 重跑、盲重复与研究包 |
+| 023 | 项目 Skills 与跨会话笔记 |
+| 024 | 有限的文献检索子任务 |
+| 025 | 证据、计算输入和模型图片的交接 |
+| 026 | 私有部署的出站、隔离和审计边界 |
+| 020 | SQLite 数据库迁移 |
