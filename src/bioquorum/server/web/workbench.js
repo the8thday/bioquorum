@@ -54,11 +54,17 @@ async function list() {
   $("kernel-notice").hidden = !project.kernel_notice;
   $("mode").textContent = project.example ? "Offline example" : project.classification + " project";
   const items = project.sessions.map((row) => {
-    const item = button(row.title, () => select(row.id));
+    const item = button(row.title, () => openSession(row.id));
     if (row.id === sid) item.setAttribute("aria-current", "page");
     return item;
   });
   $("sessions").replaceChildren(...items);
+  $("no-sessions").hidden = items.length > 0;
+}
+
+async function openSession(id) {
+  await select(id);
+  if (sid === id) $("session-name").focus();
 }
 
 function coalesce() {
@@ -75,6 +81,7 @@ async function select(id, {updateURL = true} = {}) {
   const selectedGeneration = generation;
   if (updateURL) {
     const url = new URL(location.href);
+    if (url.hash === "#sessions-heading") url.hash = "";
     if (id) url.searchParams.set("session", id);
     else url.searchParams.delete("session");
     history.replaceState(null, "", url);
@@ -100,6 +107,7 @@ async function select(id, {updateURL = true} = {}) {
   $("project-note").hidden = !row || !project.project_notes;
   if (!row) {
     $("connection").textContent = "";
+    $("no-activity").hidden = false;
     $("record").replaceChildren(intro());
     return;
   }
@@ -163,11 +171,14 @@ async function refresh() {
 
 function intro() {
   const card = panel("intro");
-  card.append(node("h2", "Follow a finding back to its evidence."));
-  card.append(node("p", project.example
+  const copy = node("div", undefined, "intro-copy");
+  const heading = node("h2", "Follow a finding back to its ");
+  heading.append(node("em", "evidence."));
+  copy.append(heading);
+  copy.append(node("p", project.example
     ? "Walk through a saved metformin research session. The example replays model and kernel results using excerpts from PubMed."
     : "Start a research session, then open a figure, calculation or citation directly from the record."));
-  card.append(button(project.example ? "Try the metformin example" : "New research session", async () => {
+  copy.append(button(project.example ? "Try the metformin example" : "New research session", async () => {
     if (!project.example) {
       nameDialog("session");
       return;
@@ -178,6 +189,14 @@ function intro() {
     }
     fillExample();
   }, "primary"));
+  const plate = node("figure", undefined, "cover-plate");
+  const art = node("img");
+  art.src = "/assets/radiolaria.webp";
+  art.alt = "";
+  art.width = 1000;
+  art.height = 1040;
+  plate.append(art, node("figcaption", "Radiolaria · Illustration"));
+  card.append(copy, plate);
   return card;
 }
 
@@ -504,6 +523,7 @@ function render(data) {
     ...data.answers.map((a) => ({seq: a.seq, el: answerCard(a)})),
   ].sort((a, b) => a.seq - b.seq);
   $("record").replaceChildren(...(cards.length ? cards.map((item) => item.el) : [intro()]));
+  $("no-activity").hidden = data.activity.length > 0;
   $("activity").replaceChildren(...data.activity.slice().reverse().map((item) => {
     const li = node("li", activityLabel(item));
     const time = node("time", new Date(item.time).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}), "muted");
@@ -647,7 +667,7 @@ $("name-form").addEventListener("submit", async (event) => {
   try {
     const row = await request(path, {title: $("session-title").value});
     $("name-dialog").close();
-    await select(row.id);
+    await openSession(row.id);
   } catch (err) {
     $("name-dialog").close();
     showError(err);

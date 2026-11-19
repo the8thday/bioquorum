@@ -60,6 +60,9 @@ async def test_offline_record_reloads_and_forks(tmp_path: Path):
     ) as http:
         assert (await http.get("/")).headers["content-security-policy"]
         assert (await http.get("/assets/workbench.js")).status_code == 200
+        plate = await http.get("/assets/radiolaria.webp")
+        assert plate.headers["content-type"] == "image/webp"
+        assert plate.content[:4] == b"RIFF" and plate.content[8:12] == b"WEBP"
         denied = await http.post(
             "/api/sessions", json={"title": "No"}, headers={"Origin": "https://example.org"}
         )

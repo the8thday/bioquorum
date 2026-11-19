@@ -113,7 +113,7 @@ async function verifyRealProject(page) {
     await journal.getByText("model call started", {exact: true}).first().waitFor();
     await journal.getByRole("button", {name: "Close audit log"}).click();
     const figure = page.getByRole("img", {name: "Figure from the recorded calculation"});
-    await figure.scrollIntoViewIfNeeded();
+    await figure.evaluate((image) => image.scrollIntoView({block: "center"}));
     await page.waitForFunction(() => document.querySelector(".figure img")?.naturalWidth > 0);
     await page.getByRole("button", {name: "3", exact: true}).click();
     let drawer = page.getByRole("dialog", {name: "excerpts"});
@@ -135,6 +135,9 @@ async function verifyRealProject(page) {
     if (process.env.BQ_TEST_SCREENSHOT) await page.screenshot({path: process.env.BQ_TEST_SCREENSHOT});
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByRole("link", {name: /Sessions/}).click();
+    await page.getByRole("navigation", {name: "Sessions"}).getByRole("button", {name: "Compare a narrower set"}).click();
+    await page.waitForFunction(() => document.activeElement === document.getElementById("session-name"));
     assert.deepEqual(errors, []);
     console.log("Workbench browser flow passed");
   } finally {

@@ -27,7 +27,12 @@ CSP = (
     "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 )
 WEB = files("bioquorum.server").joinpath("web")
-ASSETS = {"index.html": "text/html", "workbench.css": "text/css", "workbench.js": "text/javascript"}
+ASSETS = {
+    "index.html": "text/html",
+    "workbench.css": "text/css",
+    "workbench.js": "text/javascript",
+    "radiolaria.webp": "image/webp",
+}
 
 
 class LocalOrigin:
