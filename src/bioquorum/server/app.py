@@ -331,13 +331,14 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
 
     @asynccontextmanager
     async def lifespan(app):
-        await controls.recover()
-        await controls.recover_verification()
-        await controls.recover_literature()
-        try:
-            yield
-        finally:
-            await controls.close()
+        with workspace.project_lock(controls.ws.root):
+            await controls.recover()
+            await controls.recover_verification()
+            await controls.recover_literature()
+            try:
+                yield
+            finally:
+                await controls.close()
 
     base = "/api/sessions"
     session = base + "/{sid}"

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from bioquorum.core.enums import Classification, Severity
 from bioquorum.core.messages import UNTRUSTED_NOTICE, fence_untrusted
 from bioquorum.models.client import ModelClient
+from bioquorum.review.binding import quote_matches, scoped_sources
 from bioquorum.review.checks.base import Finding
 from bioquorum.review.evidence import ClaimInput, Evidence, cited_keys
 from bioquorum.review.modeljson import ask_json
@@ -47,14 +48,20 @@ class CitationSupports:
         checked: set[int] = set()
         by_call = {source.call_id: source for source in evidence.sources}
         for claim in claims:
-            sources = [evidence.citation(k) for k in cited_keys(claim.text)]
+            bound = {ref.source.casefold() for ref in claim.quote_refs}
+            sources = [
+                evidence.citation(k) for k in cited_keys(claim.text) if k.casefold() not in bound
+            ]
             passages = [f"[{s.key}] {s.title}\n{s.abstract}" for s in sources if s is not None]
             for ref in claim.quote_refs:
                 if source := by_call.get(ref.call_id):
-                    passages.append(
-                        f"[{ref.source}] Exact bound passage: {ref.quote}\n"
-                        + _around_quote(source.text, ref.quote)
-                    )
+                    for doc in scoped_sources(source, ref.source):
+                        if quote_matches(doc, ref.quote):
+                            passages.append(
+                                f"[{ref.source}] Exact bound passage: {ref.quote}\n"
+                                + _around_quote(doc.excerpt or doc.text, ref.quote)
+                            )
+                            break
             if not passages:
                 continue
             checked.add(claim.index)

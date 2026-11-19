@@ -67,14 +67,19 @@ async def review_answer(
         )
         evidence.question = latest
 
-    claims = await extract_claims(
-        client,
-        answer,
-        evidence,
-        session_id=session_id,
-        classification=classification,
-        causation_id=target.id,
-    )
+    extraction_error = None
+    try:
+        claims = await extract_claims(
+            client,
+            answer,
+            evidence,
+            session_id=session_id,
+            classification=classification,
+            causation_id=target.id,
+        )
+    except Exception as exc:
+        claims = []
+        extraction_error = f"claim_extraction: {type(exc).__name__}"
     checks = deterministic_checks(online_citations, causation_id=target.id)
     if use_model_checks:
         checks.append(
@@ -82,15 +87,13 @@ async def review_answer(
         )
     if use_model_checks and method_sanity:
         checks.append(MethodSanity(client, session_id, classification))
-    result = await review(
+    return await review(
         store,
         session_id=session_id,
         target_event_id=target.id,
         claims=claims,
+        extraction_error=extraction_error,
         evidence=evidence,
         checks=checks,
         classification=classification,
     )
-    if not claims:
-        result.errors.append("claim_extraction: the reviewer returned no checkable claims")
-    return result

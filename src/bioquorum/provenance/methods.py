@@ -6,6 +6,7 @@ from html import escape
 from bioquorum.core import events as ev
 from bioquorum.core.bundle import ManifestRun
 from bioquorum.core.bundle_v1 import PortableRun
+from bioquorum.policy.secrets import public_url
 
 
 def _code(value: str) -> str:
@@ -44,7 +45,7 @@ def methods_draft(
             and payload.tool == "download_file"
             and isinstance(url := payload.args.get("url"), str)
         ):
-            urls[payload.call_id] = url
+            urls[payload.call_id] = public_url(url)
     if sources:
         lines.append("Archived tool results and literature excerpts are in `review/sources.json`.")
         lines.append("")

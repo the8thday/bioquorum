@@ -18,7 +18,8 @@ from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, ModelRole, PermissionClass, PermissionScope
 from bioquorum.core.hashing import code_hash, sha256_file
 from bioquorum.core.ids import new_id
-from bioquorum.core.refs import NamedValue, QuoteRef, ValueRef
+from bioquorum.core.refs import NamedValue, QuoteRef, RunRef, ValueRef
+from bioquorum.core.review_record import answer_reviews
 from bioquorum.core.status import StatusTrigger, VerificationStatus, transition
 from bioquorum.core.verification import Tolerance, VerificationOutcome, compare_values
 from bioquorum.policy.permissions import PermissionPolicy
@@ -76,39 +77,45 @@ def _study(controls: ResearchControls, sid: str, claim_id: str) -> Study:
             status = data.to_status
     if claim is None:
         raise LookupError("Claim not found in this session")
+    current = answer_reviews(local).get(claim.source_event_id)
+    if current is None or not any(c.claim_id == claim_id for c in current.claims):
+        raise ValueError("The claim is not in the current completed review")
     refs = [(ref.run_id, ref.name) for ref in claim.refs if isinstance(ref, ValueRef)]
     if any(isinstance(ref, QuoteRef) for ref in claim.refs):
         raise ValueError(
             "Verify the numerical result as a separate claim from its literature quote"
         )
-    if not refs:
+    ids = list(
+        dict.fromkeys(ref.run_id for ref in claim.refs if isinstance(ref, (ValueRef, RunRef)))
+    )
+    if not ids:
         raise ValueError("This claim has no bound calculation")
     runs = _runs(history)
     values: dict[str, NamedValue] = {}
+    if any(run_id not in runs for run_id in ids):
+        raise ValueError("The claim refers to an unavailable calculation")
     for run_id, name in refs:
-        if run_id not in runs:
-            raise ValueError("The claim refers to an unavailable calculation")
         original = next((v for v in runs[run_id][1].values if v.name == name), None)
         if original is None:
             raise ValueError("The claim refers to an unavailable named result")
         if name in values and values[name] != original:
             raise ValueError("This claim binds different definitions or values to the same name")
         values[name] = original
-    ids = list(dict.fromkeys(run_id for run_id, _ in refs))
     return Study(claim, status, [runs[run_id] for run_id in ids], list(values.values()))
 
 
-def _change(
+def _finish_comparison(
     controls: ResearchControls,
     sid: str,
     study: Study,
-    result: ev.Event,
-    trigger: StatusTrigger,
+    result: ev.RerunFinished | ev.ReplicationFinished,
+    started: ev.Event,
     operation: str,
+    trigger: StatusTrigger | None,
 ) -> None:
-    status = transition(study.status, trigger)
-    if status is not study.status:
-        controls.store.append(
+    events: list[ev.EventPayload] = [result]
+    if trigger and (status := transition(study.status, trigger)) is not study.status:
+        events.append(
             ev.ClaimStatusChanged(
                 claim_id=study.claim.claim_id,
                 from_status=study.status,
@@ -116,11 +123,14 @@ def _change(
                 trigger=trigger,
                 reason=trigger.value,
                 rerun_id=operation,
-            ),
-            session_id=sid,
-            actor=Actor.SYSTEM,
-            causation_id=result.id,
+            )
         )
+    try:
+        controls.store.append_chain(
+            events, session_id=sid, actor=Actor.SYSTEM, causation_id=started.id
+        )
+    finally:
+        controls.reviewing = False
 
 
 def _validate_run(
@@ -192,15 +202,20 @@ async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
                             raise ValueError("An original output failed its integrity check")
                 with TemporaryDirectory(prefix="bq-replay-") as temp:
                     root = Path(temp).resolve()
+                    spec = dataclasses.replace(
+                        ws.kernel_sandbox(),
+                        workdir=root,
+                        network=False,
+                        hidden=(),
+                        read_only=tuple(root / name for name in recorded_inputs(chain)),
+                    )
                     manager = KernelManager(
                         controls.kernel_factory
                         or jupyter_factory(
                             root,
-                            sandbox=SandboxSpec(
-                                workdir=root,
-                                read_only=tuple(root / name for name in recorded_inputs(chain)),
-                            ),
-                            require_isolation=ws.isolation_required,
+                            sandbox=spec,
+                            require_isolation=ws.requires_sandbox(spec)
+                            or any(cell.isolation != "none" for cell in chain),
                             python_executable=python,
                         )
                     )
@@ -262,28 +277,34 @@ async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
             "different"
             if "different" in states
             else "matched"
-            if states == {"matched"}
+            if states == {"matched"} and len(outcomes) == len(study.runs)
             else "inconclusive"
         )
-        eligible = bool(outcomes) and all(row.get("certifiable") for row in outcomes)
+        eligible = len(outcomes) == len(study.runs) and all(
+            row.get("certifiable") for row in outcomes
+        )
         details = {
             "claim_id": claim_id,
             "outcome": verdict,
             "runs": outcomes,
             "status_eligible": eligible,
         }
-        event = controls.store.append(
+        trigger = None
+        if verdict != "inconclusive" and eligible:
+            trigger = (
+                StatusTrigger.RERUN_MATCHED
+                if verdict == "matched"
+                else StatusTrigger.RERUN_MISMATCHED
+            )
+        _finish_comparison(
+            controls,
+            sid,
+            study,
             ev.RerunFinished(rerun_id=rerun_id, matched=verdict == "matched", details=details),
-            session_id=sid,
-            actor=Actor.SYSTEM,
-            causation_id=started.id,
+            started,
+            rerun_id,
+            trigger,
         )
-        controls.reviewing = False
-    if verdict != "inconclusive" and eligible:
-        trigger = (
-            StatusTrigger.RERUN_MATCHED if verdict == "matched" else StatusTrigger.RERUN_MISMATCHED
-        )
-        _change(controls, sid, study, event, trigger, rerun_id)
     return details
 
 
@@ -316,6 +337,9 @@ def replication_quote(controls: ResearchControls, sid: str, claim_id: str) -> di
     study = _study(controls, sid, claim_id)
     if study.status not in (VerificationStatus.REPRODUCED, VerificationStatus.REPLICATED):
         raise ValueError("Reproduce the claim before requesting independent replication")
+    quantified = {ref.run_id for ref in study.claim.refs if isinstance(ref, ValueRef)}
+    if not study.targets or any(run.run_id not in quantified for run, _ in study.runs):
+        raise ValueError("Independent replication needs a named target from each bound run")
     original = [run for run, _ in study.runs]
     if any(run.synthetic for run in original):
         raise ValueError("A fixture cannot become an independently verified claim")
@@ -471,21 +495,19 @@ async def replicate(
             comparisons=comparisons,
             note=note,
         )
-        event = controls.store.append(
-            finished, session_id=sid, actor=Actor.SYSTEM, causation_id=started.id
-        )
-        controls.reviewing = False
-    if outcome != "inconclusive":
-        trigger = (
-            StatusTrigger.REPLICATION_MATCHED
-            if outcome == "matched"
-            else StatusTrigger.REPLICATION_MISMATCHED
-        )
-        _change(controls, sid, study, event, trigger, operation)
+        trigger = None
+        if outcome != "inconclusive":
+            trigger = (
+                StatusTrigger.REPLICATION_MATCHED
+                if outcome == "matched"
+                else StatusTrigger.REPLICATION_MISMATCHED
+            )
+        _finish_comparison(controls, sid, study, finished, started, operation, trigger)
     return finished.model_dump(mode="json")
 
 
 async def export_bundle(controls: ResearchControls, sid: str) -> dict:
+    from bioquorum.review.binding import find_bindings
     from bioquorum.review.evidence import Evidence
     from bioquorum.tools.bundle import export_spec
 
@@ -496,7 +518,21 @@ async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     policy.grant(
         PermissionClass.WRITE_FS, "research-bundle", PermissionScope.SESSION, session_id=sid
     )
-    evidence = Evidence.from_events(controls.store.history(sid))
+    history = controls.store.history(sid)
+    evidence = Evidence.from_events(history)
+    answer_quotes: list[QuoteRef] = []
+    for index, event in enumerate(history):
+        if (
+            isinstance(answer := event.parsed(), ev.AssistantMessage)
+            and not answer.message.tool_calls()
+            and "[@" in answer.message.text()
+        ):
+            prior = Evidence.from_events(history[:index])
+            answer_quotes.extend(
+                binding.ref
+                for binding in find_bindings(answer.message.text(), prior)
+                if isinstance(binding.ref, QuoteRef)
+            )
     ctx = ToolContext(
         store=controls.store,
         session_id=sid,
@@ -510,7 +546,9 @@ async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     controls.reviewing = True
     try:
         result = await invoke(
-            export_spec(ws.name, {s.call_id: s.text for s in evidence.sources}), {}, ctx
+            export_spec(ws.name, {s.call_id: s.text for s in evidence.sources}, answer_quotes),
+            {},
+            ctx,
         )
     finally:
         controls.reviewing = False

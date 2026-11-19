@@ -79,6 +79,15 @@ class NoArguments(BaseModel):
 def replay_spec(chain: Sequence[ev.RunStarted]) -> ToolSpec:
     async def handler(args: NoArguments, ctx: ToolContext) -> ToolResult:
         stage_inputs(ctx.workdir, ctx.require_cas(), recorded_inputs(chain))
+        kernel = await ctx.require_kernels().get(ctx.session_id, "python")
+        if any(
+            run.isolation != kernel.isolation
+            or run.environment != getattr(kernel, "environment", None)
+            for run in chain
+        ):
+            return ToolResult.text(
+                "Recorded isolation or environment is unavailable", is_error=True
+            )
         runs = []
         for start in chain:
             result = await execute_run(

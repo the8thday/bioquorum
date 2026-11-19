@@ -77,9 +77,12 @@ def _db(path: Path | None) -> Database:
     return Database.at(default_db_path())
 
 
-def _load(project: Path) -> wsp.Workspace:
+def _load(project: Path, owner: typer.Context | None = None) -> wsp.Workspace:
     try:
-        return wsp.load(project)
+        ws = wsp.load(project)
+        if owner is not None:
+            owner.with_resource(wsp.project_lock(ws.root))
+        return ws
     except wsp.WorkspaceError as exc:
         err.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -198,6 +201,7 @@ def models_show(project: ProjectDir = Path(".")) -> None:
 
 @app.command("run")
 def run_cmd(
+    ctx: typer.Context,
     question: Annotated[str, typer.Argument(help="What to investigate")],
     project: ProjectDir = Path("."),
     session: Annotated[str | None, typer.Option(help="Continue this session")] = None,
@@ -218,7 +222,7 @@ def run_cmd(
     """Ask a question, run tools, and review the resulting answer."""
     from bioquorum.cli.runner import run_question
 
-    ws = _load(project)
+    ws = _load(project, ctx)
     _check_isolation(ws)
     try:
         code = asyncio.run(
@@ -276,6 +280,7 @@ def skills_cmd(project: ProjectDir = Path(".")) -> None:
 
 @app.command("note")
 def note_cmd(
+    ctx: typer.Context,
     session: str,
     file: Annotated[Path | None, typer.Option(help="Save your edited note from this file.")] = None,
     revision: Annotated[
@@ -287,7 +292,7 @@ def note_cmd(
     from bioquorum.application import project_memory
     from bioquorum.application.controls import ResearchControls
 
-    controls = ResearchControls(_load(project))
+    controls = ResearchControls(_load(project, ctx if file is not None else None))
     try:
         if file is None:
             result = project_memory.snapshot(controls, session)
@@ -303,13 +308,15 @@ def note_cmd(
 
 
 @app.command("rerun")
-def rerun_cmd(session: str, claim: str, project: ProjectDir = Path(".")) -> None:
+def rerun_cmd(
+    ctx: typer.Context, session: str, claim: str, project: ProjectDir = Path(".")
+) -> None:
     """Compare a reviewed claim's recorded runs with fresh executions."""
     from bioquorum.application.controls import ResearchControls
     from bioquorum.application.verify import rerun
 
     try:
-        result = asyncio.run(rerun(ResearchControls(_load(project)), session, claim))
+        result = asyncio.run(rerun(ResearchControls(_load(project, ctx)), session, claim))
         console.print_json(data=result)
     except (ValueError, LookupError) as exc:
         err.print(str(exc), markup=False)
@@ -318,6 +325,7 @@ def rerun_cmd(session: str, claim: str, project: ProjectDir = Path(".")) -> None
 
 @app.command("replicate")
 def replicate_cmd(
+    ctx: typer.Context,
     session: str,
     claim: str,
     request: Annotated[
@@ -329,7 +337,7 @@ def replicate_cmd(
     from bioquorum.application.controls import ResearchControls
     from bioquorum.application.verify import BlindRequest, replicate, replication_quote
 
-    controls = ResearchControls(_load(project))
+    controls = ResearchControls(_load(project, ctx if request is not None else None))
     try:
         if request is None:
             result = replication_quote(controls, session, claim)
@@ -343,13 +351,13 @@ def replicate_cmd(
 
 
 @app.command("export")
-def export_cmd(session: str, project: ProjectDir = Path(".")) -> None:
+def export_cmd(ctx: typer.Context, session: str, project: ProjectDir = Path(".")) -> None:
     """Export a portable research bundle for the selected session."""
     from bioquorum.application.controls import ResearchControls
     from bioquorum.application.verify import bundle_file, export_bundle
 
     try:
-        controls = ResearchControls(_load(project))
+        controls = ResearchControls(_load(project, ctx))
         result = asyncio.run(export_bundle(controls, session))
         console.print(str(bundle_file(controls, session, result["id"])), markup=False)
     except (ValueError, LookupError) as exc:
@@ -359,6 +367,7 @@ def export_cmd(session: str, project: ProjectDir = Path(".")) -> None:
 
 @app.command("review")
 def review_cmd(
+    ctx: typer.Context,
     session: Annotated[str | None, typer.Argument(help="Session id (default: the latest)")] = None,
     project: ProjectDir = Path("."),
     answer_file: Annotated[
@@ -378,7 +387,7 @@ def review_cmd(
     from bioquorum.cli.runner import print_review, review_session
     from bioquorum.review import NothingToReviewError
 
-    ws = _load(project)
+    ws = _load(project, ctx)
     sid = session or _latest_session(ws)
     if sid is None:
         err.print("[red]no sessions in this project[/red]")
@@ -434,6 +443,7 @@ def tools_list() -> None:
 
 @mcp_app.command("serve")
 def mcp_serve(
+    ctx: typer.Context,
     project: ProjectDir = Path("."),
     allow: Annotated[
         list[PermissionClass] | None,
@@ -444,7 +454,7 @@ def mcp_serve(
     ] = True,
 ) -> None:
     """Serve BioQuorum tools over stdio MCP (for Claude Code, opencode, ...)."""
-    ws = _load(project)
+    ws = _load(project, ctx)
     _check_isolation(ws)
     asyncio.run(_serve(ws, allow or [], external))
 

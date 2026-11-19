@@ -284,3 +284,137 @@ async def test_replication_model_receives_only_the_blind_packet(tmp_path, monkey
     ):
         assert secret not in prompts[0]
     assert verify._study(controls, sid, "claim").status is VerificationStatus.REPLICATED
+
+
+async def test_isolation_mismatch_never_executes_recorded_code(tmp_path, monkeypatch):
+    controls, sid, kernel = seed(tmp_path)
+    monkeypatch.setattr(IsolatedFixture, "isolation", property(lambda self: "none"))
+    result = await verify.rerun(controls, sid, "claim")
+    assert result["outcome"] == "inconclusive"
+    assert not kernel.executed
+
+
+async def test_missing_explicit_run_prevents_verification(tmp_path):
+    from bioquorum.core.refs import RunRef
+
+    controls, sid, kernel = seed(tmp_path)
+    old = verify._study(controls, sid, "claim").claim
+    controls.store.append(
+        old.model_copy(update={"claim_id": "mixed", "refs": [*old.refs, RunRef(run_id="absent")]}),
+        session_id=sid,
+        actor=Actor.REVIEWER,
+    )
+    with pytest.raises(ValueError, match="unavailable calculation"):
+        verify._study(controls, sid, "mixed")
+    assert not kernel.executed
+
+
+async def test_empty_retry_supersedes_old_claim_in_bundle(tmp_path):
+    controls, sid, _ = seed(tmp_path)
+    claim = verify._study(controls, sid, "claim").claim
+    start = controls.store.append(
+        ev.ReviewStarted(
+            review_id="retry", reviewer_model="test", target_event_id=claim.source_event_id
+        ),
+        session_id=sid,
+        actor=Actor.REVIEWER,
+    )
+    controls.store.append(
+        ev.ReviewFinished(review_id="retry", finding_count=0),
+        session_id=sid,
+        actor=Actor.REVIEWER,
+        causation_id=start.id,
+    )
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        assert json.loads(archive.read("review/claims.json")) == []
+        assert "no checkable claims" in archive.read("review/limitations.json").decode()
+
+
+async def test_legacy_download_and_local_file_metadata_are_not_exported(tmp_path):
+    from bioquorum.core.enums import PermissionClass
+
+    controls, sid, _ = seed(tmp_path)
+    private = "fixture-private-value"
+    url = "https://example.org/counts?session=" + private
+    for call, tool, body in [
+        ("file", "read_file", f"path: {tmp_path}/notes\nprivate unrelated file"),
+        ("download", "download_file", "source: " + url),
+    ]:
+        if tool == "download_file":
+            controls.store.append(
+                ev.ToolCallRequested(
+                    call_id=call, tool=tool, args={"url": url}, permission=PermissionClass.NETWORK
+                ),
+                session_id=sid,
+                actor=Actor.AGENT,
+            )
+        controls.store.append(
+            ev.ToolCallFinished(
+                call_id=call,
+                tool=tool,
+                result=ToolResultPart(call_id=call, content=[TextPart(text=body)]),
+            ),
+            session_id=sid,
+            actor=Actor.TOOL,
+        )
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        for name in archive.namelist():
+            data = archive.read(name)
+            assert private.encode() not in data and str(tmp_path).encode() not in data
+        assert b"unrelated file" not in archive.read("review/sources.json")
+        assert b"https://example.org/counts" in archive.read("Methods.md")
+
+
+async def test_empty_retrieval_and_error_result_reach_audit_and_export(tmp_path):
+    from bioquorum.application.record import audit_log
+
+    controls, sid, _ = seed(tmp_path)
+    for call, text, failed in (
+        ("empty", '{"results":[]}', False),
+        ("timeout", "service detail", True),
+    ):
+        controls.store.append(
+            ev.ToolCallFinished(
+                call_id=call,
+                tool="lit__search",
+                result=ToolResultPart(call_id=call, content=[TextPart(text=text)], is_error=failed),
+            ),
+            session_id=sid,
+            actor=Actor.TOOL,
+        )
+    audit = audit_log(controls, sid, before=None, limit=20)["entries"]
+    assert audit[0]["details"]["is_error"] and audit[1]["details"]["empty_result"]
+    assert "service detail" not in str(audit)
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        gaps = json.loads(archive.read("review/limitations.json"))
+        assert {g["call_id"] for g in gaps} == {"empty", "timeout"}
+
+
+async def test_bundle_keeps_file_bound_in_an_unreviewed_answer(tmp_path):
+    controls = ResearchControls(workspace.init_project(tmp_path))
+    sid = controls.new_session("Research")
+    quote = "Samples were processed on arrival."
+    controls.store.append(
+        ev.ToolCallFinished(
+            call_id="source",
+            tool="read_file",
+            result=ToolResultPart(
+                call_id="source",
+                content=[TextPart(text=f"path: {tmp_path}/protocol.txt\n---\n{quote}")],
+            ),
+        ),
+        session_id=sid,
+        actor=Actor.TOOL,
+    )
+    controls.store.append(
+        ev.AssistantMessage(message=Message.assistant(f'Handling: [@s1 "{quote}"].')),
+        session_id=sid,
+        actor=Actor.AGENT,
+    )
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        source = json.loads(archive.read("review/sources.json"))["source"]
+        assert "protocol.txt" in source and quote in source and str(tmp_path) not in source

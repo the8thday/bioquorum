@@ -215,6 +215,7 @@ function paragraph(item, answerId, cls = "") {
 function answerCard(answer) {
   const card = panel("answer");
   card.append(node("h2", "Findings"));
+  for (const reason of answer.review_limitations) card.append(node("p", "Review incomplete · " + reason));
   const claims = answer.claims;
   const matched = new Set();
   const key = (parts) => parts.map((part) => part.raw ?? part.text).join("").trim();
@@ -464,7 +465,7 @@ function figureCard(item) {
 function activityLabel(item) {
   switch (item.type) {
     case "tool_call_requested": return "Running " + item.tool;
-    case "tool_call_finished": return "Completed " + item.tool;
+    case "tool_call_finished": return item.empty_result ? item.tool + " · No items returned" : (item.is_error ? "Failed " : "Completed ") + item.tool;
     case "tool_call_failed": return item.tool + " · " + item.error;
     case "model_call_started": return item.role + " · " + item.model;
     case "model_call_finished": return `${item.role} · ${item.input_tokens + item.output_tokens} tokens` +
@@ -487,7 +488,7 @@ function activityLabel(item) {
       (item.reason ? " · " + item.reason : "") +
       " · " + (item.input_tokens + item.output_tokens) + " tokens";
     case "review_started": return "Review started";
-    case "review_finished": return "Review complete · " + item.finding_count + " findings";
+    case "review_finished": return (item.limitations?.length ? "Review incomplete · " : "Review finished · ") + item.finding_count + " findings";
     case "error": return item.where + " · " + item.error;
     case "exploration_stopped": return "Exploration stopped · " + item.reason;
     default: return item.type;

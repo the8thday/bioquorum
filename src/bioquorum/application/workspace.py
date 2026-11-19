@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ from bioquorum.mcp.client import McpConnection, ServerConfig, StdioLaunch
 from bioquorum.models.config import ModelsConfig
 from bioquorum.policy.egress import loopback_proxy_url
 from bioquorum.policy.permissions import Asker, PermissionPolicy
+from bioquorum.policy.secrets import redact
 from bioquorum.provenance.cas import ContentStore
 from bioquorum.runtime.manager import KernelFactory, KernelManager, jupyter_factory
 from bioquorum.runtime.sandbox import (
@@ -132,9 +134,11 @@ class Workspace:
             )
             if executable is None or not os.access(executable, os.X_OK):
                 raise WorkspaceError("The selected isolated MCP executable is unavailable")
+            if Path(executable).absolute() != Path(sys.executable).absolute():
+                executable = str(Path(executable).resolve(strict=True))
             roots = tuple((self.root / path).resolve(strict=True) for path in cfg.read_paths)
             with TemporaryDirectory(prefix="bq-mcp-") as workdir:
-                spec = SandboxSpec(workdir=workdir, read_only=roots, macos=True)
+                spec = SandboxSpec(workdir=workdir, read_only=roots, macos=True, standalone=True)
                 mode = choose_isolation(
                     spec,
                     available=bwrap_available(),
@@ -224,7 +228,9 @@ class Workspace:
 
     def kernel_network(self) -> bool:
         """``[kernel] network = true``: the user's explicit choice, public projects only."""
-        wanted = bool(self.config.get("kernel", {}).get("network", False))
+        wanted = self.config.get("kernel", {}).get("network", False)
+        if type(wanted) is not bool:
+            raise WorkspaceError("[kernel] network must be true or false")
         if wanted and self.isolation_required:
             raise WorkspaceError(
                 f"[kernel] network = true is only allowed in public projects; this project is "
@@ -252,6 +258,9 @@ class Workspace:
             macos=macos,
         )
 
+    def requires_sandbox(self, spec: SandboxSpec) -> bool:
+        return self.isolation_required or spec.macos or self.outbound_proxy() is not None
+
     def kernel_isolation(self) -> Isolation:
         """What kernels of this project will get here. Raises ``IsolationUnavailable`` when the
         project requires isolation and this machine cannot provide it."""
@@ -260,8 +269,32 @@ class Workspace:
             spec,
             available=bwrap_available(),
             macos_supported=spec.macos and seatbelt_available(),
-            required=self.isolation_required or spec.macos or self.outbound_proxy() is not None,
+            required=self.requires_sandbox(spec),
         )
+
+
+@contextmanager
+def project_lock(root: Path):
+    """Own project operations and crash recovery across CLI and workbench processes."""
+    with (root / STATE_DIR / "workbench.lock").open("a+b") as handle:
+        if not handle.tell():
+            handle.write(b"\0")
+            handle.flush()
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise WorkspaceError(
+                "Another research command or workbench owns this project"
+            ) from None
+        yield
 
 
 def find_root(start: Path) -> Path | None:
@@ -330,7 +363,7 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
 def start_session(ws: Workspace, store: EventStore, title: str) -> str:
     session_id = new_id()
     store.append(
-        ev.SessionCreated(project_id=ws.project_id, title=title),
+        ev.SessionCreated(project_id=ws.project_id, title=redact(title)),
         session_id=session_id,
         actor=Actor.USER,
     )
@@ -383,9 +416,7 @@ def tool_context(
         kernel_factory = jupyter_factory(
             ws.root,
             sandbox=spec,
-            require_isolation=ws.isolation_required
-            or spec.macos
-            or ws.outbound_proxy() is not None,
+            require_isolation=ws.requires_sandbox(spec),
             python_executable=python_executable,
             observe_lineage=bool(ws.config.get("kernel", {}).get("lineage", False)),
         )

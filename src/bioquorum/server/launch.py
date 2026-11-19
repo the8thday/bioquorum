@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import socket
-import sys
 import threading
 import time
 import webbrowser
-from contextlib import contextmanager
 from pathlib import Path
 
 import uvicorn
@@ -16,28 +14,6 @@ import uvicorn
 from bioquorum.application import demo, workspace
 from bioquorum.application.controls import ResearchControls
 from bioquorum.server.app import create_app
-
-
-@contextmanager
-def project_lock(root: Path):
-    """Prevent a second workbench from recovering a live one's journal."""
-    with (root / workspace.STATE_DIR / "workbench.lock").open("a+b") as handle:
-        if not handle.tell():
-            handle.write(b"\0")
-            handle.flush()
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise workspace.WorkspaceError("A workbench is already open for this project") from None
-        yield
 
 
 def launch(project: Path | None = None, *, port: int = 0, browser: bool = True) -> None:
@@ -49,7 +25,7 @@ def launch(project: Path | None = None, *, port: int = 0, browser: bool = True) 
         if root is not None
         else demo.make_demo(Path.home() / workspace.STATE_DIR / "examples" / "metformin-v03")
     )
-    with project_lock(controls.ws.root), socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", port))
         sock.listen(128)
         host = f"127.0.0.1:{sock.getsockname()[1]}"
@@ -70,6 +46,8 @@ def launch(project: Path | None = None, *, port: int = 0, browser: bool = True) 
         if browser:
             threading.Thread(target=opened, daemon=True).start()
         server.run(sockets=[sock])
+        if not server.started:
+            raise workspace.WorkspaceError("Workbench startup failed")
 
 
 def main() -> None:

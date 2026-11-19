@@ -517,6 +517,8 @@ class ReviewFinished(EventPayload):
     event_type: ClassVar[str] = "review_finished"
     review_id: str
     finding_count: int = Field(ge=0)
+    claim_count: int | None = Field(default=None, ge=0)
+    limitations: list[str] = Field(default_factory=list)
 
 
 @register

@@ -108,3 +108,56 @@ if __name__ == '__main__':
     async with listener, ws.mcp_connection(cfg) as connection:
         reply = await connection.call_tool("inspect_scope", {})
     assert not reply.is_error and "project_denied=True, ip_denied=True" in reply.text()
+
+
+async def test_public_opt_in_replays_in_fresh_seatbelt_kernel(tmp_path):
+    from bioquorum.application import verify
+    from bioquorum.application.controls import ResearchControls
+    from bioquorum.core import events as ev
+    from bioquorum.core.enums import Actor, ClaimKind
+    from bioquorum.core.refs import ValueRef
+    from bioquorum.core.status import StatusTrigger, VerificationStatus
+    from bioquorum.policy.permissions import PermissionPolicy
+    from bioquorum.tools.builtin.kernel import PYTHON_EXECUTE
+    from bioquorum.tools.invoke import invoke
+
+    macos_only()
+    ws = workspace.init_project(tmp_path, classification=Classification.PUBLIC)
+    ws.config = {"kernel": {"macos_sandbox": True}}
+    controls = ResearchControls(ws)
+    sid = controls.new_session("Replay")
+    ctx = workspace.tool_context(ws, controls.store, sid, PermissionPolicy.allow_all())
+    try:
+        result = await invoke(PYTHON_EXECUTE, {"code": "bq.value('n', 3)"}, ctx)
+        assert not result.is_error, result.text()
+    finally:
+        await ctx.require_kernels().shutdown_all()
+    (start,) = [e.parsed() for e in controls.store.read(sid) if e.type == "run_started"]
+    assert isinstance(start, ev.RunStarted)
+    controls.store.append(
+        ev.ClaimExtracted(
+            claim_id="count",
+            source_event_id="answer",
+            text="{{n}}",
+            kind=ClaimKind.NUMERIC,
+            refs=[ValueRef(run_id=start.run_id, name="n")],
+        ),
+        session_id=sid,
+        actor=Actor.REVIEWER,
+    )
+    controls.store.append(
+        ev.ClaimStatusChanged(
+            claim_id="count",
+            from_status=VerificationStatus.GROUNDED,
+            to_status=VerificationStatus.REVIEWED,
+            trigger=StatusTrigger.REVIEW_PASSED,
+        ),
+        session_id=sid,
+        actor=Actor.REVIEWER,
+    )
+    outcome = await verify.rerun(controls, sid, "count")
+    assert outcome["outcome"] == "matched", outcome
+    assert not outcome["status_eligible"]
+    assert [
+        e.payload["isolation"] for e in controls.store.read(sid) if e.type == "run_started"
+    ] == ["seatbelt", "seatbelt"]

@@ -192,3 +192,14 @@ source_modules = [
   "bioquorum.application", "bioquorum.cli",
 ]
 forbidden_modules = ["fastapi", "starlette", "uvicorn"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src/bioquorum/**/*.py",
+  "/src/bioquorum/application/examples/*.json",
+  "/src/bioquorum/server/web/*.html",
+  "/src/bioquorum/server/web/*.js",
+  "/src/bioquorum/server/web/*.css",
+  "/bundle-spec/*.json",
+  "/README.md", "/LICENSE", "/THIRD_PARTY.md", "/pyproject.toml", "/uv.lock",
+]

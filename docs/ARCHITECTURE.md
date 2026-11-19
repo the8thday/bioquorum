@@ -402,7 +402,7 @@ ToolSpec(
 
    - 检查只看 `review/evidence.py` 的中立结构（`Evidence`：runs、citations、plan、answer；`ClaimInput`：文本、类型、显式 run 引用），不碰 storage 和 models。`Evidence.from_events()` 从会话事件构造（引用来自文献类工具返回里的 PMID/DOI），`Evidence.from_case()` 从评测语料构造，所以同一套检查在两处行为一致。
    - 规则写成通用规则，不针对语料里的个案；实测与局限见 [research/review-checks.md](research/review-checks.md)。`tests/unit/review/test_corpus.py` 把语料上的结果固定为回归基线。
-   - 审查流程（`review/service.py`）：`review_started` → 每条 `claim_extracted` → 每条 `review_finding` → `review_finished` → 每条 `claim_status_changed`。确定性检查的 finding 记 `reviewer_model = "deterministic"`。模型检查出错不影响确定性检查的结果，错误单独返回。
+   - 审查流程（`review/service.py`）：`review_started` → 每条 `claim_extracted` → 每条 `review_finding` → 每条 `claim_status_changed` → `review_finished`。确定性检查的 finding 记 `reviewer_model = "deterministic"`。模型检查出错不影响确定性检查的结果，结束事件同时记录结论数和检查限制，旧事件按同一轮抽取记录读取。
    - 发给 reviewer 的来源摘要是工具输出，按 ADR-007 用 `fence_untrusted()` 包裹。
    - 公开标识符在线核验走 `citation_lookup` 的权限和审计路径。注册表不可用时，受影响的结论保持原有证据级别并列出待核验发现。
    前四个是确定性检查，不消耗模型调用，v0.1 先做。评测报告要分别报告两组的召回率和误报率，不能混在一起。v0.0 对照实验在确定性可核实的错误上没有发现同家族盲区（docs/research/reviewer-experiment.md）；判断类检查上的家族差异在 v0.2 补测。
@@ -544,4 +544,5 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 024 | 有限的文献检索子任务 |
 | 025 | 证据、计算输入和模型图片的交接 |
 | 026 | 私有部署的出站、隔离和审计边界 |
+| 027 | [审查、重放与研究包的一致性](adr/027-review-and-replay-integrity.md) |
 | 020 | SQLite 数据库迁移 |

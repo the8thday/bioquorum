@@ -3,6 +3,10 @@
 > 更新：2026-11-19（v0.5 扩展验收与 v0.6 私有部署开发版）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 > 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
 
+## 本次独立审查修复
+
+CLI 与工作台共用项目锁，重放继承隔离策略，审查限制和导出材料缺口可追溯。GSE96583 两个文库的 MT UMI 均为零，已按文库标记不可评估。实现决策见 [ADR-027](docs/adr/027-review-and-replay-integrity.md)。Linux/Docker、第二台机器、外部视觉语言模型和作者发布验收继续按对应版本清单推进。
+
 ## 目前进度
 
 **v0.5 主功能已经实现。** 第一批是项目 Skills 按需加载和跨会话笔记。Skill 只先加载目录描述，

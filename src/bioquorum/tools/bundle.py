@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,7 +16,9 @@ from bioquorum.core.enums import Actor, PermissionClass
 from bioquorum.core.hashing import canonical_json, env_lock_hash, sha256_file
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import Message, TextPart
-from bioquorum.core.refs import DataRef
+from bioquorum.core.refs import DataRef, QuoteRef
+from bioquorum.core.review_record import answer_reviews
+from bioquorum.policy.secrets import display_path, download_text, redact
 from bioquorum.provenance.manifest import build_manifest
 from bioquorum.provenance.methods import methods_draft
 from bioquorum.runtime.values import PRELUDE
@@ -44,7 +46,9 @@ def _event_row(event: ev.Event) -> dict | None:
         # Provider reasoning, tool arguments and raw payloads are excluded.
         if isinstance(payload, ev.AssistantMessage) and payload.message.tool_calls():
             return None
-        clean = Message(role=payload.message.role, parts=[TextPart(text=payload.message.text())])
+        clean = Message(
+            role=payload.message.role, parts=[TextPart(text=redact(payload.message.text()))]
+        )
         changes: dict[str, object] = {"message": clean}
         if isinstance(payload, ev.AssistantMessage):
             changes["provider_raw"] = None
@@ -57,6 +61,8 @@ def _event_row(event: ev.Event) -> dict | None:
         | ev.PlanApproved
         | ev.ClaimExtracted
         | ev.ClaimStatusChanged
+        | ev.ReviewStarted
+        | ev.ReviewFinished
         | ev.ReviewFinding
         | ev.RerunFinished
         | ev.ReplicationFinished
@@ -68,13 +74,16 @@ def _event_row(event: ev.Event) -> dict | None:
         "id": event.id,
         "session_id": event.session_id,
         "type": event.type,
+        "causation_id": event.causation_id,
         "actor": event.actor.value,
         "timestamp": event.ts.isoformat(),
         "payload": payload.model_dump(mode="json"),
     }
 
 
-def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolSpec:
+def export_spec(
+    project_name: str, evidence_sources: Mapping[str, str], answer_quotes: Sequence[QuoteRef]
+) -> ToolSpec:
     async def handler(args: NoArguments, ctx: ToolContext) -> ToolResult:
         event_log = ctx.store.history(ctx.session_id)
         manifest = build_manifest(
@@ -85,15 +94,82 @@ def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolS
         )
         ends: dict[str, ev.RunFinished] = {}
         starts: dict[str, ev.RunStarted] = {}
-        claims = []
+        reviews = answer_reviews(event_log)
+        claims = [c for review in reviews.values() for c in review.claims]
+        quotes = [
+            *answer_quotes,
+            *(ref for c in claims for ref in c.refs if isinstance(ref, QuoteRef)),
+        ]
+        referenced = {ref.call_id for ref in quotes}
+        limitations: list[dict] = [
+            {"answer_id": answer, "review_id": review.review_id, "reason": reason}
+            for answer, review in reviews.items()
+            for reason in review.limitations
+        ]
+        sources = {call: redact(text) for call, text in evidence_sources.items()}
         for event in event_log:
             payload = event.parsed()
             if isinstance(payload, ev.RunStarted):
                 starts[payload.run_id] = payload
             elif isinstance(payload, ev.RunFinished):
                 ends[payload.run_id] = payload
-            elif isinstance(payload, ev.ClaimExtracted):
-                claims.append(payload.model_dump(mode="json"))
+            elif isinstance(payload, ev.ToolCallFinished):
+                if payload.tool == "download_file" and payload.call_id in sources:
+                    sources[payload.call_id] = download_text(sources[payload.call_id])
+                if payload.call_id in sources and payload.result.empty_result():
+                    limitations.append(
+                        {
+                            "call_id": payload.call_id,
+                            "tool": payload.tool,
+                            "reason": "No items returned",
+                        }
+                    )
+                if payload.result.is_error:
+                    limitations.append(
+                        {
+                            "tool": payload.tool,
+                            "call_id": payload.call_id,
+                            "reason": "Tool returned an error",
+                        }
+                    )
+                if (
+                    payload.tool in ("read_file", "list_files")
+                    and payload.call_id not in referenced
+                ):
+                    sources.pop(payload.call_id, None)
+                elif payload.tool in ("read_file", "list_files") and payload.call_id in sources:
+                    header, sep, body = sources[payload.call_id].partition("\n")
+                    prefix = "path: " if header.startswith("path: ") else ""
+                    sources[payload.call_id] = (
+                        prefix + display_path(header.removeprefix(prefix), ctx.workdir) + sep + body
+                    )
+            elif isinstance(payload, ev.LiteratureFinished) and (
+                payload.outcome != "completed" or not payload.sources
+            ):
+                limitations.append(
+                    {
+                        "task_id": payload.task_id,
+                        "reason": "Literature lookup yielded no verified excerpt",
+                    }
+                )
+            elif isinstance(payload, ev.ErrorOccurred) and payload.where == "review":
+                limitations.append({"event_id": event.id, "reason": "A review reported an error"})
+            elif isinstance(payload, ev.ToolCallFailed):
+                limitations.append(
+                    {"tool": payload.tool, "call_id": payload.call_id, "reason": "Tool failed"}
+                )
+        for ref in quotes:
+            if (
+                ref.call_id not in sources
+                or redact(ref.quote) != ref.quote
+                or (
+                    sources[ref.call_id] != evidence_sources[ref.call_id]
+                    and " ".join(ref.quote.split()) not in " ".join(sources[ref.call_id].split())
+                )
+            ):
+                raise ValueError("A bound quote cannot be exported safely with its source")
+        for run_id in starts.keys() - ends.keys():
+            limitations.append({"run_id": run_id, "reason": "Run has no successful completion"})
         selected = []
         records = []
         blobs: dict[str, DataRef] = {}
@@ -116,14 +192,33 @@ def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolS
                 start = starts[run.run_id]
                 end = ends.get(run.run_id)
                 if not end or run.language != "python":
+                    limitations.append(
+                        {"run_id": run.run_id, "reason": "Run unavailable for portable replay"}
+                    )
                     continue
                 try:
                     chain = run_chain(event_log, start)
                     if not {p.run_id for p in chain[:-1]}.issubset(accepted):
-                        continue
+                        raise ValueError("Incomplete replay dependency")
                     inputs = recorded_inputs(chain)
                 except ValueError:
-                    continue  # retain its claims, but omit incomplete replay records
+                    limitations.append(
+                        {"run_id": run.run_id, "reason": "Incomplete replay chain or inputs"}
+                    )
+                    continue
+                # The archive carries content-addressed objects; legacy refs can have file URIs.
+                run = run.model_copy(
+                    update={
+                        "inputs": [
+                            r.model_copy(update={"uri": cas.uri(r.content_hash)})
+                            for r in run.inputs
+                        ],
+                        "outputs": [
+                            r.model_copy(update={"uri": cas.uri(r.content_hash)})
+                            for r in run.outputs
+                        ],
+                    }
+                )
                 selected.append(run)
                 accepted.add(run.run_id)
                 write(run.code_path, start.code.encode())
@@ -143,7 +238,7 @@ def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolS
                         preceding_runs=[p.run_id for p in chain[:-1]],
                     )
                 )
-            if not selected and not evidence_sources:
+            if not selected and not sources and not limitations and not claims:
                 raise ValueError("The session has no exportable runs or retrieved evidence")
 
             pixi = None
@@ -166,15 +261,20 @@ def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolS
             for index, artifact in enumerate(manifest.artifacts):
                 path = cas.path(artifact.content_hash)
                 if not path.is_file() or sha256_file(path) != artifact.content_hash:
+                    limitations.append(
+                        {
+                            "artifact": artifact.content_hash,
+                            "reason": "Artifact missing or checksum mismatch",
+                        }
+                    )
                     continue
                 internal = f"artifacts/{index:04d}-{artifact.content_hash}"
                 write(internal, path.read_bytes())
                 copied_artifacts.append(artifact.model_copy(update={"path": internal}))
-            write("review/claims.json", canonical_json(claims))
-            write("review/sources.json", canonical_json(dict(evidence_sources)))
-            write(
-                "Methods.md", methods_draft(event_log, selected, records, evidence_sources).encode()
-            )
+            write("review/claims.json", canonical_json([c.model_dump(mode="json") for c in claims]))
+            write("review/limitations.json", canonical_json(limitations))
+            write("review/sources.json", canonical_json(sources))
+            write("Methods.md", methods_draft(event_log, selected, records, sources).encode())
             rows = (_event_row(event) for event in event_log)
             write(
                 "conversation.jsonl",
@@ -199,7 +299,17 @@ def export_spec(project_name: str, evidence_sources: Mapping[str, str]) -> ToolS
                 else "No computational runs are included. The archive supports integrity checks.\n"
             )
             write(
-                "README.md", (overview + replay + "\nShare with authorized recipients.\n").encode()
+                "README.md",
+                (
+                    overview
+                    + (
+                        "See review/limitations.json for incomplete evidence or review.\n"
+                        if limitations
+                        else ""
+                    )
+                    + replay
+                    + "\nShare with authorized recipients.\n"
+                ).encode(),
             )
 
             metadata = {

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache
 from typing import Literal
 
@@ -26,6 +26,7 @@ from bioquorum.review.evidence import (
     citations_in_text,
     cited_keys,
     normalise_key,
+    source_documents,
 )
 from bioquorum.review.text import Number, numbers
 
@@ -112,8 +113,20 @@ def _ids(text: str) -> frozenset[str]:
 def _mentions(source: Source, key: str) -> bool:
     k = normalise_key(key)
     if k.startswith(("PMID:", "DOI:")):
-        return k in _ids(source.text)
+        keys = _ids(source.text)
+        return (
+            k in keys
+            and sum(key.startswith("PMID:") for key in keys) <= 1
+            and sum(key.startswith("DOI:") for key in keys) <= 1
+        )
     return key.lower() in source.text.lower()
+
+
+def scoped_sources(source: Source, key: str) -> list[Source]:
+    if _ALIAS.fullmatch(key):
+        return [source] if key == source.alias else []
+    docs = [replace(source, text=text) for text in source_documents(source.text)]
+    return [doc for doc in docs if _mentions(doc, key)]
 
 
 def quote_matches(source: Source, quote: str) -> bool:
@@ -172,7 +185,7 @@ def _quote(m: re.Match[str], evidence: Evidence) -> Binding:
         if not candidates:
             return fail(f"no source {src} in this session")
     else:
-        candidates = [s for s in evidence.sources if _mentions(s, src)]
+        candidates = [doc for source in evidence.sources for doc in scoped_sources(source, src)]
         if not candidates:
             return fail(f"no tool result in this session mentions {src}")
     hit = next((s for s in candidates if quote_matches(s, quote)), None)

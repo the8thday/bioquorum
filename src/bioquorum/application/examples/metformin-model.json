@@ -8,7 +8,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW6535VCPGP219P7D9S3WM",
+      "call_id": "01M7T1A6BPBPBC718NBQZQ12H6",
       "name": "read_demo_excerpts",
       "args": {}
      }
@@ -28,7 +28,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW6539KCKXYQR2Z3YQSMZR",
+      "call_id": "01M7T1A6BT91FG8EXC80F59S8K",
       "name": "python_execute",
       "args": {
        "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
@@ -82,7 +82,7 @@
     "cache_write_tokens": 0
    }
   },
-  "5a0c6a78c358f026636a329951bd0fd79185e7a54745db5ceabfcf8011c9d79f": {
+  "fdd24ddb8aa06b3a7d7716395bd01b66cb16e3b532d51d1aee8324eca3b3f08e": {
    "spec": "deepseek:offline-review",
    "message": {
     "role": "assistant",
@@ -94,7 +94,7 @@
     ]
    },
    "usage": {
-    "input_tokens": 451,
+    "input_tokens": 312,
     "output_tokens": 35,
     "cache_read_tokens": 0,
     "cache_write_tokens": 0
@@ -107,7 +107,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW655VEXTRQA9AAD245RJT",
+      "call_id": "01M7T1A6CVA66F43SNGF1YB7WQ",
       "name": "read_demo_excerpts",
       "args": {}
      }
@@ -127,7 +127,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW65661KDC7NG2TNVDK71W",
+      "call_id": "01M7T1A6D1KRT8DGENQQKGCSJV",
       "name": "record_plan_step",
       "args": {
        "step": 1
@@ -149,7 +149,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW656HBN1KWJBN1MEZGG5W",
+      "call_id": "01M7T1A6D7X7N8TKT5R2H0PX26",
       "name": "python_execute",
       "args": {
        "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
@@ -174,7 +174,7 @@
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7SW6571459ED6CW5730Z002",
+      "call_id": "01M7T1A6DHFVP1Q9B7P2DZF66K",
       "name": "record_plan_step",
       "args": {
        "step": 2

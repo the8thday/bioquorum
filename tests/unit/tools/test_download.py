@@ -191,3 +191,32 @@ def test_safe_filename():
     assert safe_filename("") == "download"
     assert safe_filename("/") == "download"
     assert len(safe_filename("x" * 500 + ".csv")) <= 120
+
+
+async def test_signed_download_records_only_public_locator(tool, public_ctx):
+    secret = "fixture-signature-value"
+    result = await invoke(
+        tool, {"url": "https://data.example.org/counts.tsv?X-Amz-Signature=" + secret}, public_ctx
+    )
+    assert not result.is_error
+    assert secret not in result.model_dump_json()
+    assert all(secret not in e.model_dump_json() for e in public_ctx.store.read("S"))
+
+
+async def test_proxy_owns_dns_for_each_https_hop(public_ctx, monkeypatch):
+    public_ctx.outbound_proxy = "http://127.0.0.1:12345"
+    client = httpx2.AsyncClient
+
+    def proxy_transport(**kwargs):
+        assert kwargs.pop("proxy") == public_ctx.outbound_proxy
+        kwargs["transport"] = httpx2.MockTransport(server)
+        return client(**kwargs)
+
+    async def no_local_dns(host):
+        raise AssertionError("local DNS lookup")
+
+    monkeypatch.setattr(httpx2, "AsyncClient", proxy_transport)
+    result = await invoke(
+        download_tool(resolve=no_local_dns), {"url": "https://data.example.org/moved"}, public_ctx
+    )
+    assert not result.is_error, result.text()

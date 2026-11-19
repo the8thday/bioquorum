@@ -120,6 +120,11 @@ async def test_recovery_closes_orphaned_tool_and_keeps_proposed_plan(tmp_path):
     )
     other = controls.new_session("Pending")
     plan = controls.submit(other, "Compare", steps=["Find evidence"])
+    controls.store.append(
+        ev.ErrorOccurred(where="other operation", error="unrelated"),
+        session_id=other,
+        actor=Actor.SYSTEM,
+    )
     await controls.recover()
     await controls.recover()
     repaired = controls.store.read(sid)

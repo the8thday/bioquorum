@@ -7,6 +7,7 @@ same checks run on a live session (``from_events``) and on the injected-error co
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
@@ -311,7 +312,30 @@ def _richer(old: CitationEvidence | None, new: CitationEvidence) -> CitationEvid
     return CitationEvidence(old.key, old.title, merged, old.doi or new.doi, old.pmid or new.pmid)
 
 
+def source_documents(text: str) -> list[str]:
+    """Recognize flat record lists and explicitly PMID-headed text records."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        blocks = re.split(r"\n\s*\n(?=PMID:\s*\d+\s*\n)", text, flags=re.I)
+        if len(blocks) > 1 and re.match(r"^PMID:\s*\d+\s*\n", blocks[0], re.I):
+            return blocks
+        return [text]
+    if isinstance(data, dict):
+        for key in ("articles", "papers", "results", "records", "studies"):
+            if isinstance(data.get(key), list):
+                data = data[key]
+                break
+    if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+        return [json.dumps(item, ensure_ascii=False) for item in data]
+    return [text]
+
+
 def citations_in_text(text: str) -> list[CitationEvidence]:
+    return [citation for doc in source_documents(text) for citation in _document_citations(doc)]
+
+
+def _document_citations(text: str) -> list[CitationEvidence]:
     """Literature records in a tool result.
 
     One record (a single PMID, as from ``get article``): title + the text as context, keyed
@@ -337,7 +361,12 @@ def citations_in_text(text: str) -> list[CitationEvidence]:
     lines = text.splitlines()
 
     def line_of(ident: str) -> str:
-        return next((ln.strip() for ln in lines if ident in ln), "")[:500]
+        for line in lines:
+            if ident in line and not any(
+                other in line for other in (*pmids, *dois) if other != ident
+            ):
+                return line.strip()[:500]
+        return ""
 
     found = [CitationEvidence(f"PMID:{p}", "", line_of(p), None, p) for p in pmids]
     found += [CitationEvidence(f"DOI:{d.lower()}", "", line_of(d), d, None) for d in dois]

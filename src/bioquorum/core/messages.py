@@ -8,6 +8,7 @@ The event log and the model context share these types. Provider-specific types
 from __future__ import annotations
 
 import base64
+import json
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer
@@ -81,6 +82,28 @@ class ToolResultPart(_Part):
     def text(self) -> str:
         """Concatenated text content (refs excluded)."""
         return "\n".join(p.text for p in self.content if isinstance(p, TextPart))
+
+    def empty_result(self) -> bool:
+        """Recognize explicit empty result lists without interpreting arbitrary prose."""
+        if self.is_error or any(not isinstance(part, TextPart) for part in self.content):
+            return False
+        text = self.text().strip()
+        if not text:
+            return True
+        if not text.startswith(("[", "{")):
+            return False
+        try:
+            result = json.loads(text)
+        except (ValueError, RecursionError):
+            return False
+        if isinstance(result, dict):
+            lists = [
+                result[key]
+                for key in ("results", "records", "articles", "studies", "items")
+                if key in result
+            ]
+            return bool(lists) and all(items == [] for items in lists)
+        return result == []
 
 
 Part = Annotated[

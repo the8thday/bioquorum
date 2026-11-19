@@ -148,6 +148,21 @@ def scatter(x, y, groups, title: str, xlabel: str, ylabel: str) -> str:
     return "".join([*fig, "</g></svg>"])
 
 
+def mitochondrial_qc(counts, totals, eligible, ceiling):
+    fraction = 100 * counts / np.maximum(totals, 1)
+    detected = int(np.count_nonzero(counts))
+    passed = fraction < ceiling if detected else np.ones(len(counts), dtype=bool)
+    return (
+        passed,
+        fraction,
+        {
+            "umi": int(counts.sum()),
+            "positive_cells": detected,
+            "excluded": int(np.count_nonzero(eligible & ~passed)),
+        },
+    )
+
+
 def run_geo(
     paths: list[str], max_mt: float, min_genes: int, destination: str, declare, show
 ) -> None:
@@ -156,8 +171,6 @@ def run_geo(
     genes = pd.read_csv(features, sep="\t", header=None, names=["ensembl", "symbol"])
     metadata = pd.read_csv(annotations, sep="\t", index_col=0, dtype={"ind": str})
     mt = genes["symbol"].str.startswith("MT-", na=False).to_numpy()
-    if not mt.any():
-        raise ValueError("The supplied feature panel contains no mitochondrial symbols")
     if not 0 < max_mt <= 100:
         raise ValueError("Invalid mitochondrial percentage threshold")
     output = Path(destination)
@@ -167,6 +180,8 @@ def run_geo(
     pseudobulk = {}
     detected_counts, mt_fractions, kept_cells = [], [], []
     cells_for_cluster, matrices = [], []
+    mt_reports = {}
+    library_sizes = []
     with open_tar(archive) as tar:
         barcodes_seen = set()
         for acc, matrix_id, condition in SAMPLES:
@@ -179,12 +194,13 @@ def run_geo(
             total = np.bincount(c, weights=counts, minlength=len(info))
             detected = np.bincount(c, minlength=len(info))
             mitochondrial_counts = np.bincount(c[mt[g]], weights=counts[mt[g]], minlength=len(info))
-            fraction = 100 * mitochondrial_counts / np.maximum(total, 1)
-            keep = (
-                (detected >= min_genes)
-                & (fraction < max_mt)
-                & info["multiplets"].eq("singlet").to_numpy()
+            eligible = (detected >= min_genes) & info["multiplets"].eq("singlet").to_numpy()
+            passed, fraction, report = mitochondrial_qc(
+                mitochondrial_counts, total, eligible, max_mt
             )
+            mt_reports[condition] = report
+            library_sizes.append(total)
+            keep = eligible & passed
             detected_counts.append(detected)
             mt_fractions.append(fraction)
             kept_cells.append(keep)
@@ -339,14 +355,28 @@ def run_geo(
         ),
     ):
         declare(name, value, desc=detail)
+    evaluable = []
+    for library, report in mt_reports.items():
+        for metric, value in report.items():
+            declare(
+                f"mt_{library}_{metric}",
+                value,
+                desc=f"Mitochondrial {metric} in {library}; excluded counts otherwise eligible barcodes",
+            )
+        evaluable.append(
+            f"{library}: "
+            + ("evaluated" if report["positive_cells"] else "unavailable (no mitochondrial UMIs)")
+        )
+    declare("mt_qc_status", ", ".join(evaluable), desc="Mitochondrial QC observability by library")
+    plot_mt = all(report["positive_cells"] for report in mt_reports.values())
     show(
         scatter(
             detected[display_indices],
-            mt_percent[display_indices],
+            (mt_percent if plot_mt else np.concatenate(library_sizes))[display_indices],
             np.where(kept[display_indices], "Retained", "Excluded"),
             "GSE96583 batch 2 barcode QC",
             "Detected genes",
-            "Mitochondrial UMI (%)",
+            "Mitochondrial UMI (%)" if plot_mt else "Total UMI count",
         )
     )
     show(

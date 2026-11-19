@@ -72,3 +72,11 @@ def test_protocol_mode_defaults():
     assert ServerConfig(name="a", command="x").mode == "legacy"
     assert ServerConfig(name="a", url="https://x").mode == "auto"
     assert ServerConfig.from_dict("a", {"url": "https://x", "protocol": "legacy"}).mode == "legacy"
+
+
+@pytest.mark.parametrize("paths", ["/data", None, [""], [42]])
+def test_invalid_offline_read_paths_fail_closed(paths):
+    with pytest.raises(ValueError, match="read_paths"):
+        ServerConfig.from_dict(
+            "local", {"command": "helper", "isolated": True, "read_paths": paths}
+        )

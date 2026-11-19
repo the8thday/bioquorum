@@ -24,6 +24,7 @@ from bioquorum.core.enums import Actor, ModelRole
 from bioquorum.core.messages import Message, ToolCallPart, ToolResultPart
 from bioquorum.models.client import ModelClient, OnDelta
 from bioquorum.models.config import ConfigError
+from bioquorum.policy.secrets import recorded_args, recorded_message
 from bioquorum.review.binding import unresolved
 from bioquorum.review.evidence import Evidence
 from bioquorum.tools.context import ToolContext
@@ -106,7 +107,9 @@ async def run_turn(
     retried = 0
     store, sid = ctx.store, ctx.session_id
     asked = store.append(
-        ev.UserMessage(message=Message.user(question)), session_id=sid, actor=Actor.USER
+        ev.UserMessage(message=recorded_message(Message.user(question))),
+        session_id=sid,
+        actor=Actor.USER,
     )
     if before_first_model is not None:
         await before_first_model(asked)
@@ -149,7 +152,10 @@ async def run_turn(
         meter.record(completion)
         specs.append(str(completion.route.spec))
         said = store.append(
-            ev.AssistantMessage(message=completion.message, model_call_id=completion.model_call_id),
+            ev.AssistantMessage(
+                message=recorded_message(completion.message, ctx.workdir),
+                model_call_id=completion.model_call_id,
+            ),
             session_id=sid,
             actor=Actor.AGENT,
             causation_id=cause,
@@ -179,7 +185,12 @@ async def run_turn(
         try:
             for call in tool_calls:
                 calls += 1
-                await _call(hooks.on_tool_call, call)
+                await _call(
+                    hooks.on_tool_call,
+                    call.model_copy(
+                        update={"args": recorded_args(call.name, call.args, ctx.workdir)}
+                    ),
+                )
                 result = await invoke_by_name(
                     registry,
                     call.name,

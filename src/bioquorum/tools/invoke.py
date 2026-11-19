@@ -30,10 +30,10 @@ from pydantic import ValidationError
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Trust
 from bioquorum.core.ids import new_id
-from bioquorum.core.messages import TextPart, ToolResultPart
+from bioquorum.core.messages import DataRefPart, TextPart, ToolResultPart
 from bioquorum.policy import classification
 from bioquorum.policy.permissions import PermissionRequest
-from bioquorum.policy.secrets import redact
+from bioquorum.policy.secrets import display_path, recorded_args, redact
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.registry import ToolRegistry
 from bioquorum.tools.spec import ToolSpec
@@ -91,7 +91,7 @@ async def invoke(
     try:
         parsed = spec.parse_args(args)
     except ValidationError as exc:
-        msg = f"invalid arguments: {exc.errors(include_url=False, include_input=False)}"
+        msg = f"invalid arguments: {exc.errors(include_url=False, include_input=False, include_context=False)}"
         store.append(
             ev.ToolCallFailed(call_id=call_id, tool=spec.name, error=redact(msg)[:_MAX_ERROR]),
             session_id=sid,
@@ -101,16 +101,29 @@ async def invoke(
         return _refusal(call_id, msg)
 
     # 3. permission
-    target = spec.target_of(parsed, ctx)
+    try:
+        target = spec.target_of(parsed, ctx)
+    except (ValueError, OSError, RuntimeError):
+        return _refuse(
+            ctx, call_id, spec.name, "The tool target could not be resolved", causation_id
+        )
     req = PermissionRequest(
         permission=spec.permission, target=target, session_id=sid, project_id=ctx.project_id
+    )
+    recorded_target = (
+        display_path(target, ctx.workdir)
+        if spec.name in ("read_file", "list_files")
+        else redact(target)
     )
     decision = ctx.permissions.lookup(req)
     if decision is None:
         request_id = new_id()
         asked = store.append(
             ev.PermissionRequested(
-                request_id=request_id, permission=spec.permission, target=target, reason=spec.name
+                request_id=request_id,
+                permission=spec.permission,
+                target=recorded_target,
+                reason=spec.name,
             ),
             session_id=sid,
             actor=Actor.SYSTEM,
@@ -121,7 +134,10 @@ async def invoke(
         except asyncio.CancelledError:
             store.append(
                 ev.PermissionDecided(
-                    request_id=request_id, permission=spec.permission, target=target, granted=False
+                    request_id=request_id,
+                    permission=spec.permission,
+                    target=recorded_target,
+                    granted=False,
                 ),
                 session_id=sid,
                 actor=Actor.SYSTEM,
@@ -132,7 +148,7 @@ async def invoke(
             ev.PermissionDecided(
                 request_id=request_id,
                 permission=spec.permission,
-                target=target,
+                target=recorded_target,
                 granted=decision.granted,
                 scope=decision.scope,
             ),
@@ -145,14 +161,17 @@ async def invoke(
             ctx,
             call_id,
             spec.name,
-            f"Permission '{spec.permission}' denied for {target}",
+            f"Permission '{spec.permission}' denied for {recorded_target}",
             causation_id,
         )
 
     # 4. requested
     requested = store.append(
         ev.ToolCallRequested(
-            call_id=call_id, tool=spec.name, args=args, permission=spec.permission
+            call_id=call_id,
+            tool=spec.name,
+            args=recorded_args(spec.name, args, ctx.workdir),
+            permission=spec.permission,
         ),
         session_id=sid,
         actor=ctx.actor,
@@ -168,7 +187,11 @@ async def invoke(
         _refuse(ctx, call_id, spec.name, "Research stopped", requested.id)
         raise
     except Exception as exc:  # tool bugs must not crash the agent loop
-        error = redact(f"{type(exc).__name__}: {exc}")[:_MAX_ERROR]
+        error = redact(
+            type(exc).__name__
+            if spec.name in ("read_file", "list_files")
+            else f"{type(exc).__name__}: {exc}"
+        )[:_MAX_ERROR]
         store.append(
             ev.ToolCallFailed(call_id=call_id, tool=spec.name, error=error),
             session_id=sid,
@@ -178,8 +201,15 @@ async def invoke(
         return _refusal(call_id, f"Tool '{spec.name}' failed: {error}")
 
     # 6-8. wrap, finish (audit is the projection of tool_call_finished)
+    content = []
+    for item in result.content:
+        if isinstance(item, TextPart):
+            item = item.model_copy(update={"text": redact(item.text)})
+        elif isinstance(item, DataRefPart):
+            item = item.model_copy(update={"summary": redact(item.summary)})
+        content.append(item)
     part = ToolResultPart(
-        call_id=call_id, content=result.content, trust=spec.output_trust, is_error=result.is_error
+        call_id=call_id, content=content, trust=spec.output_trust, is_error=result.is_error
     )
     store.append(
         ev.ToolCallFinished(

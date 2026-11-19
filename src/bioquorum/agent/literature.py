@@ -16,8 +16,8 @@ from bioquorum.core.ids import new_id
 from bioquorum.core.messages import Message
 from bioquorum.models.client import ModelClient
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
-from bioquorum.policy.secrets import redact
-from bioquorum.review.binding import quote_matches
+from bioquorum.policy.secrets import recorded_message, redact
+from bioquorum.review.binding import quote_matches, scoped_sources
 from bioquorum.review.evidence import Evidence, citations_in_text
 from bioquorum.review.modeljson import parse_json
 from bioquorum.tools.context import ToolContext
@@ -108,7 +108,12 @@ def _report(text: str, events: list[ev.Event]) -> tuple[str, list[ev.LiteratureE
             or not quote_matches(source, quote)
         ):
             continue
-        pmids = {f"PMID:{item.pmid}" for item in citations_in_text(source.text) if item.pmid}
+        pmids = {
+            item.key
+            for item in citations_in_text(source.text)
+            if item.key.startswith("PMID:")
+            and any(quote_matches(doc, quote) for doc in scoped_sources(source, item.key))
+        }
         excerpts[source.call_id] = ev.LiteratureExcerpt(
             call_id=source.call_id,
             source_event_id=originals[source.call_id],
@@ -154,7 +159,9 @@ async def _lookup(
         if not definitions:
             msg = Message.assistant(msg.text())
         said = store.append(
-            ev.AssistantMessage(message=msg, model_call_id=completion.model_call_id),
+            ev.AssistantMessage(
+                message=recorded_message(msg), model_call_id=completion.model_call_id
+            ),
             session_id=sid,
             actor=Actor.AGENT,
             causation_id=cause,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.engine import Connection, Row
 
 from bioquorum.core import events as ev
@@ -30,22 +30,41 @@ class EventStore:
         causation_id: str | None = None,
     ) -> Event:
         """Append one event, assign its per-session ``seq`` and update projections atomically."""
+        return self.append_chain(
+            [payload], session_id=session_id, actor=actor, causation_id=causation_id
+        )[0]
+
+    def append_chain(
+        self,
+        payloads: Sequence[EventPayload],
+        *,
+        session_id: str | None,
+        actor: Actor,
+        causation_id: str | None = None,
+    ) -> list[Event]:
+        """Commit linked events and their projections together, each caused by the preceding event."""
+        written = []
         with self.db.begin() as conn:
             if conn.dialect.name == "sqlite":
                 conn.exec_driver_sql("BEGIN IMMEDIATE")
-            if isinstance(payload, ev.ProjectNoteSaved):
-                current = self._note(conn, payload.project_id)
-                if actor is not Actor.USER or session_id is not None:
-                    raise ValueError("Project note revisions require a direct researcher action")
-                if payload.prior_revision != (current.id if current else None):
-                    raise ValueError("The project note changed. Reload it before saving.")
-            seq = self._next_seq(conn, session_id)
-            event = Event.build(
-                payload, session_id=session_id, seq=seq, actor=actor, causation_id=causation_id
-            )
-            conn.execute(schema.events.insert().values(**_to_row(event)))
-            apply_all(conn, event)
-            return event
+            first_seq = self._next_seq(conn, session_id)
+            for seq, payload in enumerate(payloads, first_seq):
+                if isinstance(payload, ev.ProjectNoteSaved):
+                    current = self._note(conn, payload.project_id)
+                    if actor is not Actor.USER or session_id is not None:
+                        raise ValueError(
+                            "Project note revisions require a direct researcher action"
+                        )
+                    if payload.prior_revision != (current.id if current else None):
+                        raise ValueError("The project note changed. Reload it before saving.")
+                event = Event.build(
+                    payload, session_id=session_id, seq=seq, actor=actor, causation_id=causation_id
+                )
+                conn.execute(schema.events.insert().values(**_to_row(event)))
+                apply_all(conn, event)
+                written.append(event)
+                causation_id = event.id
+        return written
 
     @staticmethod
     def _note(conn: Connection, project_id: str) -> Event | None:
@@ -128,11 +147,14 @@ class EventStore:
             return [dict(row) for row in conn.execute(query).mappings()]
 
     def iter_all(self) -> Iterator[Event]:
-        """All events in global replay order: by id (monotonic ULID, see core.ids)."""
-        q = select(schema.events).order_by(schema.events.c.id)
         with self.db.connect() as conn:
-            for r in conn.execute(q):
-                yield _from_row(r)
+            yield from self.replay_rows(conn)
+
+    @staticmethod
+    def replay_rows(conn: Connection) -> Iterator[Event]:
+        """SQLite insertion order also holds when multiple processes allocate ULIDs."""
+        for row in conn.execute(select(schema.events).order_by(literal_column("rowid"))):
+            yield _from_row(row)
 
     def count(self) -> int:
         with self.db.connect() as conn:

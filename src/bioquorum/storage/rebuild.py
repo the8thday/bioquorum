@@ -25,11 +25,12 @@ def snapshot(database: Database) -> dict[str, list[dict[str, Any]]]:
 
 def rebuild(database: Database) -> int:
     """Truncate projections and replay all events. Returns the number of events replayed."""
-    store = EventStore(database)
-    events = list(store.iter_all())
+    count = 0
     with database.begin() as conn:
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
         for table in schema.PROJECTION_TABLES:
             conn.execute(table.delete())
-        for ev in events:
+        for ev in EventStore.replay_rows(conn):
+            count += 1
             apply_all(conn, ev)
-    return len(events)
+    return count

@@ -16,6 +16,7 @@ from typing import Any
 
 from bioquorum.core.hashing import canonical_json, sha256_bytes
 from bioquorum.core.messages import Message
+from bioquorum.policy.secrets import recorded_message
 
 _ULID = re.compile(r"\b[0-9A-HJKMNP-TV-Z]{26}\b")
 FORMAT = 1
@@ -64,7 +65,7 @@ class ModelCassette:
     def store(self, key: str, spec: str, message: Message, usage: dict[str, int]) -> None:
         self._entries[key] = {
             "spec": spec,
-            "message": message.model_dump(mode="json"),
+            "message": recorded_message(message).model_dump(mode="json"),
             "usage": usage,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

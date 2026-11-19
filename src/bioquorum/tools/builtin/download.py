@@ -2,13 +2,13 @@
 
 Kernel code has no network, so this tool is how external data (GEO, ENA, supplementary
 tables, reference files) gets into an analysis. Unlike a ``requests.get`` in the kernel it
-is permission-checked, limited to public projects, and recorded: the URL goes into
+is permission-checked, limited to public projects, and recorded: the query-free locator goes into
 ``tool_call_requested``, the content hash and size into ``tool_call_finished``, and the
 bytes into the content-addressed store, so a later rerun can prove it used the same file.
 
 Guards, all before or while connecting:
   * http(s) only, no credentials in the URL (they would end up in the event log);
-  * every hop, redirects included, must resolve to public addresses only, so a prompt
+  * every hop, redirects included, must resolve to public addresses only (at the proxy when configured), so a prompt
     injection cannot use the tool to reach localhost or the intranet (``private or local``);
   * a size limit, enforced while streaming.
 Not covered: DNS rebinding between our resolution and the connection (see SECURITY.md).
@@ -32,6 +32,7 @@ from bioquorum.core.enums import Classification, DataKind, PermissionClass, Trus
 from bioquorum.core.hashing import sha256_file
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import DataRefPart, TextPart
+from bioquorum.policy.secrets import public_url
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.spec import ToolResult, ToolSpec
 
@@ -56,8 +57,8 @@ class DownloadArgs(BaseModel):
     def _check_url(cls, v: str) -> str:
         try:
             url = httpx2.URL(v.strip())
-        except Exception as exc:
-            raise ValueError(f"not a valid URL: {exc}") from None
+        except Exception:
+            raise ValueError("not a valid URL") from None
         if url.scheme not in ("http", "https") or not url.host:
             raise ValueError("only http:// and https:// URLs with a host are supported")
         if url.userinfo:
@@ -145,13 +146,21 @@ def download_tool(
                 for _ in range(MAX_REDIRECTS + 1):
                     if url.scheme not in ("http", "https"):
                         raise _RefusedError(f"redirect to unsupported scheme: {url.scheme}")
-                    await _check_host(url.host, resolver)
+                    if url.userinfo:
+                        raise _RefusedError("credentials in the URL are not allowed")
+                    if ctx.outbound_proxy:
+                        if url.scheme != "https":
+                            raise _RefusedError("The outbound proxy requires HTTPS")
+                    else:
+                        await _check_host(url.host, resolver)
                     async with client.stream("GET", url) as resp:
                         if resp.is_redirect and resp.next_request is not None:
                             url = resp.next_request.url
                             continue
                         if resp.status_code >= 400:
-                            raise _RefusedError(f"HTTP {resp.status_code} from {url}")
+                            raise _RefusedError(
+                                f"HTTP {resp.status_code} from {public_url(str(url))}"
+                            )
                         declared = resp.headers.get("content-length")
                         if declared and declared.isdigit() and int(declared) > limit:
                             raise _RefusedError(
@@ -185,13 +194,15 @@ def download_tool(
         except _RefusedError as exc:
             return ToolResult.text(str(exc), is_error=True)
         except httpx2.HTTPError as exc:
-            return ToolResult.text(f"download failed: {type(exc).__name__}: {exc}", is_error=True)
+            return ToolResult.text(f"download failed: {type(exc).__name__}", is_error=True)
         finally:
             if partial is not None:
                 partial.unlink(missing_ok=True)
 
         rel = dest.relative_to(Path(ctx.workdir).resolve()).as_posix()
-        source = str(url) if str(url) == args.url else f"{url} (redirected from {args.url})"
+        source = public_url(str(url))
+        if str(url) != args.url:
+            source += f" (redirected from {public_url(args.url)})"
         text = (
             f"saved: {rel}\nsize: {ref.size} bytes\nsha256: {ref.content_hash}\n"
             f"content-type: {content_type}\nsource: {source}\n"
@@ -200,7 +211,7 @@ def download_tool(
         return ToolResult(
             content=[
                 TextPart(text=text),
-                DataRefPart(ref=ref, summary=f"{rel}, downloaded from {url}"),
+                DataRefPart(ref=ref, summary=f"{rel}, downloaded from {public_url(str(url))}"),
             ]
         )
 

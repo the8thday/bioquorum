@@ -151,3 +151,22 @@ async def test_factory_refuses_before_starting_anything(tmp_path, monkeypatch):
     )
     with pytest.raises(IsolationUnavailable):
         await KernelManager(factory).get("s1")
+
+
+def test_mcp_command_has_no_implicit_sibling_grant(tmp_path):
+    command = tmp_path / "helper"
+    argv = bwrap_argv(
+        SandboxSpec(workdir=tmp_path / "private", standalone=True), executable=str(command)
+    )
+    assert (str(command), str(command)) in _pairs(argv, "--ro-bind")
+    assert (str(tmp_path), str(tmp_path)) not in _pairs(argv, "--ro-bind")
+
+
+def test_project_local_kernel_environment_is_write_protected(tmp_path):
+    from bioquorum.runtime.sandbox import seatbelt_argv
+
+    prefix = tmp_path / ".pixi/envs/default"
+    profile = seatbelt_argv(
+        SandboxSpec(workdir=tmp_path), executable=str(prefix / "bin/python"), writable=()
+    )[2]
+    assert f'(deny file-write* (subpath "{prefix.resolve()}"))' in profile

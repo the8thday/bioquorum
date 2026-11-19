@@ -24,7 +24,7 @@ GENE_FILES = (
 )
 CLAIMS = (
     "Of {{cells_before}} submitted barcodes, {{cells_after}} author singlets met QC.",
-    "QC required at least {{min_detected_genes}} detected genes and less than {{max_mt_percent}}% mitochondrial UMIs.",
+    "QC required at least {{min_detected_genes}} detected genes. Mitochondrial QC at the configured {{max_mt_percent}}% ceiling: {{mt_qc_status}}.",
     "Exploratory PCA and k-means used {{clustered_cells}} sampled cells and found {{clusters}} clusters.",
     "The author-labelled monocyte comparison used {{paired_donors}} paired donors with at least {{min_monocytes}} cells per condition.",
     "The paired analysis tested {{genes_tested}} genes. {{genes_at_fdr_05}} passed the declared BH FDR cutoff.",

@@ -72,3 +72,21 @@ def test_events_are_append_only(db, store):
                 payload={},
             )
         )
+
+
+def test_caused_events_are_atomic_when_later_projection_fails(store, monkeypatch):
+    from bioquorum.storage import events
+
+    apply = events.apply_all
+
+    def fail_last(conn, event):
+        if event.type == "assistant_message":
+            raise ValueError("projection failed")
+        apply(conn, event)
+
+    monkeypatch.setattr(events, "apply_all", fail_last)
+    question = ev.UserMessage(message=Message.user("question"))
+    answer = ev.AssistantMessage(message=Message.assistant("answer"))
+    with pytest.raises(ValueError, match="projection failed"):
+        store.append_chain([question, answer], session_id="S", actor=Actor.SYSTEM)
+    assert store.read("S") == []

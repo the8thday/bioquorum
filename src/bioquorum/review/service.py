@@ -1,8 +1,7 @@
 """Run a review and record it as events (ARCHITECTURE.md §6.5, §5.7).
 
 Order: review_started -> claim_extracted (one per claim) -> review_finding (one per
-finding) -> review_finished -> claim_status_changed (per claim: one for its bindings if it
-has any, then one for the review).
+finding) -> claim_status_changed (bindings, then review) -> review_finished.
 
 Bindings are resolved first (ADR-014): a claim whose bindings all hold, with nothing left
 unbound, becomes ``grounded``; a failed binding is an ERROR finding (check ``binding``).
@@ -77,6 +76,7 @@ async def review(
     claims: Sequence[ClaimInput],
     evidence: Evidence,
     checks: Sequence[Check],
+    extraction_error: str | None = None,
     reviewer_model: str = DETERMINISTIC,
     classification: Classification = Classification.INTERNAL,
 ) -> ReviewResult:
@@ -155,22 +155,32 @@ async def review(
         )
         for c, r in zip(claims, reviewed, strict=True)
     ]
-    errors: list[str] = []
+    errors = (
+        []
+        if claims
+        else [extraction_error or "claim_extraction: the reviewer returned no checkable claims"]
+    )
+    if not any(check.name == "citation_supports" for check in checks):
+        for claim in rendered:
+            if claim.quote_refs or cited_keys(claim.text):
+                record(
+                    Finding(
+                        claim.index,
+                        CITATION_SUPPORT_UNAVAILABLE,
+                        Severity.WARNING,
+                        "Citation support was not checked.",
+                    ),
+                    DETERMINISTIC,
+                )
     for check in checks:
         try:
             findings = await check.run(rendered, evidence)
         except Exception as exc:  # a broken model check must not hide deterministic results
-            errors.append(f"{check.name}: {type(exc).__name__}: {exc}"[:300])
+            errors.append(f"{check.name}: {type(exc).__name__}")
             continue
         model = getattr(check, "reviewer_model", None) if check.needs_model else DETERMINISTIC
         for f in findings:
             record(f, model or reviewer_model)
-    store.append(
-        ev.ReviewFinished(review_id=review_id, finding_count=n_findings),
-        session_id=session_id,
-        actor=Actor.REVIEWER,
-        causation_id=started.id,
-    )
 
     def move(r: ReviewedClaim, trigger: StatusTrigger, reason: str) -> None:
         new = transition(r.status, trigger)
@@ -206,4 +216,28 @@ async def review(
         trigger = StatusTrigger.REVIEW_FAILED if failed else StatusTrigger.REVIEW_PASSED
         reason = "; ".join(f"{f.check}: {f.evidence}" for f in r.findings)
         move(r, trigger, reason or "all checks passed")
+    store.append(
+        ev.ReviewFinished(
+            review_id=review_id,
+            finding_count=n_findings,
+            claim_count=len(reviewed),
+            limitations=list(
+                dict.fromkeys(
+                    [
+                        *errors,
+                        *(
+                            f.check
+                            for r in reviewed
+                            for f in r.findings
+                            if f.check in (CITATION_UNAVAILABLE, CITATION_SUPPORT_UNAVAILABLE)
+                        ),
+                    ]
+                )
+            ),
+        ),
+        session_id=session_id,
+        actor=Actor.REVIEWER,
+        causation_id=started.id,
+    )
+
     return ReviewResult(review_id, reviewed, errors, evidence)

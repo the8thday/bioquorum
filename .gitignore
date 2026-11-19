@@ -16,3 +16,5 @@ evals/results/
 .env
 
 node_modules/
+.hypothesis/
+.import_linter_cache/

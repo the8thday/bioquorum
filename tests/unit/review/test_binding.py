@@ -224,3 +224,21 @@ def test_malformed_markers_fail_instead_of_passing_as_text():
     for text in ["[@s1 achieved PASI 75]", '[@s1 "achieved PASI 75 in 58.7%]', '[@ s1 "x"]']:
         (b,) = find_bindings(text, evidence())
         assert not b.ok and "malformed" in b.problem, text
+
+
+def test_quote_cannot_cross_paper_boundaries():
+    records = [
+        {"pmid": "12345678", "title": "First trial"},
+        {"pmid": "23456789", "title": "Second trial"},
+    ]
+    ev_ = Evidence(sources=[Source("s1", "C1", "article_search", json.dumps(records))])
+    assert not find_bindings('[@PMID:12345678 "Second trial"]', ev_)[0].ok
+
+
+def test_scoped_records_still_bind_the_correct_article():
+    records = [
+        {"pmid": "12345678", "title": "First trial"},
+        {"pmid": "23456789", "title": "Second trial"},
+    ]
+    ev_ = Evidence(sources=[Source("s1", "C1", "article_search", json.dumps(records))])
+    assert find_bindings('[@PMID:23456789 "Second trial"]', ev_)[0].ok

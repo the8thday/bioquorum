@@ -86,13 +86,26 @@ class ResearchControls:
 
     @staticmethod
     def pending(events: list[ev.Event]) -> tuple[ev.Event, ev.PlanProposed] | None:
-        if not events or not isinstance(plan := events[-1].parsed(), ev.PlanProposed):
-            return None
-        proposal = events[-1]
-        turn = next((e for e in reversed(events[:-1]) if e.id == proposal.causation_id), None)
-        if turn is None or not isinstance(turn.parsed(), ev.TurnRequested):
-            return None
-        return turn, plan
+        turns = {}
+        pending = None
+        for event in events:
+            payload = event.parsed()
+            if isinstance(payload, ev.TurnRequested):
+                turns[event.id] = event
+            elif isinstance(payload, ev.PlanProposed) and event.causation_id in turns:
+                pending = (turns[event.causation_id], payload)
+            elif pending and (
+                (
+                    isinstance(payload, (ev.PlanApproved, ev.PlanAbandoned))
+                    and payload.plan_id == pending[1].plan_id
+                )
+                or (
+                    isinstance(payload, (ev.TurnStarted, ev.TurnFinished))
+                    and payload.turn_id == pending[0].id
+                )
+            ):
+                pending = None
+        return pending
 
     def _ensure_idle(self) -> None:
         if self.tasks or self.reviewing:
@@ -129,8 +142,9 @@ class ResearchControls:
                 raise ValueError("Use /literature in a direct turn")
             if not self.ws.agent_options().literature_subtasks:
                 raise ValueError("Enable literature_subtasks before using /literature")
+        question = redact(question)
         if steps is not None:
-            steps = [step.strip() for step in steps]
+            steps = [redact(step.strip()) for step in steps]
             if not 1 <= len(steps) <= 12 or any(not step or len(step) > 600 for step in steps):
                 raise ValueError("Enter 1 to 12 plan steps, each at most 600 characters")
         if self.demo:

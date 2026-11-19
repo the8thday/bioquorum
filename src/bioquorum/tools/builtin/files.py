@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from bioquorum.core.enums import PermissionClass, Trust
 from bioquorum.core.hashing import sha256_file
+from bioquorum.policy.secrets import display_path
 from bioquorum.runtime.summarize import truncate
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.spec import ToolResult, ToolSpec
@@ -49,9 +50,9 @@ async def _read_file(args: ReadFileArgs, ctx: ToolContext) -> ToolResult:
             "Private project state is unavailable through file tools.", is_error=True
         )
     if not p.is_file():
-        return ToolResult.text(f"not a file: {p}", is_error=True)
+        return ToolResult.text(f"not a file: {display_path(str(p), ctx.workdir)}", is_error=True)
     size = p.stat().st_size
-    header = f"path: {p}\nsize: {size}\nsha256: {sha256_file(p)}"
+    header = f"path: {display_path(str(p), ctx.workdir)}\nsize: {size}\nsha256: {sha256_file(p)}"
     with p.open("rb") as fh:
         raw = fh.read(MAX_READ_BYTES)
     try:
@@ -68,7 +69,9 @@ async def _list_files(args: ListFilesArgs, ctx: ToolContext) -> ToolResult:
             "Private project state is unavailable through file tools.", is_error=True
         )
     if not p.is_dir():
-        return ToolResult.text(f"not a directory: {p}", is_error=True)
+        return ToolResult.text(
+            f"not a directory: {display_path(str(p), ctx.workdir)}", is_error=True
+        )
     entries = sorted(
         (e for e in p.iterdir() if not _private(e, ctx) and (not e.is_symlink() or e.exists())),
         key=lambda e: e.name,
@@ -78,7 +81,7 @@ async def _list_files(args: ListFilesArgs, ctx: ToolContext) -> ToolResult:
     ]
     if len(entries) > MAX_LIST:
         lines.append(f"... {len(entries) - MAX_LIST} more")
-    return ToolResult.text(f"{p}\n" + "\n".join(lines))
+    return ToolResult.text(f"{display_path(str(p), ctx.workdir)}\n" + "\n".join(lines))
 
 
 READ_FILE = ToolSpec(

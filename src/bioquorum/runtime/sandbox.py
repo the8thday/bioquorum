@@ -68,6 +68,7 @@ class SandboxSpec:
     hidden: Sequence[str | Path] = ()  # replaced by an empty dir (or empty file)
     network: bool = False
     macos: bool = False
+    standalone: bool = False
 
 
 @cache
@@ -140,7 +141,7 @@ def seatbelt_argv(
 ) -> list[str]:
     """Use a default-deny profile with private Unix IPC and selected filesystem roots."""
     workdir = Path(spec.workdir).resolve()
-    env_roots, _ = interpreter_mounts(executable)
+    env_roots, _ = interpreter_mounts(executable, standalone=spec.standalone)
     read_roots = (
         workdir,
         *spec.read_only,
@@ -179,7 +180,7 @@ def seatbelt_argv(
                 f"(allow network-inbound (local unix-socket {socket_policy}))",
             )
         )
-    for path in spec.read_only:
+    for path in (*spec.read_only, *env_roots):
         profile.append(f"(deny file-write* {_seatbelt_path(path)})")
     for path in spec.hidden:
         profile.append(f"(deny file-read* file-write* {_seatbelt_path(path)})")
@@ -199,13 +200,19 @@ def _inside(path: Path, roots: Sequence[Path]) -> bool:
     return any(path == r or r in path.parents for r in roots)
 
 
-def interpreter_mounts(executable: str) -> tuple[list[Path], list[tuple[str, str]]]:
+def interpreter_mounts(
+    executable: str, *, standalone: bool = False
+) -> tuple[list[Path], list[tuple[str, str]]]:
     """Directories to mount read-only, and symlinks to recreate, so ``executable`` runs.
 
     A venv's ``bin/python`` is usually a chain of symlinks into a separate install (uv, pyenv,
     conda), sometimes through a symlinked directory. Returns ``(dirs, [(target, link), ...])``.
     """
     path = Path(os.path.abspath(executable))
+    # Only the host interpreter has a known installation prefix. Other MCP
+    # commands receive their executable and explicitly selected dependencies.
+    if standalone and path != Path(sys.executable).absolute():
+        return [path], []
     dirs = [_env_root(path)]
     hops: list[tuple[Path, Path]] = []  # (link, target)
     for _ in range(40):  # symlink loops end here
@@ -245,7 +252,7 @@ def bwrap_argv(
         argv += ["--ro-bind-try", f"/etc/{name}", f"/etc/{name}"]
     argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", SANDBOX_HOME]
 
-    env_dirs, links = interpreter_mounts(executable)
+    env_dirs, links = interpreter_mounts(executable, standalone=spec.standalone)
     for path in writable:
         argv += ["--bind", str(path), str(path)]
     argv += ["--bind", workdir, workdir]

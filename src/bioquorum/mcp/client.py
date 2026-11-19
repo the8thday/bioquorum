@@ -60,6 +60,12 @@ class ServerConfig:
         return "legacy" if self.command is not None else "auto"
 
     def __post_init__(self) -> None:
+        paths = self.read_paths
+        if not isinstance(paths, (tuple, list)) or any(
+            not isinstance(path, str) or not path.strip() for path in paths
+        ):
+            raise ValueError("read_paths must be a list of nonempty paths")
+        object.__setattr__(self, "read_paths", tuple(paths))
         if self.command is not None and self.url is not None:
             raise ValueError(f"mcp server '{self.name}': give only one of command / url")
         if self.command is None and self.url is None and self.replay is None:
@@ -85,7 +91,7 @@ class ServerConfig:
             replay=data.get("replay"),
             protocol=data.get("protocol"),
             isolated=data.get("isolated", False),
-            read_paths=tuple(data.get("read_paths", ())),
+            read_paths=data.get("read_paths", ()),
         )
 
 

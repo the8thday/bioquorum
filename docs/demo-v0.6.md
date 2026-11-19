@@ -44,7 +44,7 @@ isolated = true
 clearance = "local"
 ```
 
-隔离的内核可以读写项目允许的文件，通过私有 Unix socket 与 BioQuorum 通信。隔离的 MCP 进程在自己的临时目录运行，只挂载明示资料、可执行文件的运行时和系统目录。该模式支持离线 stdio 连接器。启用隔离后，启动失败会显式报错。macOS 配置使用系统 `sandbox-exec`，支持情况以该主机实测为准。
+隔离的内核可以读写项目允许的文件，通过私有 Unix socket 与 BioQuorum 通信。隔离的 MCP 进程在自己的临时目录运行，可以读取系统目录、所选命令文件和 `read_paths` 明示的资料。如果使用 BioQuorum 自身的 Python，会自动提供该解释器环境；其它命令所需的额外脚本、库和私有运行时目录也须通过 `read_paths` 指定。该模式支持离线 stdio 连接器。启用隔离后，启动失败会显式报错。macOS 配置使用系统 `sandbox-exec`，支持情况以该主机实测为准。
 
 ## HTTPS 出站白名单
 

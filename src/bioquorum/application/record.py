@@ -7,7 +7,8 @@ from typing import Any
 from bioquorum.application.controls import ResearchControls
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor
-from bioquorum.core.refs import QuoteRef, ValueRef
+from bioquorum.core.refs import QuoteRef, RunRef, ValueRef
+from bioquorum.core.review_record import AnswerReview, answer_reviews
 from bioquorum.review.binding import find_bindings, ground_claim
 from bioquorum.review.evidence import Evidence, result_text
 from bioquorum.tools.replay import recorded_inputs, run_chain
@@ -35,7 +36,7 @@ ACTIVITY: dict[str, tuple[str, ...]] = {
     "plan_step_done": ("plan_id", "step_index"),
     "plan_deviation": ("plan_id", "change", "reason"),
     "review_started": ("review_id", "target_event_id"),
-    "review_finished": ("review_id", "finding_count"),
+    "review_finished": ("review_id", "finding_count", "claim_count", "limitations"),
     "exploration_stopped": ("reason",),
     "error": ("where", "error"),
     "rerun_started": ("claim_id",),
@@ -83,6 +84,17 @@ AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _fields(event: ev.Event, fields: tuple[str, ...]) -> dict:
+    data = {key: event.payload.get(key) for key in fields}
+    if event.type == "tool_call_finished":
+        payload = event.parsed()
+        assert isinstance(payload, ev.ToolCallFinished)
+        data["is_error"] = payload.result.is_error
+        if payload.result.empty_result():
+            data["empty_result"] = True
+    return data
+
+
 def audit_log(controls: ResearchControls, sid: str, *, before: int | None, limit: int) -> dict:
     """Read session-local policy and execution metadata without prompts or tool arguments."""
     history = controls.require_session(sid)
@@ -98,7 +110,7 @@ def audit_log(controls: ResearchControls, sid: str, *, before: int | None, limit
                 "type": event.type,
                 "actor": event.actor.value,
                 "time": event.ts.isoformat(),
-                "details": {key: event.payload.get(key) for key in AUDIT_FIELDS[event.type]},
+                "details": _fields(event, AUDIT_FIELDS[event.type]),
             }
         )
         if len(records) > limit:
@@ -131,7 +143,7 @@ def _answer(
     event: ev.Event,
     text: str,
     prefix: list[ev.Event],
-    claims: list[ev.ClaimExtracted],
+    review: AnswerReview,
     statuses: dict[str, str],
     findings: dict[str, list[dict]],
 ) -> dict:
@@ -141,18 +153,19 @@ def _answer(
         "id": event.id,
         "seq": event.seq,
         "inherited": event.seq < 0,
+        "review_limitations": review.limitations,
         "claims": [
             {
                 "segments": _bindings(c.text, evidence),
                 "id": c.claim_id,
                 "has_calculation": (
-                    any(isinstance(ref, ValueRef) for ref in c.refs)
+                    any(isinstance(ref, (RunRef, ValueRef)) for ref in c.refs)
                     and not any(isinstance(ref, QuoteRef) for ref in c.refs)
                 ),
                 "status": statuses.get(c.claim_id, "unverified"),
                 "findings": findings.get(c.claim_id, []),
             }
-            for c in claims
+            for c in review.claims
         ],
         "paragraphs": [
             {
@@ -176,24 +189,13 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
     }
     statuses: dict[str, str] = {}
     findings: dict[str, list[dict]] = {}
-    claims: dict[str, list[ev.ClaimExtracted]] = {}
-    review_targets: dict[str, str] = {}
-    review_claims: dict[str, list[ev.ClaimExtracted]] = {}
+    reviews = answer_reviews(events)
     permission_requests: dict[str, dict] = {}
     turns: dict[str, dict] = {}
     plans: dict[str, dict] = {}
     pending = controls.pending(local)
     for e, p in parsed:
-        if isinstance(p, ev.ReviewStarted):
-            review_targets[p.review_id] = p.target_event_id
-            review_claims[e.id] = []
-        elif isinstance(p, ev.ClaimExtracted) and e.causation_id in review_claims:
-            review_claims[e.causation_id].append(p)
-        elif isinstance(p, ev.ReviewFinished) and e.causation_id in review_claims:
-            target = review_targets.get(p.review_id)
-            if target:
-                claims[target] = review_claims[e.causation_id]
-        elif isinstance(p, ev.ClaimStatusChanged):
+        if isinstance(p, ev.ClaimStatusChanged):
             statuses[p.claim_id] = p.to_status.value
         elif isinstance(p, ev.ReviewFinding) and p.claim_id:
             findings.setdefault(p.claim_id, []).append(
@@ -260,7 +262,14 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             p for key, p in permission_requests.items() if live and key in live.permissions
         ],
         "answers": [
-            _answer(e, p.message.text(), events[:index], claims.get(e.id, []), statuses, findings)
+            _answer(
+                e,
+                p.message.text(),
+                events[:index],
+                reviews.get(e.id, AnswerReview()),
+                statuses,
+                findings,
+            )
             for index, (e, p) in enumerate(parsed)
             if isinstance(p, ev.AssistantMessage)
             and not p.message.tool_calls()
@@ -271,7 +280,7 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
                 "seq": e.seq,
                 "type": e.type,
                 "time": e.ts.isoformat(),
-                **{key: e.payload.get(key) for key in ACTIVITY[e.type]},
+                **_fields(e, ACTIVITY[e.type]),
             }
             for e in events
             if e.type in ACTIVITY

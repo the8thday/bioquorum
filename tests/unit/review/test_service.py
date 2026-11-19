@@ -41,6 +41,8 @@ async def test_empty_claim_extraction_is_reported_as_incomplete(store):
         classification=Classification.PUBLIC,
         answer_event_id=answer.id,
     )
+    finished = next(e for e in store.read("S") if e.type == "review_finished")
+    assert finished.payload["claim_count"] == 0 and finished.payload["limitations"]
     assert not result.claims and any(
         error.startswith("claim_extraction:") for error in result.errors
     )
@@ -102,7 +104,7 @@ async def test_review_events_and_statuses(store):
     types = [e.type for e in store.read("S")]
     assert types[0] == "review_started" and types.count("claim_extracted") == 3
     assert types.count("review_finding") == 2 and types.count("claim_status_changed") == 3
-    assert types.index("review_finished") < types.index("claim_status_changed")
+    assert types[-1] == "review_finished"
     snap = snapshot(store.db)
     assert {r["status"] for r in snap["claims"]} == {"unverified", "disputed"}
     models = {r["check"]: r["reviewer_model"] for r in snap["review_findings"]}
@@ -285,7 +287,7 @@ async def test_grounded_claims_climb_to_reviewed_and_failed_bindings_are_dispute
     )
     assert [c.status for c in result.claims] == [
         VerificationStatus.REVIEWED,
-        VerificationStatus.REVIEWED,
+        VerificationStatus.GROUNDED,
         VerificationStatus.DISPUTED,
         VerificationStatus.UNVERIFIED,
     ]
@@ -384,7 +386,10 @@ async def test_unavailable_online_registry_does_not_promote_bound_citation(ctx, 
         checks=[check],
     )
     assert result.claims[0].status is VerificationStatus.GROUNDED
-    assert [f.check for f in result.findings] == ["citation_lookup_unavailable"]
+    assert {f.check for f in result.findings} == {
+        "citation_lookup_unavailable",
+        "citation_support_unavailable",
+    }
 
 
 async def test_broken_check_does_not_mark_grounded_claim_reviewed(store):
