@@ -117,7 +117,8 @@ uv run python evals/review_eval.py                                              
 | `AGENTS.md`（`CLAUDE.md` 引用它） | AI 协作约定、环境约束、踩过的坑、评测纪律 |
 | `docs/DESIGN.md` | 设计理念：为什么这样做（四份文档冲突时它优先） |
 | `docs/ARCHITECTURE.md` v0.4 | 最高技术约束（承重 / 可调） |
-| `docs/adr/001-023` | 已做出的决定（011 被 013 取代，012 被 016 取代） |
+| [架构决策 001–027](docs/adr/) | 011 由 013 取代，012 由 016 取代。工具来源进入计算内核见 [025](docs/adr/025-research-record-handoffs.md)，私有部署边界见 [026](docs/adr/026-private-runtime.md)，审查与重放的一致性见 [027](docs/adr/027-review-and-replay-integrity.md)。 |
+| [v0.6 部署验收](docs/release/v0.6-acceptance.md) | 对照 ARCHITECTURE §8 阅读，可查各项的本机实测结果及部署环境待验收项。 |
 | `ROADMAP.md` / `docs/PRODUCT.md` v0.4 | 版本范围 / 产品定义 |
 | `CHANGELOG.md` | 版本变更 |
 | `docs/research/reviewer-experiment.md` | 跨家族审查假设的对照实验（结论：不成立） |
