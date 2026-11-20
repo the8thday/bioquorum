@@ -3,6 +3,8 @@
 > 更新：2026-11-20。README 与 DESIGN 已补入作者的项目初衷，见 [Agent first 设计讨论原文](docs/discussions/2026-11-20-agent-first.md)。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 > 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
 
+README 现以 `0.6.0.dev0` 开发预览为入口，列出实测研究场景，并链接到[私有部署验收清单](docs/release/v0.6-acceptance.md)。
+
 ## 本次独立审查修复
 
 CLI 与工作台共用项目锁，重放继承隔离策略，审查限制和导出材料缺口可追溯。GSE96583 两个文库的 MT UMI 均为零，已按文库标记不可评估。实现决策见 [ADR-027](docs/adr/027-review-and-replay-integrity.md)。Linux/Docker、第二台机器、外部视觉语言模型和作者发布验收继续按对应版本清单推进。
