@@ -153,3 +153,7 @@ uv run python evals/review_eval.py                                              
 | `docs/research/review-checks.md` | 确定性审查检查的规则与实测 |
 | `docs/demo-v0.1.md` / `docs/demo-v0.3.md` | CLI 和工作台演示与验收步骤 |
 | `docs/archive/` | 文档旧版本 |
+
+## 2026-11-20 README 文案更正
+
+已按作者原意更正 README 开头对其抗体药物研发参与经历的中英文表述。
