@@ -1,7 +1,22 @@
 # 下一步（给回来的作者和任何 AI 协作者）
 
-> 更新：2026-11-20（Linux 服务器验收）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
-> 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
+> 更新：2026-11-20（设计复核，路线图重写到 v1.0）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
+> 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`ROADMAP.md`、`docs/ARCHITECTURE.md`、`docs/adr/`。
+
+## 现在的位置：下一步是 `0.7.0`
+
+v0.0 至 v0.6 的代码已完成。2026-11-20 做了设计复核，只改了文档，没有改代码：
+
+- DESIGN.md：判断⑤改为"交得出去，接得回来"；新增⑨"覆盖先于结论"和⑩"记录要比对话活得久"；③补充推荐配置和对照。"抗体推到 PCC"定为宣传语和长期试金石，不限定产品范围。
+- 新增 ADR-028 至 032：Agent 先调查、前端改为组件化工程（取代 ADR-021 的前端部分）、覆盖台账、研究线、推荐配置与两天对照。
+- ROADMAP.md 重写：v0.7 工作台重做 → v0.8 覆盖 → v0.9 Python 与 R → v0.10 研究线 → v0.11 查看器与领域工具 → v0.12 长任务与并行 → v1.0。每一步有编号、涉及的包、新事件和验收；第 0 节是执行规则。
+- PRODUCT.md 升到 v0.5，ARCHITECTURE §6.9、§10、§11 同步。
+
+**接下来做 `0.7.0`（前端工程与等价迁移）。** 开始前需要作者做两件事：
+1. 确认 Node 版本（本机是 18；所选 Vite 版本若要求 20 以上，请作者升级），并在 `web/` 建好后运行 `npm install`。
+2. commit 本次的文档改动（只有文档）。
+
+v0.3 至 v0.6 欠的验收列在 ROADMAP 第 1 节，统一在 `1.0.1` 收口，能提前做的随时做。下面是此前各次会话的记录，保留备查。
 
 README 现以 `0.6.0.dev0` 开发预览为入口，列出实测研究场景，并链接到[私有部署验收清单](docs/release/v0.6-acceptance.md)。
 
@@ -122,7 +137,7 @@ uv run python evals/review_eval.py                                              
 ```
 
 ## 回来后对 AI 说的话
-> 继续 BioQuorum。先读 AGENTS.md、docs/DESIGN.md 和 NEXT.md，再读 docs/ARCHITECTURE.md 和 docs/adr/。核对 v0.5 与 v0.6 验收清单，继续通用视觉模型和私有部署实跑。v0.4 的暂缓项在独立清单里。
+> 继续 BioQuorum。先读 AGENTS.md 和 NEXT.md，再读 docs/DESIGN.md、ROADMAP.md、docs/ARCHITECTURE.md 和相关 ADR。从 NEXT.md 写的那一步（例如 0.7.0）开始，按 ROADMAP 第 0 节的完成标准做完一步再做下一步，做完更新 ROADMAP 的勾选和 NEXT.md。
 
 ## 文档地图
 | 文件 | 内容 |
@@ -130,9 +145,9 @@ uv run python evals/review_eval.py                                              
 | `AGENTS.md`（`CLAUDE.md` 引用它） | AI 协作约定、环境约束、踩过的坑、评测纪律 |
 | `docs/DESIGN.md` | 设计理念：为什么这样做（四份文档冲突时它优先） |
 | `docs/ARCHITECTURE.md` v0.4 | 最高技术约束（承重 / 可调） |
-| [架构决策 001–027](docs/adr/) | 011 由 013 取代，012 由 016 取代。工具来源进入计算内核见 [025](docs/adr/025-research-record-handoffs.md)，私有部署边界见 [026](docs/adr/026-private-runtime.md)，审查与重放的一致性见 [027](docs/adr/027-review-and-replay-integrity.md)。 |
+| [架构决策 001–032](docs/adr/) | 011 由 013 取代，012 由 016 取代。工具来源进入计算内核见 [025](docs/adr/025-research-record-handoffs.md)，私有部署边界见 [026](docs/adr/026-private-runtime.md)，审查与重放的一致性见 [027](docs/adr/027-review-and-replay-integrity.md)。 |
 | [v0.6 部署验收](docs/release/v0.6-acceptance.md) | 对照 ARCHITECTURE §8 阅读，可查各项的本机实测结果及部署环境待验收项。 |
-| `ROADMAP.md` / `docs/PRODUCT.md` v0.4 | 版本范围 / 产品定义 |
+| `ROADMAP.md` / `docs/PRODUCT.md` v0.5 | v0.7 到 v1.0 的逐步任务 / 产品定义 |
 | `CHANGELOG.md` | 版本变更 |
 | `docs/research/reviewer-experiment.md` | 跨家族审查假设的对照实验（结论：不成立） |
 | `docs/research/review-checks.md` | 确定性审查检查的规则与实测 |

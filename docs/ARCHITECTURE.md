@@ -461,7 +461,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - 【承重】界面状态 = 事件的函数。刷新页面、换一台设备打开，看到的东西相同。流式 token 是 SSE 瞬时帧，断线重连后从最近的事件 `seq` 续上。
 - `web/`：以研究记录为中心。四个部分：记录（结论带状态标记）、证据抽屉（数字 → 代码、输出、输入 hash；引用 → 原文与高亮的原话）、活动流与输入框、卡片（计划、权限、审查）。
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
-- 前端采用随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）。
+- 前端：v0.3 至 v0.6 是随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）；v0.7 起改为 `web/` 下的 React + TypeScript + Vite 工程，构建产物提交到 `src/bioquorum/server/web/`，CI 检查与源码一致（ADR-029）。每轮的选择写进 `turn_requested`，项目设置的修改写成事件；密钥不经过界面。
 - 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
 - 依赖方向：`cli → server → application → agent`；CLI 也直接调用 `application`。仅 `server` 可导入 FastAPI、Starlette 和 Uvicorn。
 
@@ -503,6 +503,8 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 ---
 
 ## 10. 未来方向（备注，不构成约束）
+
+> 2026-11-20：下面多数条目已排进 [ROADMAP](../ROADMAP.md) 的 v0.7 至 v0.12（R kernel、覆盖台账、研究线、查看器、并行子任务、Specialists）。ADR-028 至 032 引入的事件类型在实现时加入 §5.3；在那之前 §5.3 只列已注册的类型。
 
 - **Specialists**：markdown 定义的子 agent，可单独配模型和权限，支持并行（§6.6 的子任务机制稳定之后）。
 - **稳健性检查**：对记录在案的分析选择（阈值、过滤、检验方法）换成其他合理取值重跑，看结论是否还成立。
@@ -546,3 +548,8 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 026 | 私有部署的出站、隔离和审计边界 |
 | 027 | [审查、重放与研究包的一致性](adr/027-review-and-replay-integrity.md) |
 | 020 | SQLite 数据库迁移 |
+| 028 | [Agent 先调查并给出判断，人在分歧和投入上决定](adr/028-agent-leads-investigation.md) |
+| 029 | [工作台前端改用 TypeScript 组件并随包发布构建产物](adr/029-built-frontend.md)（取代 021 的前端部分） |
+| 030 | [覆盖台账](adr/030-coverage-ledger.md) |
+| 031 | [研究线：比会话活得更久的结论、材料和决定](adr/031-research-line.md) |
+| 032 | [推荐配置组合，以及与通用 Agent 的两天对照](adr/032-default-profile-and-comparison.md) |

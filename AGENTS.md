@@ -5,11 +5,11 @@
 **AI 是这个项目的 owner**（作者 2026-11-17 的决定）：设计和技术上的取舍由你来定，不要把技术选项列给作者选；定了就写下来（理由进 `docs/DESIGN.md`，决定进 `docs/adr/`），再用白话告诉作者定了什么、为什么。留给作者的只有：判断科学结论对不对、界面的观感验收、安装依赖、commit / push、花真钱的操作。owner 不等于可以破例：改承重决定照样先写 ADR。
 
 ## 先读什么
-1. `docs/DESIGN.md`：为什么这样做。八条判断决定了取舍，拿不准时回到这里。
+1. `docs/DESIGN.md`：为什么这样做。十条判断决定了取舍，拿不准时回到这里。
 2. `NEXT.md`：现在做到哪、下一步是什么。
 3. `docs/ARCHITECTURE.md`：最高技术约束。标【承重】的条目不能为了省事破例。
 4. `docs/adr/`：已做出的决定。不要在会话里重新争论；要改就先新增一条 ADR。
-5. `ROADMAP.md`：当前版本的范围。不要提前做后面版本的东西。
+5. `ROADMAP.md`：v0.7 到 v1.0 的逐步任务（编号如 `0.7.3`）和每一步的完成标准。按编号顺序做，不要提前做后面版本的东西。
 
 ## 不可违反的规则（来自 ARCHITECTURE.md §1）
 - 分层依赖方向由 `pyproject.toml` 里的 import-linter 契约强制，`uv run lint-imports` 必须通过。
@@ -32,7 +32,7 @@
 - 用中文和作者交流；代码、注释、文档字符串用英文。
 
 ## 目录速查
-`src/bioquorum/core` 领域模型 · `storage` 事件表与投影 · `policy` 权限分级审计 · `runtime` kernel · `provenance` 溯源与研究包 · `connectors` 数据库 · `skills` SKILL.md · `mcp` 客户端与服务端 · `tools` 工具注册表与 invoke · `models` provider 与路由 · `review` 审查 · `agent` 编排 · `cli` 命令行 · `evals/` 评测与对照实验
+`src/bioquorum/core` 领域模型 · `storage` 事件表与投影 · `policy` 权限分级审计 · `runtime` kernel · `provenance` 溯源与研究包 · `connectors` 数据库 · `skills` SKILL.md · `mcp` 客户端与服务端 · `tools` 工具注册表与 invoke · `models` provider 与路由 · `review` 审查 · `agent` 编排 · `application` CLI 与工作台共用的组装和控制 · `server` 工作台服务 · `cli` 命令行 · `web/`（仓库根，v0.7 起）前端源码 · `evals/` 评测与对照实验
 
 ## 环境与权限（这台机器上的实际情况）
 - 依赖用 uv 管理。**不要自己安装依赖或下载二进制**：请作者在终端里运行（Claude Code 里是 `! uv add ...`）。改 `pyproject.toml` 后 `uv run` 会自动同步环境，这一点要告诉作者。
@@ -54,6 +54,7 @@
 - 录制的 cassette 里只记命令名，不记绝对路径（会泄露用户名）。
 - **沙箱里的 kernel 不能用信号打断**：SIGINT 会打到 bwrap 进程，kernel 跟着结束。`runtime/jupyter.py` 改成经控制通道中断（`interrupt_mode = "message"`）。
 - **venv 的解释器是一串符号链接**（uv 的 `cpython-3.12-…` 目录本身也是链接）。沙箱里只挂 venv 会报 `execvp … No such file`；`runtime/sandbox.interpreter_mounts()` 沿链路挂目录并重建中间链接。
+- **Python kernel 早已可用**（ipykernel，Jupyter 协议）；路线图里单提 R 是因为只缺 R（v0.9 接 IRkernel）。两种语言并列，不要把 R 当成替换。
 - 开发环境里没有 matplotlib：需要画图的测试别放进默认依赖能跑的集合里。
 - HTTP 库是 **`httpx2`**（`import httpx2`），不是 `httpx`；API 与 httpx 相同。`MockTransport` 配异步客户端时，流式响应体要用异步生成器，同步迭代器会触发 `AssertionError`。
 
