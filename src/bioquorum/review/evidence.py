@@ -86,6 +86,7 @@ NON_SOURCE_TOOLS = {
     "read_project_note",
     "draft_project_note",
     "save_project_note",
+    "register_upload",
     "delegate_literature",
     "stage_tool_source",
 }

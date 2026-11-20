@@ -29,7 +29,6 @@ from bioquorum.provenance.cas import IntegrityError
 from bioquorum.review import ReviewResult, review_answer
 from bioquorum.review.evidence import Evidence
 from bioquorum.runtime.manager import KernelFactory
-from bioquorum.skills.loader import discover
 from bioquorum.storage.events import EventStore
 from bioquorum.tools import ToolContext, ToolRegistry, default_registry
 from bioquorum.tools.builtin.citation import DOI_HOST, PUBMED_HOST
@@ -128,7 +127,7 @@ def _project_context(
     if options.skills:
         available = {
             name: skill
-            for name, skill in discover(ws.state_dir / "skills").items()
+            for name, skill in ws.project_skills().items()
             if redact(skill.description) == skill.description
         }
         if available:
@@ -210,8 +209,25 @@ async def execute(
         for cfg in servers:
             try:
                 conn = await stack.enter_async_context(ws.mcp_connection(cfg))
-                await register_external(registry, conn)
+                specs = await register_external(registry, conn)
+                store.append(
+                    ev.ConnectorChecked(
+                        project_id=ws.project_id,
+                        server=cfg.name,
+                        status="reachable",
+                        tools=len(specs),
+                    ),
+                    actor=Actor.SYSTEM,
+                    session_id=None,
+                )
             except Exception as exc:
+                store.append(
+                    ev.ConnectorChecked(
+                        project_id=ws.project_id, server=cfg.name, status="unavailable", tools=None
+                    ),
+                    actor=Actor.SYSTEM,
+                    session_id=None,
+                )
                 msg = redact(f"MCP server {cfg.name} unavailable: {exc}")[:1000]
                 store.append(
                     ev.ErrorOccurred(where="application.connect", error=msg),
@@ -309,6 +325,7 @@ async def execute(
                 budget_meter=meter,
                 before_first_model=first_event if explicit else None,
                 compact_at_bytes=options.compact_at_bytes,
+                references=options.references,
             )
         finally:
             assert ctx.kernels is not None

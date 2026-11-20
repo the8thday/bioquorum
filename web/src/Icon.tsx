@@ -1,0 +1,28 @@
+const paths = {
+  table: "M3 5h18v14H3z M3 10h18 M9 10v9",
+  image: "M3 4h18v16H3z M4 17l5-6 4 4 3-4 5 6 M16 8h.1",
+  document: "M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6",
+  Evidence: "M4 5.5c3-1 5-.5 8 1 3-1.5 5-2 8-1v13c-3-1-5-.5-8 1-3-1.5-5-2-8-1z M12 7v12",
+  Artifacts: "M3 7V5h6l2 2h10v12H3z",
+  Activity: "M2 12h5l3-7 4 14 3-7h5",
+  Usage: "M4 4v16h17 M8 16v-4 M13 16V6 M18 16v-7",
+  Context: "m12 3 9 5-9 5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5",
+  home: "m3 11 9-8 9 8 M5 10v10h5v-6h4v6h5V10",
+  skills: "M3 7h7l2 2h9v11H3z M5 7V4h7l2 2h5",
+  plug: "m7 4 3 3m3-7 3 3 M6 10l7-7 5 5-7 7H8l-2-2z M8 15l-5 5",
+  add: "M12 5v14 M5 12h14",
+  settings: "M4 7h8m4 0h4 M4 17h3m4 0h9 M12 4v6 M7 14v6",
+  chat: "M20 15a2 2 0 0 1-2 2H9l-5 4V5h16z",
+  menu: "M4 6h16 M4 12h16 M4 18h16",
+  side: "M3 4h18v16H3z M15 4v16",
+  gear: "m10 3 4 0 .7 2.3 2 .9 2.3-.6 2 3.4-1.7 1.8v2.4l1.7 1.8-2 3.4-2.3-.6-2 .9L14 21h-4l-.7-2.3-2-.9-2.3.6-2-3.4 1.7-1.8v-2.4L3 9l2-3.4 2.3.6 2-.9z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  paperclip: "m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9 M6.5 14.5l8-8",
+  more: "M5 12h.02 M12 12h.02 M19 12h.02",
+  arrow: "M5 12h14 M13 6l6 6-6 6",
+  chevron: "m8 10 4 4 4-4",
+  search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0z M15 15l5 5",
+};
+export function Icon({name}: {name: keyof typeof paths}) {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth={name === "more" ? 3.5 : 1.65} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]}/></svg>;
+}

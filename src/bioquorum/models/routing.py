@@ -25,8 +25,28 @@ class Route:
 
 
 class Router:
-    def __init__(self, config: ModelsConfig) -> None:
+    def __init__(self, config: ModelsConfig, *, worker: ModelSpec | None = None) -> None:
         self.config = config
+        self._worker = worker
+
+    def worker_options(self, classification: Classification) -> dict[str, bool]:
+        names = dict.fromkeys(
+            [str(s) for chain in self.config.roles.values() for s in chain]
+            + list(self.config.declared_models)
+        )
+        return {
+            name: self.allowed(spec, classification)
+            for name in names
+            if (spec := ModelSpec.parse(name)).provider in self.config.providers
+        }
+
+    def select_worker(self, name: str, classification: Classification) -> Router:
+        options = self.worker_options(classification)
+        if name not in options:
+            raise ValueError("Worker model is not configured")
+        if not options[name]:
+            raise ValueError(f"Worker model is not permitted for {classification.value} data")
+        return Router(self.config, worker=ModelSpec.parse(name))
 
     def allowed(self, spec: ModelSpec, classification: Classification) -> bool:
         return classification in self.config.providers[spec.provider].allowed_classifications
@@ -34,7 +54,9 @@ class Router:
     def chain(self, role: ModelRole, classification: Classification) -> list[Route]:
         """All usable routes for ``role`` in preference order (fallbacks included)."""
         cfg = self.config
-        if role is ModelRole.REVIEWER and cfg.reviewer_auto:
+        if role is ModelRole.WORKER and self._worker is not None:
+            specs = [self._worker]
+        elif role is ModelRole.REVIEWER and cfg.reviewer_auto:
             candidates = sorted(cfg.review_scores, key=lambda s: -cfg.review_scores[s])
             specs = [
                 ModelSpec.parse(s)
@@ -51,7 +73,7 @@ class Router:
             # planner / summarizer / reviewer fall back to the worker (ADR-013)
             return [
                 Route(role, r.spec, r.provider)
-                for r in self.chain(ModelRole.WORKER, classification)
+                for r in Router(cfg).chain(ModelRole.WORKER, classification)
             ]
         return [
             Route(role, s, cfg.providers[s.provider])

@@ -36,6 +36,8 @@ async def compact_history(
     binding: bool,
     attempted_through: int,
     cause: str,
+    manual: bool = False,
+    references: bool = False,
 ) -> int:
     # The latest assistant message and all of its tool results stay together.
     assistants = [e.seq for e in events if e.type == ev.AssistantMessage.event_type]
@@ -48,10 +50,23 @@ async def compact_history(
         if e.type == ev.ContextCompacted.event_type
     ):
         return cut
-    messages = conversation(events, source_labels=binding, compacted=True)
+    messages = conversation(
+        events,
+        source_labels=binding,
+        references=references,
+        load_event=ctx.store.get,
+        compacted=True,
+    )
     if len(_transcript(messages).encode()) < target_bytes:
         return attempted_through
-    prefix = conversation(events, source_labels=binding, compacted=True, through_seq=cut)
+    prefix = conversation(
+        events,
+        source_labels=binding,
+        references=references,
+        load_event=ctx.store.get,
+        compacted=True,
+        through_seq=cut,
+    )
     text = _transcript(prefix)
     if len(text.encode()) < target_bytes // 2:
         return cut
@@ -64,6 +79,8 @@ async def compact_history(
             causation_id=cause,
         )
     except (ModelUnavailableError, PolicyViolation):
+        if manual:
+            raise
         return cut
     meter.record(reply)
     summary = reply.message.text().strip()
@@ -74,6 +91,7 @@ async def compact_history(
                 to_seq=cut,
                 summary=summary,
                 summarizer_model=str(reply.route.spec),
+                manual=manual,
             ),
             session_id=ctx.session_id,
             actor=Actor.AGENT,

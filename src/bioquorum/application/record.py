@@ -4,57 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from bioquorum.application.artifacts import catalog_records
 from bioquorum.application.controls import ResearchControls
+from bioquorum.application.onboarding import disconnected
 from bioquorum.core import events as ev
+from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor
 from bioquorum.core.refs import QuoteRef, RunRef, ValueRef
 from bioquorum.core.review_record import AnswerReview, answer_reviews
 from bioquorum.review.binding import find_bindings, ground_claim
 from bioquorum.review.evidence import Evidence, result_text
 from bioquorum.tools.replay import recorded_inputs, run_chain
-
-ACTIVITY: dict[str, tuple[str, ...]] = {
-    "model_call_started": ("provider", "model", "role"),
-    "model_call_finished": (
-        "model",
-        "role",
-        "latency_ms",
-        "input_tokens",
-        "output_tokens",
-        "cost_usd",
-        "cost_known",
-    ),
-    "model_call_failed": ("model", "role", "error"),
-    "tool_call_requested": ("tool",),
-    "tool_call_finished": ("tool", "duration_ms"),
-    "tool_call_failed": ("tool", "error"),
-    "run_finished": ("run_id",),
-    "run_failed": ("run_id", "error"),
-    "run_cancelled": ("run_id",),
-    "run_timed_out": ("run_id", "timeout_s"),
-    "permission_decided": ("permission", "target", "granted"),
-    "plan_step_done": ("plan_id", "step_index"),
-    "plan_deviation": ("plan_id", "change", "reason"),
-    "review_started": ("review_id", "target_event_id"),
-    "review_finished": ("review_id", "finding_count", "claim_count", "limitations"),
-    "exploration_stopped": ("reason",),
-    "error": ("where", "error"),
-    "rerun_started": ("claim_id",),
-    "rerun_finished": ("matched",),
-    "replication_started": ("claim_id",),
-    "replication_finished": ("claim_id", "outcome"),
-    "bundle_exported": ("bundle_id",),
-    "literature_started": ("task_id", "question"),
-    "literature_finished": (
-        "task_id",
-        "outcome",
-        "reason",
-        "input_tokens",
-        "output_tokens",
-        "cost_usd",
-        "cost_known",
-    ),
-}
 
 AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
     "model_call_started": ("provider", "model", "role", "classification"),
@@ -90,6 +50,10 @@ def _fields(event: ev.Event, fields: tuple[str, ...]) -> dict:
         payload = event.parsed()
         assert isinstance(payload, ev.ToolCallFinished)
         data["is_error"] = payload.result.is_error
+        if payload.result.is_error and result_text(payload.result).startswith(
+            "replay: no recorded response"
+        ):
+            data["replay_miss"] = True
         if payload.result.empty_result():
             data["empty_result"] = True
     return data
@@ -153,6 +117,7 @@ def _answer(
         "id": event.id,
         "seq": event.seq,
         "inherited": event.seq < 0,
+        "review_completed": review.review_id is not None,
         "review_limitations": review.limitations,
         "claims": [
             {
@@ -189,6 +154,11 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
     }
     statuses: dict[str, str] = {}
     findings: dict[str, list[dict]] = {}
+    models = {
+        p.call_id: f"{p.provider}:{p.model}"
+        for _, p in parsed
+        if isinstance(p, ev.ModelCallFinished)
+    }
     reviews = answer_reviews(events)
     permission_requests: dict[str, dict] = {}
     turns: dict[str, dict] = {}
@@ -235,11 +205,14 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
     live = controls.tasks.get(sid)
     questions = []
     current_turn = None
+    answer_turns = {}
     for e, p in parsed:
         if isinstance(p, ev.TurnStarted):
             current_turn = p.turn_id
         elif isinstance(p, ev.TurnFinished | ev.SessionForked):
             current_turn = None
+        elif isinstance(p, ev.AssistantMessage):
+            answer_turns[e.id] = current_turn
         elif isinstance(p, ev.UserMessage) and e.actor is Actor.USER and current_turn is None:
             questions.append({"id": e.id, "seq": e.seq, "text": p.message.text()})
     return {
@@ -262,22 +235,28 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             p for key, p in permission_requests.items() if live and key in live.permissions
         ],
         "answers": [
-            _answer(
-                e,
-                p.message.text(),
-                events[:index],
-                reviews.get(e.id, AnswerReview()),
-                statuses,
-                findings,
-            )
+            {
+                **_answer(
+                    e,
+                    p.message.text(),
+                    events[:index],
+                    reviews.get(e.id, AnswerReview()),
+                    statuses,
+                    findings,
+                ),
+                "turn": answer_turns.get(e.id),
+                "model": models.get(p.model_call_id) if p.model_call_id else None,
+            }
             for index, (e, p) in enumerate(parsed)
             if isinstance(p, ev.AssistantMessage)
             and not p.message.tool_calls()
             and p.message.text().strip()
         ],
+        "disconnected": disconnected(controls),
         "activity": [
             {
                 "seq": e.seq,
+                "id": e.id,
                 "type": e.type,
                 "time": e.ts.isoformat(),
                 **_fields(e, ACTIVITY[e.type]),
@@ -285,8 +264,9 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             for e in events
             if e.type in ACTIVITY
         ][-100:],
+        "products": catalog_records(parsed),
         "figures": [
-            {"hash": p.ref.content_hash, "run_id": p.run_id, "seq": e.seq}
+            {"id": e.id, "hash": p.ref.content_hash, "run_id": p.run_id, "seq": e.seq}
             for e, p in parsed
             if isinstance(p, ev.RunOutput) and p.ref is not None and p.run_id not in rerun_ids
         ],

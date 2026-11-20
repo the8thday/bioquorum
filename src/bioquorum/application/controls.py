@@ -13,6 +13,7 @@ from bioquorum.application import workspace as wsp
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, PermissionScope
 from bioquorum.core.ids import new_id
+from bioquorum.models import Router
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
 from bioquorum.policy.secrets import redact
 from bioquorum.runtime.manager import KernelFactory
@@ -55,8 +56,49 @@ class ResearchControls:
         self.tasks: dict[str, LiveTurn] = {}
         self.reviewing = False
 
-    def sessions(self) -> list[dict]:
-        return self.store.list_sessions(self.ws.project_id)
+    def sessions(self, query: str = "") -> list[dict]:
+        rows = [
+            r for r in self.store.list_sessions(self.ws.project_id) if r["status"] != "archived"
+        ]
+        term = query.strip().casefold()
+        if not term:
+            return rows
+
+        def matches(sid: str) -> bool:
+            for event in self.store.history(sid):
+                if isinstance(p := event.parsed(), ev.TurnRequested):
+                    question = p.question
+                elif event.actor is Actor.USER and isinstance(p, ev.UserMessage):
+                    question = p.message.text()
+                else:
+                    continue
+                if term in question.casefold():
+                    return True
+            return False
+
+        return [row for row in rows if term in row["title"].casefold() or matches(row["id"])]
+
+    def rename(self, sid: str, title: str) -> None:
+        events = self.require_active_session(sid)
+        title = redact(title.strip())
+        if not 1 <= len(title) <= 160:
+            raise ValueError("Enter a title between 1 and 160 characters")
+        self._append(sid, ev.SessionTitleSet(title=title), Actor.USER, events[-1].id)
+
+    def archive(self, sid: str) -> None:
+        events = self.require_session(sid)
+        if any(e.type == ev.SessionArchived.event_type for e in events):
+            return
+        self.ensure_idle()
+        if self.pending(events):
+            raise ConflictError("Decide the pending plan before archiving")
+        self._append(sid, ev.SessionArchived(), Actor.USER, events[-1].id)
+
+    def require_active_session(self, sid: str) -> list[ev.Event]:
+        events = self.require_session(sid)
+        if any(e.type == ev.SessionArchived.event_type for e in events):
+            raise ConflictError("Session is archived")
+        return events
 
     def require_session(self, sid: str) -> list[ev.Event]:
         events = self.store.read(sid)
@@ -107,12 +149,12 @@ class ResearchControls:
                 pending = None
         return pending
 
-    def _ensure_idle(self) -> None:
+    def ensure_idle(self) -> None:
         if self.tasks or self.reviewing:
             raise ConflictError("A research operation is already running in this project")
 
     def fork(self, sid: str, title: str) -> str:
-        self._ensure_idle()
+        self.ensure_idle()
         events = self.require_session(sid)
         if self.pending(events):
             raise ConflictError("Decide the pending plan before forking")
@@ -129,11 +171,46 @@ class ResearchControls:
         )
         return child
 
-    def submit(self, sid: str, question: str, *, steps: list[str] | None = None) -> ev.Event:
-        self._ensure_idle()
-        events = self.require_session(sid)
+    def worker_models(self) -> list[dict]:
+        if self.demo:
+            return []
+        options = Router(self.ws.models_config()).worker_options(self.ws.classification)
+        return [{"spec": spec, "allowed": allowed} for spec, allowed in options.items()]
+
+    def submit(
+        self,
+        sid: str,
+        question: str,
+        *,
+        steps: list[str] | None = None,
+        worker_model: str | None = None,
+        references: list[ev.TurnReference] | None = None,
+        attachments: list[str] | None = None,
+    ) -> ev.Event:
+        self.ensure_idle()
+        events = self.require_active_session(sid)
         if self.pending(events):
             raise ConflictError("Decide the pending plan before submitting a question")
+        if worker_model is not None:
+            if self.demo:
+                raise ValueError("The offline example uses its recorded models")
+            Router(self.ws.models_config()).select_worker(worker_model, self.ws.classification)
+        if attachments:
+            available = {
+                e.payload["file_id"]
+                for e in self.store.history(sid)
+                if e.type == ev.FileRegistered.event_type
+            }
+            if self.demo or len(attachments) > 8 or set(attachments) - available:
+                raise ValueError("Choose up to eight registered files from this session")
+        if references:
+            from bioquorum.agent.context import reference_text
+
+            if not self.ws.agent_options().references or len(references) > 8:
+                raise ValueError("Enable references and select at most eight items")
+            history = self.store.history(sid)
+            for item in references:
+                reference_text(history, item, load_event=self.store.get)
         question = question.strip()
         if not question or len(question) > 12000:
             raise ValueError("Enter a question between 1 and 12000 characters")
@@ -153,16 +230,25 @@ class ResearchControls:
             check_request(self.store.history(sid), question, steps)
         plan_id = new_id() if steps else None
         turn = self._append(
-            sid, ev.TurnRequested(question=question, plan_id=plan_id), Actor.USER, events[-1].id
+            sid,
+            ev.TurnRequested(
+                question=question,
+                plan_id=plan_id,
+                worker_model=worker_model,
+                references=references or [],
+                attachments=list(dict.fromkeys(attachments or [])),
+            ),
+            Actor.USER,
+            events[-1].id,
         )
         if plan_id and steps:
             self._append(sid, ev.PlanProposed(plan_id=plan_id, steps=steps), Actor.USER, turn.id)
         else:
-            self._start(sid, turn.id, question, None)
+            self._start(sid, turn.id, question, None, worker_model)
         return turn
 
     async def decide_plan(self, sid: str, turn_id: str, *, approve: bool, reason: str = "") -> None:
-        self._ensure_idle()
+        self.ensure_idle()
         pending = self.pending(self.require_session(sid))
         if pending is None or pending[0].id != turn_id:
             raise ConflictError("That plan is no longer pending")
@@ -171,20 +257,32 @@ class ResearchControls:
         assert isinstance(payload, ev.TurnRequested)
         if approve:
             self._append(sid, ev.PlanApproved(plan_id=plan.plan_id), Actor.USER, turn_id)
-            self._start(sid, turn_id, payload.question, plan)
+            self._start(sid, turn_id, payload.question, plan, payload.worker_model)
         else:
             self._append(
                 sid, ev.PlanAbandoned(plan_id=plan.plan_id, reason=reason), Actor.USER, turn_id
             )
             self._finish(sid, turn_id, "declined")
 
-    def _start(self, sid: str, turn_id: str, question: str, plan: ev.PlanProposed | None) -> None:
+    def _start(
+        self,
+        sid: str,
+        turn_id: str,
+        question: str,
+        plan: ev.PlanProposed | None,
+        worker_model: str | None,
+    ) -> None:
         self._append(sid, ev.TurnStarted(turn_id=turn_id), Actor.SYSTEM, turn_id)
-        task = asyncio.create_task(self._run(sid, turn_id, question, plan))
+        task = asyncio.create_task(self._run(sid, turn_id, question, plan, worker_model))
         self.tasks[sid] = LiveTurn(task, turn_id)
 
     async def _run(
-        self, sid: str, turn_id: str, question: str, plan: ev.PlanProposed | None
+        self,
+        sid: str,
+        turn_id: str,
+        question: str,
+        plan: ev.PlanProposed | None,
+        worker_model: str | None,
     ) -> None:
         live = self.tasks[sid]
 
@@ -202,6 +300,8 @@ class ResearchControls:
 
         try:
             client = self.make_client(self.ws, self.store)
+            if worker_model is not None:
+                client = client.with_worker(worker_model, self.ws.classification)
             turn = await research.execute(
                 self.ws,
                 self.store,
@@ -245,7 +345,7 @@ class ResearchControls:
             )
 
     async def review(self, sid: str, answer_id: str) -> None:
-        self._ensure_idle()
+        self.ensure_idle()
         events = self.require_session(sid)
         if not any(
             e.id == answer_id

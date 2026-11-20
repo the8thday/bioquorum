@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import re
+import shutil
+from collections.abc import AsyncIterable
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from pydantic import BaseModel, Field
 
-from bioquorum.core.enums import PermissionClass, Trust
+from bioquorum.core import events as ev
+from bioquorum.core.enums import Actor, Classification, PermissionClass, Trust
 from bioquorum.core.hashing import sha256_file
-from bioquorum.policy.secrets import display_path
+from bioquorum.core.ids import new_id
+from bioquorum.policy.classification import allows
+from bioquorum.policy.secrets import display_path, redact
 from bioquorum.runtime.summarize import truncate
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.spec import ToolResult, ToolSpec
@@ -103,3 +110,72 @@ LIST_FILES = ToolSpec(
     output_trust=Trust.UNTRUSTED,
     target=lambda a, ctx: str(resolve(a.path, ctx)),
 )
+
+
+UPLOAD_LIMIT = 2048 * 1024 * 1024
+
+
+class UploadArgs(BaseModel):
+    filename: str = Field(min_length=1, max_length=180)
+    classification: Classification
+
+
+def upload_tool(stream: AsyncIterable[bytes]) -> ToolSpec:
+    """Keep uploaded bytes outside recorded tool arguments; bind them through the CAS."""
+
+    async def save(args: UploadArgs, ctx: ToolContext) -> ToolResult:
+        if (
+            ctx.actor != Actor.USER
+            or not ctx.project_id
+            or not allows(args.classification, ctx.classification)
+        ):
+            raise ValueError("The upload exceeds the project clearance")
+        name = args.filename
+        if name in {".", ".."} or any(c in "/\\" or not c.isprintable() for c in name):
+            raise ValueError("Choose a plain filename")
+        file_id = new_id()
+        suffix = Path(name).suffix.lower()
+        path = ctx.workdir / (
+            "upload-" + file_id + (suffix if re.fullmatch(r"\.[a-z0-9]{1,12}", suffix) else "")
+        )
+        cas = ctx.require_cas()
+        with NamedTemporaryFile(dir=cas.root) as staging:
+            total = 0
+            async for block in stream:
+                total += len(block)
+                if total > UPLOAD_LIMIT:
+                    raise ValueError("File exceeds the upload size limit")
+                staging.write(block)
+            staging.flush()
+            ref = cas.put_file(staging.name)
+            staging.seek(0)
+            with path.open("xb") as target:
+                try:
+                    shutil.copyfileobj(staging, target)
+                    target.flush()
+                    ctx.store.append(
+                        ev.FileRegistered(
+                            project_id=ctx.project_id,
+                            file_id=file_id,
+                            filename=redact(name),
+                            path=path.name,
+                            ref=ref,
+                            classification=args.classification,
+                        ),
+                        session_id=ctx.session_id,
+                        actor=Actor.USER,
+                        causation_id=ctx.requested_event_id,
+                    )
+                except BaseException:
+                    path.unlink(missing_ok=True)
+                    raise
+        return ToolResult.text(file_id)
+
+    return ToolSpec(
+        name="register_upload",
+        description="Register a researcher-uploaded project file.",
+        handler=save,
+        args_model=UploadArgs,
+        permission=PermissionClass.WRITE_FS,
+        target=lambda a, ctx: "project-uploads",
+    )

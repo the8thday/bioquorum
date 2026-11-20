@@ -29,7 +29,7 @@ def launch(project: Path | None = None, *, port: int = 0, browser: bool = True) 
         sock.bind(("127.0.0.1", port))
         sock.listen(128)
         host = f"127.0.0.1:{sock.getsockname()[1]}"
-        url = f"http://{host}/"
+        url = f"http://{host}/?home=1"
         config = uvicorn.Config(
             create_app(controls, host), access_log=False, timeout_graceful_shutdown=2
         )

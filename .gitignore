@@ -18,3 +18,9 @@ evals/results/
 node_modules/
 .hypothesis/
 .import_linter_cache/
+
+# Local research state and materialized demo inputs
+.bioquorum/
+/examples/workbench-v07/*
+!/examples/workbench-v07/bioquorum.toml
+!/examples/workbench-v07/counts.csv

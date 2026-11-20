@@ -162,7 +162,7 @@ def _equivalent(original: ev.RunFinished, replay: ev.RunFinished) -> bool:
 
 
 async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
-    controls._ensure_idle()
+    controls.ensure_idle()
     study = _study(controls, sid, claim_id)
     if study.status not in (
         VerificationStatus.REVIEWED,
@@ -355,7 +355,7 @@ def replication_quote(controls: ResearchControls, sid: str, claim_id: str) -> di
 async def replicate(
     controls: ResearchControls, sid: str, claim_id: str, request: BlindRequest
 ) -> dict:
-    controls._ensure_idle()
+    controls.ensure_idle()
     quote = replication_quote(controls, sid, claim_id)
     study = _study(controls, sid, claim_id)
     if not quote["isolated_execution_available"]:
@@ -516,7 +516,7 @@ async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     from bioquorum.review.evidence import Evidence
     from bioquorum.tools.bundle import export_spec
 
-    controls._ensure_idle()
+    controls.ensure_idle()
     controls.require_session(sid)
     ws = controls.ws
     policy = PermissionPolicy()

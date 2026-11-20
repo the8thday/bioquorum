@@ -6,7 +6,7 @@
 
 BioQuorum is an open, model-neutral workbench for biomedical research. Ask a question, inspect the source passage or calculation behind a claim, and export the record so another researcher can check your work.
 
-**v0.6 development preview (`0.6.0.dev0`).** The development wheel and source archive have been built and inspected. On macOS, local tests exercised the session audit view, an isolated Jupyter kernel and an isolated offline MCP process. Docker builds, Linux MCP isolation, a live HTTPS round trip through the proxy and remote workbench access still await testing on a deployment host. [Private deployment guide](docs/demo-v0.6.md) · [v0.6 acceptance record](docs/release/v0.6-acceptance.md)
+**v0.7 workbench development preview (`0.7.0.dev0`).** Choose a model for each turn, inspect usage and context, quote a recorded result, or upload a file and follow an answer back to the kernel code and input hash. The React workbench ships inside the Python package. [Workbench walkthrough](docs/demo-v0.7.md) · [Acceptance record](docs/release/v0.7-acceptance.md)
 
 ## Quick start
 

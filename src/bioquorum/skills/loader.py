@@ -20,6 +20,18 @@ MAX_TEXT = 48 * 1024
 _TEXT_SUFFIXES = {".md", ".txt", ".csv", ".tsv", ".json", ".yaml", ".yml"}
 
 
+def is_resource(resource: str) -> bool:
+    member = PurePosixPath(resource)
+    return (
+        len(member.parts) >= 2
+        and member.parts[0] in {"references", "assets"}
+        and member.suffix.lower() in _TEXT_SUFFIXES
+        and "\\" not in resource
+        and ":" not in resource
+        and not any(p.startswith(".") for p in member.parts)
+    )
+
+
 def _stamp(value: os.stat_result) -> tuple[int, int, int, int]:
     return value.st_dev, value.st_ino, value.st_mtime_ns, value.st_size
 
@@ -92,14 +104,7 @@ class Skill:
 
     def load(self, resource: str | None = None) -> SkillContent:
         member = PurePosixPath(resource or "SKILL.md")
-        if resource is not None and (
-            len(member.parts) < 2
-            or member.parts[0] not in {"references", "assets"}
-            or member.suffix.lower() not in _TEXT_SUFFIXES
-            or "\\" in resource
-            or ":" in resource
-            or any(p.startswith(".") for p in member.parts)
-        ):
+        if resource is not None and not is_resource(resource):
             raise ValueError("Use a relative text file in references/ or assets/")
         with _open(self.root, PurePosixPath("SKILL.md")) as main:
             if _stamp(os.fstat(main.fileno())) != self.stamp:

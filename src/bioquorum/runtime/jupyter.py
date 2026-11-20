@@ -29,6 +29,7 @@ from bioquorum.runtime.kernel import (
     KernelEvent,
     KernelOutput,
 )
+from bioquorum.runtime.lineage import OUTPUT_PRELUDE
 from bioquorum.runtime.lineage import PRELUDE as LINEAGE_PRELUDE
 from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env, seatbelt_argv
 from bioquorum.runtime.values import PRELUDE
@@ -206,7 +207,8 @@ class JupyterKernel:
 
     async def _install_prelude(self) -> None:
         """Define ``bq`` in the kernel (ADR-014). Our own code: a failure here is a bug."""
-        async for item in self.execute(PRELUDE, timeout=30, silent=True):
+        prelude = PRELUDE + "\n" + OUTPUT_PRELUDE if self.language == "python" else PRELUDE
+        async for item in self.execute(prelude, timeout=30, silent=True):
             if isinstance(item, ExecutionEnd) and item.status is not EndStatus.OK:
                 detail = item.error.short() if item.error else item.status.value
                 raise RuntimeError(f"kernel prelude failed: {detail}")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -13,12 +13,27 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from bioquorum.application import demo, project_memory, record, verify, workspace
+from bioquorum.application import (
+    artifacts,
+    context_panel,
+    demo,
+    extensions,
+    onboarding,
+    project_library,
+    project_memory,
+    record,
+    settings,
+    usage,
+    verify,
+    workbench_preferences,
+    workspace,
+)
 from bioquorum.application.controls import ConflictError, ResearchControls
 from bioquorum.core import events as ev
+from bioquorum.core.enums import Classification
 from bioquorum.provenance.cas import IntegrityError
 from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
 
@@ -29,8 +44,8 @@ CSP = (
 WEB = files("bioquorum.server").joinpath("web")
 ASSETS = {
     "index.html": "text/html",
-    "workbench.css": "text/css",
-    "workbench.js": "text/javascript",
+    "app.css": "text/css",
+    "app.js": "text/javascript",
     "radiolaria.webp": "image/webp",
 }
 
@@ -50,7 +65,7 @@ class LocalOrigin:
                 headers.get("host") != self.host
                 or (
                     headers.get("sec-fetch-site") in ("cross-site", "same-site")
-                    and request.url.path.startswith("/api/")
+                    and "/api/" in request.url.path
                 )
                 or headers.get("origin") not in (None, origin)
                 or (request.method not in ("GET", "HEAD") and headers.get("origin") != origin)
@@ -66,9 +81,17 @@ class Title(BaseModel):
     title: str = Field(min_length=1, max_length=160)
 
 
+class ProjectName(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    classification: Classification
+
+
 class Question(BaseModel):
+    attachments: list[str] = Field(default_factory=list, max_length=8)
+    references: list[ev.TurnReference] = Field(default_factory=list, max_length=8)
     question: str = Field(min_length=1, max_length=12000)
     steps: list[str] | None = Field(default=None, max_length=12)
+    worker_model: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class PlanDecision(BaseModel):
@@ -80,14 +103,14 @@ class PermissionDecision(BaseModel):
     grant: bool
 
 
-async def _body[T: BaseModel](request: Request, model: type[T]) -> T:
+async def _body[T: BaseModel](request: Request, model: type[T], *, limit: int = 32_768) -> T:
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         raise ValueError("Expected application/json")
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
-        if len(data) > 32_768:
-            raise ValueError("Request body exceeds 32 KiB")
+        if len(data) > limit:
+            raise ValueError(f"Request body exceeds {limit // 1024} KiB")
     try:
         return model.model_validate_json(data)
     except ValidationError:
@@ -103,12 +126,16 @@ def image_type(data: bytes) -> str:
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
     if re.match(rb"\s*(?:<\?xml[^>]*>\s*)?(?:<!DOCTYPE svg[^>]*>\s*)?<svg(?:\s|>)", data):
         return "image/svg+xml"
     raise LookupError("Unsupported image format")
 
 
-def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
+def surface(controls: ResearchControls, host: str, *, library: bool = True) -> dict[str, Any]:
     """Build routes, middleware and lifespan together for the ASGI entry point."""
 
     def kernel_notice() -> str:
@@ -117,7 +144,7 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
         try:
             isolated = controls.ws.kernel_isolation()
         except (IsolationUnavailable, workspace.WorkspaceError) as exc:
-            return str(exc)
+            return f"Kernel unavailable. Python calculations cannot run in this project. {exc}"
         if isolated is Isolation.NONE:
             return "Python isolation is unavailable here. Code in this public project runs without a sandbox."
         if controls.ws.kernel_network():
@@ -126,7 +153,11 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
 
     async def asset(request: Request) -> Response:
         name = request.path_params.get("asset", "index.html")
-        if name not in ASSETS or (name == "index.html" and "asset" in request.path_params):
+        if (
+            name not in ASSETS
+            or (name == "index.html" and "asset" in request.path_params)
+            or not WEB.joinpath(name).is_file()
+        ):
             raise LookupError("Asset not found")
         return Response(
             WEB.joinpath(name).read_bytes(),
@@ -139,6 +170,27 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             },
         )
 
+    async def project_extensions(request: Request) -> Response:
+        if request.method == "POST":
+            data = extensions.save(controls, await _body(request, extensions.Edit, limit=1_410_000))
+        else:
+            data = extensions.snapshot(controls)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    async def project_settings(request: Request) -> Response:
+        if request.method == "POST":
+            edit = await _body(request, settings.SettingsEdit)
+            data = settings.save(controls, edit)
+        else:
+            data = settings.snapshot(controls)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    async def reconnect(request: Request) -> Response:
+        await _body(request, Empty)
+        return JSONResponse(
+            await settings.reconnect(controls, _sid(request), request.path_params["name"])
+        )
+
     async def sessions(request: Request) -> Response:
         if request.method == "POST":
             body = await _body(request, Title)
@@ -149,10 +201,14 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
         return JSONResponse(
             {
                 "project": controls.ws.name,
+                "plan_default": controls.ws.config.get("agent", {}).get("plan_default", False),
+                "references": controls.ws.agent_options().references,
                 "project_notes": controls.ws.agent_options().project_notes,
+                "worker_models": controls.worker_models(),
+                "onboarding": onboarding.overview(controls),
                 "kernel_notice": kernel_notice(),
                 "classification": controls.ws.classification.value,
-                "sessions": controls.sessions(),
+                "sessions": controls.sessions(request.query_params.get("q", "")),
                 "example": {"question": demo.QUESTION, "steps": demo.STEPS}
                 if controls.demo
                 else None,
@@ -160,9 +216,32 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             headers={"Cache-Control": "no-store"},
         )
 
+    async def rename(request: Request) -> Response:
+        body = await _body(request, Title)
+        controls.rename(_sid(request), body.title)
+        return Response(status_code=204)
+
+    async def archive(request: Request) -> Response:
+        controls.archive(_sid(request))
+        return Response(status_code=204)
+
     async def read(request: Request) -> Response:
         return JSONResponse(
             record.snapshot(controls, _sid(request)), headers={"Cache-Control": "no-store"}
+        )
+
+    async def context_info(request: Request) -> Response:
+        if request.method == "POST":
+            await context_panel.compact(controls, _sid(request))
+        return JSONResponse(
+            context_panel.view(controls, _sid(request), request.query_params.get("worker")),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def usage_report(request: Request) -> Response:
+        return JSONResponse(
+            usage.report(controls.ws, controls.store, _sid(request)),
+            headers={"Cache-Control": "no-store"},
         )
 
     async def audit_history(request: Request) -> Response:
@@ -177,7 +256,14 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
 
     async def ask(request: Request) -> Response:
         body = await _body(request, Question)
-        turn = controls.submit(_sid(request), body.question, steps=body.steps)
+        turn = controls.submit(
+            _sid(request),
+            body.question,
+            steps=body.steps,
+            worker_model=body.worker_model,
+            references=body.references,
+            attachments=body.attachments,
+        )
         return JSONResponse({"turn_id": turn.id}, status_code=202)
 
     async def plan(request: Request) -> Response:
@@ -230,6 +316,78 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             return JSONResponse(verify.replication_quote(controls, sid, claim))
         body = await _body(request, verify.BlindRequest)
         return JSONResponse(await verify.replicate(controls, sid, claim, body))
+
+    async def products(request: Request) -> Response:
+        sid = _sid(request)
+        if request.method == "POST":
+            if request.headers.get("content-type") != "application/octet-stream":
+                raise ValueError("Upload requires a binary file body")
+            query = request.query_params
+            data = await artifacts.upload(
+                controls,
+                sid,
+                query.get("name", ""),
+                Classification(query.get("classification", controls.ws.classification.value)),
+                request.stream(),
+            )
+            return JSONResponse(data, status_code=201)
+        return JSONResponse(artifacts.catalog(controls, sid), headers={"Cache-Control": "no-store"})
+
+    async def product_file(request: Request) -> Response:
+        path, name = artifacts.download(controls, _sid(request), request.path_params["id"])
+        return FileResponse(
+            path,
+            filename=name,
+            media_type="application/octet-stream",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    async def product_preview(request: Request) -> Response:
+        sid, ident = _sid(request), request.path_params["id"]
+        path, _ = artifacts.download(controls, sid, ident)
+        if request.path_params["format"] == "image":
+            if path.stat().st_size > 20_000_000:
+                raise ValueError("Figure exceeds the preview size limit")
+            data = path.read_bytes()
+            return Response(
+                data,
+                media_type=image_type(data),
+                headers={
+                    "Content-Security-Policy": "sandbox; default-src 'none'",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        if request.path_params["format"] != "text":
+            raise LookupError("Unknown preview format")
+        if path.stat().st_size > 512 * 1024:
+            raise ValueError("Report exceeds 512 KiB. Download the full file.")
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except UnicodeError:
+            raise ValueError(
+                "Text preview requires a UTF-8 report. Download the original file."
+            ) from None
+        return JSONResponse({"text": text}, headers={"Cache-Control": "no-store"})
+
+    async def product_table(request: Request) -> Response:
+        data = artifacts.table(
+            controls,
+            _sid(request),
+            request.path_params["id"],
+            int(request.query_params.get("page", "1")),
+        )
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    async def export_notebook(request: Request) -> Response:
+        data = artifacts.notebook(controls, _sid(request))
+        return JSONResponse(
+            data,
+            headers={
+                "Content-Disposition": 'attachment; filename="research.ipynb"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     async def bundles(request: Request) -> Response:
         await _body(request, Empty)
@@ -334,8 +492,61 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             {"detail": str(exc)}, status_code=code, headers={"Cache-Control": "no-store"}
         )
 
+    children = AsyncExitStack()
+    example_lock = asyncio.Lock()
+    example_app = None
+
+    async def offline_example(scope: Scope, receive: Receive, send: Send) -> None:
+        nonlocal example_app
+        async with example_lock:
+            if example_app is None:
+                child = create_app(
+                    demo.make_demo(controls.ws.state_dir / "examples" / "metformin"),
+                    host,
+                    library=False,
+                )
+                await children.enter_async_context(child.router.lifespan_context(child))
+                example_app = child
+        await example_app(scope, receive, send)
+
+    managed: dict[str, ASGIApp] = {}
+
+    async def preferences(request: Request) -> Response:
+        if request.method == "POST":
+            value = await _body(request, workbench_preferences.Preferences)
+            workbench_preferences.save(value)
+        else:
+            value = workbench_preferences.read()
+        return JSONResponse(value.model_dump(), headers={"Cache-Control": "no-store"})
+
+    async def projects(request: Request) -> Response:
+        if request.method == "POST":
+            body = await _body(request, ProjectName)
+            return JSONResponse(
+                project_library.create(body.name, body.classification), status_code=201
+            )
+        return JSONResponse(
+            project_library.entries(controls.ws), headers={"Cache-Control": "no-store"}
+        )
+
+    async def open_project(scope: Scope, receive: Receive, send: Send) -> None:
+        key = scope["path_params"]["key"]
+        async with example_lock:
+            if key not in managed:
+                root = project_library.project_path(key)
+                if root.resolve() == controls.ws.root:
+                    raise ValueError("This project is already open at /")
+                child = create_app(ResearchControls(workspace.load(root)), host, library=False)
+                try:
+                    await children.enter_async_context(child.router.lifespan_context(child))
+                except workspace.WorkspaceError as exc:
+                    raise ValueError(str(exc)) from None
+                managed[key] = child
+        await managed[key](scope, receive, send)
+
     @asynccontextmanager
     async def lifespan(app):
+        nonlocal example_app
         with workspace.project_lock(controls.ws.root):
             await controls.recover()
             await controls.recover_verification()
@@ -343,6 +554,9 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             try:
                 yield
             finally:
+                await children.aclose()
+                example_app = None
+                managed.clear()
                 await controls.close()
 
     base = "/api/sessions"
@@ -353,9 +567,26 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
         "lifespan": lifespan,
         "routes": [
             Route("/", asset),
+            *(
+                [
+                    Route("/api/workbench-settings", preferences, methods=["GET", "POST"]),
+                    Route("/api/projects", projects, methods=["GET", "POST"]),
+                    Mount("/projects/{key}", app=open_project),
+                ]
+                if library
+                else []
+            ),
+            *([] if controls.demo else [Mount("/example", app=offline_example)]),
             Route("/assets/{asset}", asset),
+            Route("/api/extensions", project_extensions, methods=["GET", "POST"]),
+            Route("/api/settings", project_settings, methods=["GET", "POST"]),
+            Route(session + "/connectors/{name}/reconnect", reconnect, methods=["POST"]),
             Route(base, sessions, methods=["GET", "POST"]),
             Route(session, read),
+            Route(session + "/title", rename, methods=["POST"]),
+            Route(session + "/archive", archive, methods=["POST"]),
+            Route(session + "/context", context_info, methods=["GET", "POST"]),
+            Route(session + "/usage", usage_report),
             Route(session + "/audit", audit_history),
             Route(session + "/events", events),
             Route(session + "/turns", ask, methods=["POST"]),
@@ -368,6 +599,11 @@ def surface(controls: ResearchControls, host: str) -> dict[str, Any]:
             Route(session + "/figures/{digest}", image),
             Route(session + "/claims/{claim_id}/rerun", rerun, methods=["POST"]),
             Route(session + "/claims/{claim_id}/replication", replication, methods=["GET", "POST"]),
+            Route(session + "/artifacts", products, methods=["GET", "POST"]),
+            Route(session + "/artifacts/{id}/file", product_file),
+            Route(session + "/artifacts/{id}/preview/{format}", product_preview),
+            Route(session + "/artifacts/{id}/table", product_table),
+            Route(session + "/notebook", export_notebook),
             Route(session + "/bundles", bundles, methods=["POST"]),
             Route(session + "/project-note", project_note, methods=["GET", "POST"]),
             Route(session + "/bundles/{bundle_id}", download_bundle),
@@ -379,8 +615,10 @@ class Empty(BaseModel):
     pass
 
 
-def create_app(controls: ResearchControls, host: str):
+def create_app(controls: ResearchControls, host: str, *, library: bool = True):
     from fastapi import FastAPI
 
     # Explicit Starlette routes share the same ASGI middleware and event transport.
-    return FastAPI(docs_url=None, redoc_url=None, openapi_url=None, **surface(controls, host))
+    return FastAPI(
+        docs_url=None, redoc_url=None, openapi_url=None, **surface(controls, host, library=library)
+    )

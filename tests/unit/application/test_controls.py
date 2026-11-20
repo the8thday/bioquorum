@@ -234,3 +234,116 @@ async def test_stop_running_kernel_closes_run_and_tool(tmp_path):
     event_types = [e.type for e in controls.store.read(sid)]
     assert event_types[-3:] == ["run_cancelled", "tool_call_failed", "turn_finished"]
     assert kernel.closed
+
+
+async def test_session_search_rename_archive_and_rebuild(tmp_path):
+    from bioquorum.application.controls import ConflictError
+    from bioquorum.storage.rebuild import rebuild
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Initial")
+    controls.store.append(
+        ev.UserMessage(message=Message.user("Old-style question")), session_id=sid, actor=Actor.USER
+    )
+    turn = controls.submit(sid, "Measure response", steps=["Count"])
+    with pytest.raises(ConflictError):
+        controls.archive(sid)
+    await controls.decide_plan(sid, turn.id, approve=False)
+    controls.rename(sid, "Revised")
+    child = controls.fork(sid, "Alternative")
+    for query in ("OLD-STYLE", "measure RESPONSE"):
+        assert {r["id"] for r in controls.sessions(query)} == {sid, child}
+    assert [r["id"] for r in controls.sessions("revised")] == [sid]
+    controls.archive(sid)
+    controls.archive(sid)
+    rebuild(controls.store.db)
+    assert [r["id"] for r in controls.sessions()] == [child]
+    assert [e.type for e in controls.require_session(sid)].count("session_archived") == 1
+    with pytest.raises(ConflictError):
+        controls.submit(sid, "Late edit")
+
+
+async def test_turn_model_selection_survives_a_pending_plan_and_rejects_disallowed(tmp_path):
+    from bioquorum.core.enums import Classification
+
+    ws = init_project(tmp_path, classification=Classification.PUBLIC)
+    ws.config = {
+        "providers": {"openai": {}, "deepseek": {"allowed_classifications": ["internal"]}},
+        "roles": {"worker": "openai:first", "reviewer": "openai:review"},
+        "models": {"openai:alternate": {}, "deepseek:restricted": {}},
+    }
+    controls = ResearchControls(ws)
+    sid = controls.new_session("Control")
+    options = controls.worker_models()
+    assert {item["spec"]: item["allowed"] for item in options} == {
+        "openai:first": True,
+        "openai:review": True,
+        "openai:alternate": True,
+        "deepseek:restricted": False,
+    }
+    before = controls.store.count()
+    for invalid in ("deepseek:restricted", "openai:unlisted"):
+        with pytest.raises(ValueError):
+            controls.submit(sid, "Question", worker_model=invalid)
+    assert controls.store.count() == before
+    turn = controls.submit(sid, "Question", steps=["Check"], worker_model="openai:alternate")
+    restored = ResearchControls(ws)
+    pending = restored.pending(restored.require_session(sid))
+    assert pending and pending[0].id == turn.id
+    assert pending[0].payload["worker_model"] == "openai:alternate"
+    old = ev.Event.build(
+        ev.TurnRequested(question="Original"), session_id=sid, seq=0, actor=Actor.USER
+    )
+    parsed = old.model_copy(
+        update={"schema_version": 1, "payload": {"question": "Original"}}
+    ).parsed()
+    assert isinstance(parsed, ev.TurnRequested) and parsed.worker_model is None
+
+
+async def test_selected_worker_receives_only_its_own_familys_thinking(tmp_path):
+    from pydantic_ai import messages as pa
+    from pydantic_ai.models.function import FunctionModel
+
+    from bioquorum.application import record
+    from bioquorum.core.enums import Classification, ModelRole
+    from bioquorum.models import ModelClient, Router
+
+    ws = init_project(tmp_path, classification=Classification.PUBLIC)
+    ws.config = {
+        "providers": {"openai": {}, "deepseek": {}},
+        "roles": {"worker": "openai:a", "reviewer": "openai:review"},
+        "models": {"deepseek:b": {}},
+    }
+    seen = []
+
+    def factory(route):
+        def respond(messages, info):
+            if route.role is ModelRole.REVIEWER:
+                return pa.ModelResponse(parts=[pa.TextPart(content='{"claims": []}')])
+            previous = [
+                p.content for m in messages for p in m.parts if isinstance(p, pa.ThinkingPart)
+            ]
+            seen.append((route.family, previous))
+            return pa.ModelResponse(
+                parts=[
+                    pa.ThinkingPart(content=route.family + " test reasoning"),
+                    pa.TextPart(content="Saved."),
+                ]
+            )
+
+        return FunctionModel(respond)
+
+    def client(ws, store):
+        return ModelClient(Router(ws.models_config()), store, factory=factory)
+
+    controls = ResearchControls(ws, make_client=client)
+    sid = controls.new_session("Families")
+    for spec in ("openai:a", "deepseek:b", "openai:a"):
+        controls.submit(sid, "Reply briefly", worker_model=spec)
+        await controls.tasks[sid].task
+    assert seen == [("openai", []), ("deepseek", []), ("openai", ["openai test reasoning"])]
+    assert [a["model"] for a in record.snapshot(controls, sid)["answers"]] == [
+        "openai:a",
+        "deepseek:b",
+        "openai:a",
+    ]

@@ -24,10 +24,25 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: tests/e2e/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/e2e/package-lock.json
       - run: uv sync --locked
+      - run: npm ci --prefix web
+      - run: npm test --prefix web
+      - name: Rebuild and compare the packaged workbench
+        run: |
+          npm run build --prefix web -- --outDir "$RUNNER_TEMP/workbench" --emptyOutDir
+          diff -ru src/bioquorum/server/web "$RUNNER_TEMP/workbench"
       - run: npm ci --prefix tests/e2e --ignore-scripts
       - run: npm test --prefix tests/e2e
+      - run: BQ_TEST_CONVERSATION=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_PROJECTS=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_EXTENSIONS=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_LAYOUT=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_FIRST_RUN=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_UPLOAD=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_REFERENCES=1 npm test --prefix tests/e2e
       - run: BQ_TEST_PROJECT_NOTE=1 npm test --prefix tests/e2e
       - run: uv build --wheel
       - run: |

@@ -65,6 +65,21 @@ def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def settings_overlay(config: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Changing a role must leave its formerly selected model available in the picker."""
+    merged = _merge(config, patch)
+    if "roles" in patch or "models" in patch:
+        models = dict(merged.get("models", {}))
+        if "roles" in patch:
+            for chain in ModelsConfig.from_dict(config).roles.values():
+                for spec in chain:
+                    models.setdefault(str(spec), {})
+        for spec in patch.get("models", {}):
+            models[spec] = {k: v for k, v in models[spec].items() if v is not None}
+        merged["models"] = models
+    return merged
+
+
 class WorkspaceError(Exception):
     pass
 
@@ -84,6 +99,7 @@ class AgentOptions:
     literature_subtasks: bool = False
     literature_tools: tuple[str, ...] = ()
     source_to_kernel: bool = False
+    references: bool = False
     vision: bool = False
 
 
@@ -106,8 +122,30 @@ class Workspace:
     def cas(self) -> ContentStore:
         return ContentStore(self.state_dir / "cas")
 
-    def mcp_servers(self) -> list[ServerConfig]:
-        servers = self.config.get("mcp", {}).get("servers", {})
+    def project_skills(self, *, include_disabled: bool = False):
+        from bioquorum.skills.loader import discover
+
+        catalog = discover(self.state_dir / "skills")
+        for name, entry in self.config.get("extensions", {}).get("skills", {}).items():
+            if not entry:
+                continue
+            if entry.get("version"):
+                package = discover(self.state_dir / "installed-skills" / entry["version"])
+                if name in package:
+                    catalog[name] = package[name]
+            if not include_disabled and not entry.get("enabled", True):
+                catalog.pop(name, None)
+        return catalog
+
+    def mcp_servers(self, *, include_disabled: bool = False) -> list[ServerConfig]:
+        servers = dict(self.config.get("mcp", {}).get("servers", {}))
+        for name, entry in self.config.get("extensions", {}).get("connectors", {}).items():
+            if not entry:
+                continue
+            if entry.get("config"):
+                servers[name] = entry["config"]
+            if not include_disabled and not entry.get("enabled", True):
+                servers.pop(name, None)
         out = []
         for name, data in servers.items():
             data = dict(data)
@@ -172,6 +210,7 @@ class Workspace:
             "project_notes",
             "literature_subtasks",
             "source_to_kernel",
+            "references",
             "vision",
         ):
             if type(cfg.get(flag, False)) is not bool:
@@ -213,6 +252,7 @@ class Workspace:
             literature_subtasks=cfg.get("literature_subtasks", False),
             literature_tools=tuple(literature),
             source_to_kernel=cfg.get("source_to_kernel", False),
+            references=cfg.get("references", False),
             vision=cfg.get("vision", False),
         )
 
@@ -348,6 +388,13 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
     cfg = root / CONFIG_FILE
     if cfg.is_file():  # project settings override global ones
         config = _merge(config, tomllib.loads(cfg.read_text(encoding="utf-8")))
+    store = EventStore(Database.at(root / STATE_DIR / "bioquorum.db"))
+    try:
+        for event in store.read(None, types=[ev.ProjectSettingsChanged.event_type]):
+            if event.payload["project_id"] == meta["project_id"]:
+                config = settings_overlay(config, event.payload["patch"])
+    finally:
+        store.db.engine.dispose()
     project = config.get("project", {})
     data_dirs = [(root / d).resolve() for d in project.get("data_dirs", [])]
     return Workspace(
@@ -393,6 +440,8 @@ def default_permissions(
         policy.grant(PermissionClass.EXTERNAL_MCP, f"mcp:{s.name}", scope, project_id=pid)
     for perm in allow:
         policy.grant(perm, "*", PermissionScope.GLOBAL)
+    for permission, target in ws.config.get("permissions", {}).get("revoked", []):
+        policy.revoke(PermissionClass(permission), target)
     return policy
 
 

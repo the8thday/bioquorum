@@ -49,14 +49,15 @@ class EventStore:
                 conn.exec_driver_sql("BEGIN IMMEDIATE")
             first_seq = self._next_seq(conn, session_id)
             for seq, payload in enumerate(payloads, first_seq):
-                if isinstance(payload, ev.ProjectNoteSaved):
-                    current = self._note(conn, payload.project_id)
+                if isinstance(payload, (ev.ProjectNoteSaved, ev.ProjectSettingsChanged)):
+                    current = self._revision(conn, payload.project_id, payload.event_type)
+                    subject = (
+                        "project note" if isinstance(payload, ev.ProjectNoteSaved) else "settings"
+                    )
                     if actor is not Actor.USER or session_id is not None:
-                        raise ValueError(
-                            "Project note revisions require a direct researcher action"
-                        )
+                        raise ValueError(f"Changes to {subject} require a direct researcher action")
                     if payload.prior_revision != (current.id if current else None):
-                        raise ValueError("The project note changed. Reload it before saving.")
+                        raise ValueError(f"The {subject} changed. Reload it before saving.")
                 event = Event.build(
                     payload, session_id=session_id, seq=seq, actor=actor, causation_id=causation_id
                 )
@@ -67,12 +68,12 @@ class EventStore:
         return written
 
     @staticmethod
-    def _note(conn: Connection, project_id: str) -> Event | None:
+    def _revision(conn: Connection, project_id: str, event_type: str) -> Event | None:
         query = (
             select(schema.events)
             .where(
                 schema.events.c.session_id.is_(None),
-                schema.events.c.type == ev.ProjectNoteSaved.event_type,
+                schema.events.c.type == event_type,
                 schema.events.c.payload["project_id"].as_string() == project_id,
             )
             .order_by(schema.events.c.seq.desc())
@@ -83,7 +84,7 @@ class EventStore:
 
     def project_note(self, project_id: str) -> Event | None:
         with self.db.connect() as conn:
-            return self._note(conn, project_id)
+            return self._revision(conn, project_id, ev.ProjectNoteSaved.event_type)
 
     @staticmethod
     def _next_seq(conn: Connection, session_id: str | None) -> int:
@@ -99,7 +100,12 @@ class EventStore:
     # ------------------------------------------------------------- read
 
     def read(
-        self, session_id: str | None, from_seq: int = 0, to_seq: int | None = None
+        self,
+        session_id: str | None,
+        from_seq: int = 0,
+        to_seq: int | None = None,
+        *,
+        types: Sequence[str] | None = None,
     ) -> list[Event]:
         q = select(schema.events).where(schema.events.c.seq >= from_seq)
         q = (
@@ -109,6 +115,8 @@ class EventStore:
         )
         if to_seq is not None:
             q = q.where(schema.events.c.seq <= to_seq)
+        if types is not None:
+            q = q.where(schema.events.c.type.in_(types))
         q = q.order_by(schema.events.c.seq)
         with self.db.connect() as conn:
             return [_from_row(r) for r in conn.execute(q)]
@@ -136,6 +144,16 @@ class EventStore:
             for index, event in enumerate(prefix)
         ]
         return [*inherited, *own]
+
+    def model_usage_rows(self, sessions: Sequence[str]) -> list[dict]:
+        calls, events = schema.model_calls, schema.events
+        query = (
+            select(calls, events.c.seq)
+            .join(events, events.c.id == calls.c.event_id)
+            .where(calls.c.session_id.in_(sessions))
+        )
+        with self.db.connect() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
 
     def list_sessions(self, project_id: str) -> list[dict]:
         query = (

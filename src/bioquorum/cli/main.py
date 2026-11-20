@@ -264,16 +264,13 @@ def workbench_cmd(
 @app.command("skills")
 def skills_cmd(project: ProjectDir = Path(".")) -> None:
     """List available project skills without opening their bodies."""
-    from bioquorum.skills.loader import discover
 
     ws = _load(project)
     enabled = ws.agent_options().skills
     console.print_json(
         data={
             "enabled": enabled,
-            "skills": {
-                key: item.description for key, item in discover(ws.state_dir / "skills").items()
-            },
+            "skills": {key: item.description for key, item in ws.project_skills().items()},
         }
     )
 
@@ -415,6 +412,19 @@ def _latest_session(ws: wsp.Workspace) -> str | None:
 
     rows = sorted(snapshot(ws.database())["sessions"], key=lambda r: r["id"])
     return rows[-1]["id"] if rows else None
+
+
+@app.command("usage")
+def usage_cmd(session: str, project: ProjectDir = Path(".")) -> None:
+    """Show recorded turn, session and project usage as JSON."""
+    from bioquorum.application.usage import report
+
+    ws = _load(project)
+    try:
+        typer.echo(json.dumps(report(ws, EventStore(ws.database()), session)))
+    except LookupError as exc:
+        err.print(str(exc))
+        raise typer.Exit(1) from exc
 
 
 @app.command("sessions")

@@ -112,6 +112,15 @@ def _session_title(conn: Connection, e: Event, p: ev.SessionTitleSet) -> None:
     conn.execute(update(t.sessions).where(t.sessions.c.id == e.session_id).values(title=p.title))
 
 
+@_on(ev.SessionArchived)
+def _session_archived(conn: Connection, e: Event, p: ev.SessionArchived) -> None:
+    conn.execute(
+        update(t.sessions)
+        .where(t.sessions.c.id == e.session_id)
+        .values(status=SessionStatus.ARCHIVED.value)
+    )
+
+
 # ----------------------------------------------------------------- model calls & audit
 
 

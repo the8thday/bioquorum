@@ -164,7 +164,13 @@ async def execute_run(
             )
             raise
 
+    # A library-specific observation names the same write more precisely.
+    library_outputs = {
+        path for path, direction, fn in observed_io if direction == "output" and fn != "file_write"
+    }
     for path, direction, fn in sorted(observed_io):
+        if fn == "file_write" and path in library_outputs:
+            continue
         # The kernel reports observations, not proof of what bytes a call used.
         root = ctx.workdir.resolve()
         try:
@@ -172,11 +178,12 @@ async def execute_run(
             relative = resolved.relative_to(root)
             if any(part.startswith(".") for part in relative.parts) or not relative.parts:
                 continue
-            digest = (
-                sha256_file(resolved)
-                if resolved.is_file() and resolved.stat().st_size <= 64 * 2**20
-                else None
-            )
+            digest = None
+            if resolved.is_file() and resolved.stat().st_size <= 64 * 2**20:
+                if direction == "output" and relative.as_posix() != "bioquorum.toml":
+                    digest = cas.put_file(resolved).content_hash
+                else:
+                    digest = sha256_file(resolved)
             event = ev.LineageObserved(
                 run_id=run_id,
                 path=relative.as_posix(),

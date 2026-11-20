@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bioquorum.core.enums import (
     Actor,
@@ -161,6 +161,23 @@ class ProjectCreated(EventPayload):
 
 
 @register
+class ConnectorChecked(EventPayload):
+    event_type: ClassVar[str] = "connector_checked"
+    project_id: str
+    server: str
+    status: str
+    tools: int | None
+
+
+@register
+class ProjectSettingsChanged(EventPayload):
+    event_type: ClassVar[str] = "project_settings_changed"
+    project_id: str
+    prior_revision: str | None
+    patch: dict[str, Any]
+
+
+@register
 class ProjectNoteSaved(EventPayload):
     event_type: ClassVar[str] = "project_note_saved"
     project_id: str
@@ -200,14 +217,68 @@ class SessionTitleSet(EventPayload):
     title: str
 
 
+@register
+class SessionArchived(EventPayload):
+    event_type: ClassVar[str] = "session_archived"
+
+
 # ----------------------------------------------------------------- conversation & model
 
 
 @register
-class TurnRequested(EventPayload):
+class TurnRequestedV1(EventPayload):
     event_type: ClassVar[str] = "turn_requested"
     question: str
     plan_id: str | None = None
+
+
+@register
+class TurnRequestedV2(TurnRequestedV1):
+    schema_version: ClassVar[int] = 2
+    worker_model: str | None = None
+
+
+class TurnReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["answer", "claim", "value", "figure", "source", "run", "activity"]
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(default="", max_length=128)
+    excerpt: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> Self:
+        if bool(self.name) != (self.kind in {"value", "figure"}):
+            raise ValueError("Only values and figures require a record name")
+        if self.excerpt and self.kind not in {"answer", "source"}:
+            raise ValueError("Only answers and sources accept an excerpt")
+        return self
+
+
+@register
+class TurnRequestedV3(TurnRequestedV2):
+    schema_version: ClassVar[int] = 3
+    references: list[TurnReference] = Field(default_factory=list, max_length=8)
+
+
+@register
+class TurnRequested(TurnRequestedV3):
+    schema_version: ClassVar[int] = 4
+    attachments: list[str] = Field(default_factory=list, max_length=8)
+
+
+@upgrader("turn_requested", 3)
+def _turn_files_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "attachments": []}
+
+
+@upgrader("turn_requested", 2)
+def _turn_references_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "references": []}
+
+
+@upgrader("turn_requested", 1)
+def _turn_worker_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "worker_model": None}
 
 
 @register
@@ -439,6 +510,18 @@ class RunTimedOut(EventPayload):
 
 
 @register
+class FileRegistered(EventPayload):
+    event_type: ClassVar[str] = "file_registered"
+    project_id: str
+    file_id: str
+    filename: str
+    path: str
+    ref: DataRef
+    classification: Classification
+    source: Literal["user_upload"] = "user_upload"
+
+
+@register
 class ArtifactVersionCreated(EventPayload):
     event_type: ClassVar[str] = "artifact_version_created"
     artifact_id: str
@@ -630,6 +713,7 @@ class ContextCompacted(EventPayload):
     to_seq: int
     summary: str
     summarizer_model: str
+    manual: bool = False
 
 
 @register

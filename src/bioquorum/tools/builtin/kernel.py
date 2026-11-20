@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from os.path import abspath
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 from bioquorum.core import events as ev
@@ -47,6 +50,11 @@ def _file_inputs(args: PythonExecuteArgs, ctx: ToolContext) -> tuple[list[DataRe
                     path, marker, _ = part.summary.partition(markers[payload.tool])
                     if marker:
                         staged[path] = part.ref
+    uploaded = {
+        p.path: p.ref
+        for e in ctx.store.history(ctx.session_id)
+        if e.type == ev.FileRegistered.event_type and isinstance(p := e.parsed(), ev.FileRegistered)
+    }
     root = ctx.workdir.resolve()
     refs: list[DataRef] = []
     paths: list[str] = []
@@ -61,6 +69,12 @@ def _file_inputs(args: PythonExecuteArgs, ctx: ToolContext) -> tuple[list[DataRe
             raise ValueError(
                 f"Declared input cannot be project configuration or hidden state: {path!r}"
             )
+        requested = Path(abspath(root / path))
+        expected_upload = uploaded.get(relative.as_posix())
+        if requested.is_relative_to(root) and requested.relative_to(root).as_posix() in uploaded:
+            if requested != resolved:
+                raise ValueError("Uploaded input differs from its registered content")
+            expected_upload = uploaded[requested.relative_to(root).as_posix()]
         area = relative.parts[0] if relative.parts else ""
         if area in (DOWNLOAD_DIR, SOURCE_DIRECTORY):
             ref = staged.get(relative.as_posix())
@@ -84,6 +98,8 @@ def _file_inputs(args: PythonExecuteArgs, ctx: ToolContext) -> tuple[list[DataRe
             if not resolved.is_file():
                 raise ValueError(f"Declared input is not a file: {path!r}")
             ref = ctx.require_cas().put_file(resolved)
+        if expected_upload and ref.content_hash != expected_upload.content_hash:
+            raise ValueError("Uploaded input differs from its registered content")
         refs.append(ref)
         paths.append(relative.as_posix())
     return refs, paths

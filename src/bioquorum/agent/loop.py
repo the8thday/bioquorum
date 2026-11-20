@@ -80,6 +80,7 @@ async def run_turn(
     budget: Budget | None = None,
     budget_meter: BudgetMeter | None = None,
     before_first_model: Callable[[ev.Event], Awaitable[None]] | None = None,
+    references: bool = False,
     compact_at_bytes: int | None = None,
 ) -> TurnResult:
     hooks = hooks or Hooks()
@@ -130,6 +131,7 @@ async def run_turn(
                 target_bytes=compact_at_bytes,
                 binding=binding,
                 attempted_through=compacted_through,
+                references=references,
                 cause=cause,
             )
             if meter.stop_reason():
@@ -137,7 +139,13 @@ async def run_turn(
             events = store.history(sid)
         history = [
             Message.system(system),
-            *conversation(events, source_labels=binding, compacted=compact_at_bytes is not None),
+            *conversation(
+                events,
+                source_labels=binding,
+                compacted=compact_at_bytes is not None,
+                references=references,
+                load_event=store.get,
+            ),
         ]
         step += 1
         completion = await client.complete(
@@ -232,7 +240,11 @@ async def run_turn(
     history = [
         Message.system(system),
         *conversation(
-            store.history(sid), source_labels=binding, compacted=compact_at_bytes is not None
+            store.history(sid),
+            source_labels=binding,
+            compacted=compact_at_bytes is not None,
+            references=references,
+            load_event=store.get,
         ),
         Message.user(
             f"{reason.capitalize()} reached. Answer now with what you have; say what is missing."

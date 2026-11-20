@@ -3,116 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#f6f2e9">
+  <meta name="theme-color" content="#f7f8fc">
   <title>BioQuorum · Research Workbench</title>
-  <link rel="stylesheet" href="/assets/workbench.css">
-  <script type="module" src="/assets/workbench.js"></script>
+  <script type="module" crossorigin src="/assets/app.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/app.css">
 </head>
 <body>
-  <div class="shell">
-    <header class="masthead">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>BioQuorum</strong></div>
-      <span class="masthead-label">Research workbench</span>
-      <span id="mode" class="mode"></span>
-    </header>
-    <main id="workspace">
-      <header class="record-header">
-        <div class="record-label"><p class="kicker">Research record</p><a class="session-jump" href="#sessions-heading">Sessions ↓</a></div>
-        <h1 id="session-name" tabindex="-1">Start a session</h1>
-        <div class="actions record-actions">
-          <button type="button" id="audit" class="quiet" hidden>Audit log</button>
-          <button type="button" id="project-note" class="quiet" hidden>Project note</button>
-          <button type="button" id="export" class="quiet" hidden>Export research bundle</button>
-          <button type="button" id="fork" class="quiet" hidden>Fork session</button>
-        </div>
-      </header>
-      <p id="kernel-notice" class="warning" hidden></p>
-      <section id="record" aria-label="Research record"></section>
-      <form id="composer" hidden>
-        <div id="controls"></div>
-        <label for="question">Research question</label>
-        <textarea id="question" rows="2" maxlength="12000" placeholder="What would you like to investigate?" required></textarea>
-        <div class="composer-footer">
-          <label class="checkbox"><input type="checkbox" id="plan-mode"> Review a plan first</label>
-          <button class="primary" id="submit" type="submit">Run research</button>
-        </div>
-        <div id="plan-editor" hidden>
-          <label for="steps">Analysis plan <span class="muted">One step per line</span></label>
-          <textarea id="steps" rows="3" maxlength="7320" placeholder="Identify the evidence needed&#10;Compare the findings and limits"></textarea>
-        </div>
-      </form>
-      <p id="message" role="status" aria-live="polite"></p>
-    </main>
-    <div class="margin-column">
-      <aside class="sidebar" aria-label="Project and sessions">
-        <div class="project-label">Project</div>
-        <div id="project" class="project-name">Loading…</div>
-        <div class="session-header"><h2 id="sessions-heading" tabindex="-1">Sessions</h2><button type="button" id="new" class="icon-button" aria-label="New session" title="New session"><span aria-hidden="true">+</span></button></div>
-        <nav id="sessions" aria-label="Sessions"></nav>
-        <p id="no-sessions" class="empty-note" hidden>No sessions in this project yet.</p>
-      </aside>
-      <aside class="ledger" aria-label="Research activity">
-        <header><h2>Activity</h2><span id="connection" class="muted">Connecting…</span></header>
-        <p id="progress" role="status" class="muted"></p>
-        <ol id="activity"></ol>
-        <p id="no-activity" class="empty-note" hidden>Events appear here when research begins.</p>
-      </aside>
-    </div>
-    <footer class="colophon">Stored on this machine</footer>
-  </div>
-  <dialog id="evidence" aria-labelledby="evidence-title">
-    <header><div><p class="kicker">Evidence</p><h2 id="evidence-title">Evidence details</h2></div><form method="dialog"><button type="submit" class="icon-button" aria-label="Close evidence">×</button></form></header>
-    <div id="evidence-body"></div>
-  </dialog>
-  <dialog id="audit-dialog" aria-labelledby="audit-title">
-    <header><h2 id="audit-title">Audit log</h2><form method="dialog"><button type="submit" class="icon-button" aria-label="Close audit log">×</button></form></header>
-    <p id="audit-classification" class="muted"></p>
-    <ol id="audit-entries"></ol>
-    <button type="button" id="audit-more" class="quiet" hidden>Older events</button>
-  </dialog>
-  <dialog id="note-dialog" aria-labelledby="note-title">
-    <form id="note-form">
-      <h2 id="note-title">Project note</h2>
-      <p class="muted">Saved notes are available to future sessions in this project.</p>
-      <div id="note-drafts"></div>
-      <label for="note-body">Note</label>
-      <textarea id="note-body" rows="10" maxlength="6000"></textarea>
-      <p id="note-status" class="muted" role="status"></p>
-      <div class="actions">
-        <button type="button" id="note-close" class="quiet">Close</button>
-        <button type="button" id="note-reload" class="quiet" hidden>Reload saved note</button>
-        <button type="submit" id="note-save" class="primary">Save project note</button>
-      </div>
-    </form>
-  </dialog>
-  <dialog id="blind-dialog" aria-labelledby="blind-title">
-    <form id="blind-form">
-      <h2 id="blind-title">Independent replication</h2>
-      <p id="blind-estimate"></p>
-      <p class="muted">Enter a question and definitions without the original code or results.</p>
-      <label for="blind-question">Question for a fresh model session</label>
-      <textarea id="blind-question" rows="3" required maxlength="4000"></textarea>
-      <div id="blind-targets"></div>
-      <p id="blind-inputs" class="muted"></p>
-      <label for="blind-absolute">Absolute tolerance</label>
-      <input id="blind-absolute" type="number" min="0" step="any" value="0" required>
-      <label for="blind-relative">Relative tolerance (0 to 1)</label>
-      <input id="blind-relative" type="number" min="0" max="1" step="any" value="0" required>
-      <label for="blind-budget">Estimated spend threshold (USD)</label>
-      <input id="blind-budget" type="number" min="0.000001" max="100" step="any" required>
-      <div class="actions">
-        <button type="button" id="close-blind" class="quiet">Cancel</button>
-        <button type="submit" class="primary">Approve and start replication</button>
-      </div>
-    </form>
-  </dialog>
-  <dialog id="name-dialog" aria-labelledby="dialog-title">
-    <form id="name-form">
-      <h2 id="dialog-title">New session</h2>
-      <label for="session-title">Session title</label>
-      <input id="session-title" required maxlength="160">
-      <div class="actions"><button type="button" id="cancel-name" class="quiet">Cancel</button><button type="submit" class="primary">Continue</button></div>
-    </form>
-  </dialog>
+  <div id="root"></div>
 </body>
 </html>

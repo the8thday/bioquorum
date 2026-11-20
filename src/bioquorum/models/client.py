@@ -12,6 +12,7 @@ import asyncio
 import time
 from collections.abc import Callable, Sequence
 from contextlib import AsyncExitStack
+from copy import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -82,6 +83,11 @@ class ModelClient:
         self.image_loader = image_loader
         self.outbound_proxy = outbound_proxy
         self.max_output_tokens = max_output_tokens
+
+    def with_worker(self, name: str, classification: Classification) -> ModelClient:
+        client = copy(self)
+        client.router = self.router.select_worker(name, classification)
+        return client
 
     def _images_for(self, route: Route) -> ImageLoader | None:
         return self.image_loader if str(route.spec) in self.router.config.vision_models else None

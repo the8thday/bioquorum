@@ -53,3 +53,66 @@ def __bq_install_lineage():
 __bq_install_lineage()
 del __bq_install_lineage
 """.replace("__MIME__", repr(LINEAGE_MIME))
+
+
+# Record user-facing files written by a cell without scanning the project directory.
+OUTPUT_PRELUDE = r"""
+def __bq_watch_outputs():
+    import os, sys
+    from IPython import get_ipython
+    from IPython.display import publish_display_data
+
+    root = os.path.realpath(os.getcwd())
+    extensions = {".csv", ".tsv", ".md", ".markdown", ".txt", ".png", ".jpg", ".jpeg",
+                  ".svg", ".webp", ".gif"}
+    pending = {}
+    active = False
+
+    def stamp(path):
+        try:
+            st = os.stat(path)
+            return st.st_ino, st.st_size, st.st_mtime_ns
+        except OSError:
+            return None
+
+    def remember(event, args):
+        if not active or len(pending) >= 64:
+            return
+        if event == "open" and args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC):
+            path = args[0]
+        elif event == "os.rename" and args[3] == -1:
+            path = args[1]
+        else:
+            return
+        if not isinstance(path, str) or os.path.splitext(path)[1].lower() not in extensions:
+            return
+        try:
+            relative = os.path.relpath(os.path.realpath(path), root)
+            if len(relative) <= 1024 and not any(p.startswith(".") for p in relative.split(os.sep)):
+                if relative not in pending:
+                    pending[relative] = stamp(os.path.join(root, relative))
+        except (OSError, ValueError):
+            pass
+
+    def begin(*_):
+        nonlocal active
+        pending.clear()
+        active = True
+
+    def finish(*_):
+        nonlocal active
+        active = False
+        for relative, before in pending.items():
+            after = stamp(os.path.join(root, relative))
+            if after is not None and after != before:
+                publish_display_data({__MIME__: {"path": relative, "direction": "output",
+                                                 "function": "file_write"}})
+        pending.clear()
+
+    sys.addaudithook(remember)
+    get_ipython().events.register("pre_run_cell", begin)
+    get_ipython().events.register("post_run_cell", finish)
+
+__bq_watch_outputs()
+del __bq_watch_outputs
+""".replace("__MIME__", repr(LINEAGE_MIME))

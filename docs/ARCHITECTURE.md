@@ -175,15 +175,16 @@ Event(
 | 类别 | 类型 |
 |---|---|
 | 项目 | `project_created`（唯一一个 session_id 为空的事件类型） |
+| 项目设置与连接器检查 | `project_settings_changed`, `connector_checked` |
 | 项目笔记 | `project_note_saved`, `project_note_drafted` |
-| 会话 | `session_created`, `session_forked`, `session_title_set` |
+| 会话 | `session_created`, `session_forked`, `session_title_set`, `session_archived` |
 | 对话 | `user_message`, `assistant_message` |
 | 模型 | `model_call_started`, `model_call_finished`, `model_call_failed` |
 | 工具 | `tool_call_requested`, `tool_call_finished`, `tool_call_failed` |
 | 计划 | `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
 | 权限 | `permission_requested`, `permission_decided` |
 | 执行 | `run_started`, `run_output`, `lineage_observed`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
-| 产物 | `artifact_version_created`, `artifact_status_changed` |
+| 产物 | `file_registered`, `artifact_version_created`, `artifact_status_changed` |
 | 结论 | `claim_extracted`, `claim_status_changed` |
 | 审查 | `review_started`, `review_finding`, `review_finished`, `finding_resolved` |
 | 复现 | `rerun_started`, `rerun_finished`, `replication_started`, `replication_finished`, `bundle_exported` |
@@ -462,6 +463,8 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - `web/`：以研究记录为中心。四个部分：记录（结论带状态标记）、证据抽屉（数字 → 代码、输出、输入 hash；引用 → 原文与高亮的原话）、活动流与输入框、卡片（计划、权限、审查）。
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
 - 前端：v0.3 至 v0.6 是随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）；v0.7 起改为 `web/` 下的 React + TypeScript + Vite 工程，构建产物提交到 `src/bioquorum/server/web/`，CI 检查与源码一致（ADR-029）。每轮的选择写进 `turn_requested`，项目设置的修改写成事件；密钥不经过界面。
+- `turn_requested` v3 保存本轮引用及记录标识，v2 记录升级为空列表。引用只能解析到本会话或分叉继承的记录，来源和运行代码作为不可信数据传给模型。
+- `turn_requested` v2 保存可选的 `worker_model`；v1 升级时填空，按角色默认路由。回答显示的模型由 `assistant_message.model_call_id` 关联成功的 `model_call_finished` 确定。
 - 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
 - 依赖方向：`cli → server → application → agent`；CLI 也直接调用 `application`。仅 `server` 可导入 FastAPI、Starlette 和 Uvicorn。
 
@@ -553,3 +556,8 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 030 | [覆盖台账](adr/030-coverage-ledger.md) |
 | 031 | [研究线：比会话活得更久的结论、材料和决定](adr/031-research-line.md) |
 | 032 | [推荐配置组合，以及与通用 Agent 的两天对照](adr/032-default-profile-and-comparison.md) |
+| 033 | [工作台上传与独立离线示例](adr/033-workbench-files-and-example.md) |
+| 034 | [工作台的项目导航与研究面板](adr/034-workbench-project-navigation.md) |
+| 035 | [工作台偏好与研究设置](adr/035-workbench-preferences.md) |
+| 036 | [项目 Skills 和 MCP 连接器管理](adr/036-project-extension-library.md) |
+| 037 | [对话旁的结果阅读区与可调整侧栏](adr/037-result-reader.md) |

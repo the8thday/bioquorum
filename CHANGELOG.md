@@ -2,6 +2,33 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## v0.7.0.dev0 · Workbench
+
+- Create and switch local projects in the sidebar. Session actions share a menu, and the usage inspector shows intact values and expandable role totals.
+
+- Ship the React and TypeScript workbench as prebuilt assets in the Python package.
+  The offline example, evidence inspection, notes and verification use the existing record API.
+
+- Search sessions by title or research question, rename and archive them. Keep the
+  composer available across turns and show generation progress in the record.
+
+- Select a classification-permitted worker for each turn and show the actual model on each answer.
+
+- Inspect projected model usage by scope and role in the workbench and with `bq usage SESSION`.
+
+- Inspect the estimated context occupancy, loaded material and saved summaries, compact the conversation or fork it.
+
+- Configure model roles, prices, context windows, research options, permissions and budgets in project settings. The workbench and CLI apply the same recorded changes. Inspect kernel packages, connector availability and environment key presence.
+
+- Attach a selected finding, calculation or excerpt to a follow-up question and recover its recorded provenance.
+
+- Upload project files, attach recorded versions to questions, preview CSV and TSV pages, inspect and download session artifacts, and export kernel cells as a Jupyter notebook.
+
+- Show first-run model configuration and kernel or connector availability. Open the independent offline example directly from an unconfigured project.
+
+- Resize either sidebar and open figures, tables and reports beside the conversation. Switch result tabs while keeping the follow-up draft.
+- Install and manage project Skills and MCP connectors from the sidebar. Use the composer for attachments, quoted follow-ups and common project settings.
+
 ## v0.6.0.dev0
 
 - Show a read-only, paginated session audit log and data classification in the workbench.

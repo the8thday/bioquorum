@@ -112,6 +112,8 @@ class ModelsConfig:
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
     roles: dict[ModelRole, list[ModelSpec]] = field(default_factory=dict)
     """Each role maps to a fallback chain, first entry preferred."""
+    declared_models: tuple[str, ...] = ()
+    context_windows: dict[str, int] = field(default_factory=dict)
     review_scores: dict[str, float] = field(default_factory=dict)
     prefer_different_family: bool = False
     reviewer_auto: bool = False
@@ -145,9 +147,15 @@ class ModelsConfig:
         }
         prices: dict[str, tuple[float, float]] = {}
         vision_models: set[str] = set()
+        windows: dict[str, int] = {}
         for spec, values in data.get("models", {}).items():
             if not isinstance(values, dict):
                 continue
+            if "context_window" in values:
+                window = values["context_window"]
+                if type(window) is not int or window <= 0:
+                    raise ConfigError(f"{spec}: context_window must be a positive integer")
+                windows[spec] = window
             vision = values.get("vision", False)
             if type(vision) is not bool:
                 raise ConfigError(f"{spec}: vision must be true or false")
@@ -171,6 +179,8 @@ class ModelsConfig:
         return cls(
             providers=providers,
             roles=roles,
+            context_windows=windows,
+            declared_models=tuple(data.get("models", {})),
             review_scores=scores,
             prefer_different_family=bool(
                 data.get("roles", {}).get("prefer_different_family", False)

@@ -1,0 +1,23 @@
+[providers.openai]
+api = "responses"
+api_key = "env:OPENAI_API_KEY"
+
+[roles]
+worker = "openai:gpt-6.1-sol"
+reviewer = "openai:gpt-6.1-sol"
+
+[agent]
+references = true
+literature_tools = ["pubmed__search_articles", "pubmed__get_article_metadata"]
+
+[kernel]
+macos_sandbox = true
+
+# These services receive public project queries.
+[mcp.servers.pubmed]
+url = "https://pubmed.mcp.claude.com/mcp"
+clearance = "public"
+
+[mcp.servers.opentargets]
+url = "https://mcp.platform.opentargets.org/mcp"
+clearance = "public"

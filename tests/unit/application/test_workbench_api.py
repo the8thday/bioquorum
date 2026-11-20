@@ -1,5 +1,6 @@
 """FastAPI requests against the real event store and packaged cassette."""
 
+import re
 from pathlib import Path
 
 import httpx2
@@ -58,8 +59,16 @@ async def test_offline_record_reloads_and_forks(tmp_path: Path):
     async with httpx2.AsyncClient(
         transport=transport, base_url=ORIGIN, headers={"Origin": ORIGIN}
     ) as http:
-        assert (await http.get("/")).headers["content-security-policy"]
-        assert (await http.get("/assets/workbench.js")).status_code == 200
+        page = await http.get("/")
+        assert page.headers["content-security-policy"]
+        assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', page.text)
+        for suffix, mime in [(".js", "text/javascript"), (".css", "text/css")]:
+            (url,) = [path for path in assets if path.endswith(suffix)]
+            response = await http.get(url)
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith(mime)
+            assert response.content
+        assert (await http.get("/assets/index.html")).status_code == 404
         plate = await http.get("/assets/radiolaria.webp")
         assert plate.headers["content-type"] == "image/webp"
         assert plate.content[:4] == b"RIFF" and plate.content[8:12] == b"WEBP"
@@ -108,9 +117,18 @@ async def test_offline_record_reloads_and_forks(tmp_path: Path):
         assert image.headers["content-type"] == "image/svg+xml"
         assert image.headers["content-security-policy"].startswith("sandbox")
         assert (await http.get(f"{base}/figures/{'f' * 64}")).status_code == 404
+        figure = next(item for item in record["products"] if item["kind"] == "figure")
+        assert figure["hash"] == run["figures"][0] and figure["turn"] == turn
+        preview_path = f"/artifacts/{figure['id']}/preview/image"
+        preview = await http.get(base + preview_path)
+        assert preview.headers["content-security-policy"].startswith("sandbox")
+        assert preview.content == image.content
+        unrelated = controls.new_session("Independent")
+        assert (await http.get(f"/api/sessions/{unrelated}" + preview_path)).status_code == 404
         fork = (await http.post(base + "/fork", json={"title": "Alternative"})).json()["id"]
         fork_base = f"/api/sessions/{fork}"
         fork_record = (await http.get(fork_base)).json()
+        assert (await http.get(fork_base + preview_path)).content == image.content
         assert fork_record["answers"][0]["id"] == answer["id"]
         assert fork_record["answers"][0]["inherited"]
         assert fork_record["last_seq"] == 0
@@ -130,3 +148,36 @@ async def test_unplanned_control_skips_approval_gate(tmp_path: Path):
     assert events[-1].payload["outcome"] == "completed"
     assert any(e.type == "tool_call_requested" for e in events)
     assert not any(e.type in ("plan_proposed", "plan_approved", "plan_step_done") for e in events)
+
+
+async def test_create_switch_and_reopen_project(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    controls = demo.make_demo(tmp_path / "original")
+    app = create_app(controls, HOST)
+    async with (
+        app.router.lifespan_context(app),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url=ORIGIN, headers={"Origin": ORIGIN}
+        ) as http,
+    ):
+        response = await http.post(
+            "/api/projects", json={"name": "My project", "classification": "public"}
+        )
+        assert response.status_code == 201
+        path = response.json()["href"]
+        assert path.startswith("/projects/")
+        assert (await http.get(path + "api/sessions")).json()["sessions"] == []
+        created = await http.post(path + "api/sessions", json={"title": "Private to this project"})
+        assert created.is_success
+        assert created.json()["id"] not in (await http.get("/api/sessions")).text
+        assert "My project" in (await http.get("/api/projects")).text
+        assert (
+            await http.post("/api/projects", json={"name": "  ", "classification": "public"})
+        ).status_code == 400
+    reopened = create_app(demo.make_demo(tmp_path / "original"), HOST)
+    async with (
+        reopened.router.lifespan_context(reopened),
+        httpx2.AsyncClient(transport=httpx2.ASGITransport(app=reopened), base_url=ORIGIN) as http,
+    ):
+        assert (await http.get("/api/projects")).json()[-1]["href"] == path
+        assert "Private to this project" in (await http.get(path + "api/sessions")).text

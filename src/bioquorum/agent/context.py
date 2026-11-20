@@ -6,18 +6,24 @@ are read back from events every step, so the loop is stateless and can resume af
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+from collections.abc import Callable, Iterable
+from dataclasses import replace
 
 from bioquorum.core import events as ev
+from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor, Trust
 from bioquorum.core.messages import Message, TextPart, ToolResultPart, fence_untrusted
-from bioquorum.review.evidence import source_aliases
+from bioquorum.review.binding import quote_matches, render
+from bioquorum.review.evidence import Evidence, result_text, source_aliases
 
 
 def conversation(
     events: Iterable[ev.Event],
     *,
     source_labels: bool = False,
+    references: bool = False,
+    load_event: Callable[[str], ev.Event | None] | None = None,
     compacted: bool = False,
     through_seq: int | None = None,
 ) -> list[Message]:
@@ -38,9 +44,9 @@ def conversation(
         (
             p
             for e in reversed(items)
-            if compacted
-            and e.type == ev.ContextCompacted.event_type
+            if e.type == ev.ContextCompacted.event_type
             and isinstance(p := e.parsed(), ev.ContextCompacted)
+            and (compacted or p.manual)
             and (through_seq is None or p.to_seq <= through_seq)
         ),
         None,
@@ -63,14 +69,54 @@ def conversation(
         return marker + (f"{q.identifier}\n" if q.identifier else "") + q.text
 
     pending: set[str] = set()
-    for e in items:
+    requests = {
+        e.id: e
+        for e in items
+        if e.type == "turn_requested"
+        and (e.payload.get("attachments") or (references and e.payload.get("references")))
+    }
+    selected: ev.Event | None = None
+    for index, e in enumerate(items):
+        if e.type == "turn_started":
+            selected = requests.get(e.payload["turn_id"])
+        if e.type == "turn_finished":
+            selected = None
         if through_seq is not None and e.seq > through_seq:
             break
         if summary and summary.from_seq <= e.seq <= summary.to_seq and e.seq != latest_user:
             continue
         p = e.parsed()
         if isinstance(p, ev.UserMessage | ev.AssistantMessage):
-            out.append(p.message)
+            if selected and isinstance(p, ev.UserMessage) and e.actor is Actor.USER:
+                turn = selected.parsed()
+                assert isinstance(turn, ev.TurnRequested)
+                blocks = [
+                    reference_text(items[:index], item, load_event=load_event)
+                    for item in (turn.references if references else [])
+                ]
+                text = p.message.text()
+                if blocks:
+                    text += "\n\nSelected records:\n" + "\n".join(blocks)
+                if turn.attachments:
+                    files = [
+                        q
+                        for item in items[:index]
+                        if item.type == ev.FileRegistered.event_type
+                        and isinstance(q := item.parsed(), ev.FileRegistered)
+                        and q.file_id in turn.attachments
+                    ]
+                    metadata = [
+                        {"name": q.filename, "path": q.path, "sha256": q.ref.content_hash}
+                        for q in files
+                    ]
+                    text += (
+                        "\n\nAttached project files. When reading one with python_execute, declare its path in input_files.\n"
+                        + fence_untrusted(json.dumps(metadata, ensure_ascii=False))
+                    )
+                out.append(Message.user(text))
+                selected = None
+            else:
+                out.append(p.message)
             pending.update(c.call_id for c in p.message.tool_calls())
         elif isinstance(p, ev.LiteratureFinished) and p.prefetched:
             excerpts = "\n\n".join(excerpt_text(q) for q in p.sources)
@@ -117,3 +163,124 @@ def last_assistant(events: Iterable[ev.Event]) -> ev.Event | None:
         if e.type == ev.AssistantMessage.event_type:
             found = e
     return found
+
+
+def estimated_tokens(messages: list[Message]) -> int:
+    """Approximate serialized conversation length at four UTF-8 bytes per token."""
+    return (sum(len(m.model_dump_json().encode()) for m in messages) + 3) // 4
+
+
+def reference_text(
+    events: list[ev.Event],
+    reference: ev.TurnReference,
+    *,
+    load_event: Callable[[str], ev.Event | None] | None = None,
+) -> str:
+    """Resolve the selection inside this conversation's immutable ancestry."""
+    kind, ident = reference.kind, reference.id
+    data: dict = {"kind": kind, "id": ident}
+    source_text = ""
+    verified_excerpt = False
+    if kind == "source":
+        source = next((s for s in Evidence.from_events(events).sources if s.call_id == ident), None)
+        if source is None:
+            raise ValueError("Referenced source is unavailable")
+        data.update(tool=source.tool, alias=source.alias)
+        source_text = source.text
+        if load_event and source.source_event_id and source.task_id:
+            original = load_event(source.source_event_id)
+            if (
+                original
+                and original.session_id == source.task_id
+                and isinstance(result := original.parsed(), ev.ToolCallFinished)
+                and result.call_id == ident
+                and result.tool == source.tool
+                and not result.result.is_error
+            ):
+                source_text = result_text(result.result)
+        if reference.excerpt:
+            verified_excerpt = quote_matches(replace(source, text=source_text), reference.excerpt)
+    elif kind in {"claim", "answer", "activity"}:
+        for index, event in enumerate(events):
+            payload = event.parsed()
+            if (
+                kind == "claim"
+                and isinstance(payload, ev.ClaimExtracted)
+                and payload.claim_id == ident
+            ):
+                source_text = payload.text
+                data["answer"] = payload.source_event_id
+                break
+            if event.id != ident:
+                continue
+            if (
+                kind == "answer"
+                and isinstance(payload, ev.AssistantMessage)
+                and not payload.message.tool_calls()
+            ):
+                source_text = render(payload.message.text(), Evidence.from_events(events[:index]))
+                break
+            if kind == "activity" and event.type in ACTIVITY:
+                data.update(
+                    event=event.type,
+                    fields={
+                        k: event.payload[k] for k in ACTIVITY[event.type] if k in event.payload
+                    },
+                )
+                break
+        else:
+            raise ValueError("Referenced record is unavailable")
+    else:
+        run_id = ident
+        if kind == "figure":
+            output = next(
+                (
+                    p
+                    for e in events
+                    if isinstance(p := e.parsed(), ev.RunOutput)
+                    and p.ref
+                    and p.ref.content_hash == ident
+                    and p.run_id == reference.name
+                ),
+                None,
+            )
+            if output is None:
+                raise ValueError("Referenced figure is unavailable")
+            run_id = output.run_id
+        start = next(
+            (
+                p
+                for e in events
+                if isinstance(p := e.parsed(), ev.RunStarted) and p.run_id == run_id
+            ),
+            None,
+        )
+        if not isinstance(start, ev.RunStarted):
+            raise ValueError("Referenced calculation is unavailable")
+        data.update(
+            run=run_id,
+            code=start.code[:12000],
+            code_hash=start.code_hash,
+            input_hashes=[r.content_hash for r in start.inputs],
+        )
+        if kind == "value":
+            value = next(
+                (
+                    v
+                    for e in events
+                    if isinstance(p := e.parsed(), ev.RunFinished) and p.run_id == run_id
+                    for v in p.values
+                    if v.name == reference.name
+                ),
+                None,
+            )
+            if value is None:
+                raise ValueError("Referenced value is unavailable")
+            data["declaration"] = value.model_dump(mode="json")
+    if reference.excerpt:
+        if not verified_excerpt and reference.excerpt not in source_text:
+            raise ValueError("Selected text does not belong to the referenced record")
+        source_text = reference.excerpt
+    if source_text:
+        data["text"] = source_text[:2000]
+    return fence_untrusted(json.dumps(data, ensure_ascii=False))
