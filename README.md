@@ -1,8 +1,8 @@
 # BioQuorum
 
-> 我并实质参与过抗体药物的研发。那我想试一下，只通过这套Harness加最好的模型，可不可以得到一个候选抗体序列,并把一个抗体序列推到PCC阶段
+> 我并没有实质参与过抗体药物的研发。那我想试一下，只通过这套Harness加最好的模型，可不可以得到一个候选抗体序列,并把一个抗体序列推到PCC阶段
 >
-> Having worked directly on antibody drug development, I want to see whether I can use this harness and the best models available to generate a candidate antibody sequence and advance it to preclinical candidate (PCC) nomination.
+> I haven’t been substantively involved in antibody drug development. I want to see whether I can use this harness and the best models available to generate a candidate antibody sequence and advance it to preclinical candidate (PCC) nomination.
 
 BioQuorum is an open, model-neutral workbench for biomedical research. Ask a question, inspect the source passage or calculation behind a claim, and export the record so another researcher can check your work.
 
