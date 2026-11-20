@@ -403,8 +403,11 @@ def tool_context(
     permissions: PermissionPolicy,
     *,
     kernel_factory: KernelFactory | None = None,
+    env_lock_hash: str | None = None,
 ) -> ToolContext:
-    lock_hash = None
+    """``env_lock_hash`` describes a caller-supplied ``kernel_factory``; without one, the
+    project's own environment and lock are used."""
+    lock_hash = env_lock_hash
     if kernel_factory is None:
         python_executable, lock_hash = project_environment(
             ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi", False))

@@ -22,6 +22,7 @@ def bq(monkeypatch):
     ipython.display = display  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "IPython", ipython)
     monkeypatch.setitem(sys.modules, "IPython.display", display)
+    monkeypatch.setitem(sys.modules, "bq", None)  # removed again after the test
     ns: dict = {}
     exec(PRELUDE, ns)
     assert "__bq_install" not in ns  # the prelude cleans up after itself
@@ -43,6 +44,14 @@ def test_value_publishes_structured_and_text(bq):
     assert data["text/plain"] == "bq.value n_de = 412 genes"
     nv = parse_value(as_output(data))
     assert nv == NamedValue(name="n_de", value=412, unit="genes", desc="DE genes at FDR 0.05")
+
+
+def test_import_bq_returns_the_injected_object(bq):
+    # Models often write ``import bq`` even when told it is predefined; that must not fail.
+    obj, published = bq
+    ns: dict = {}
+    exec("import bq\nbq.value('n', 3)", ns)
+    assert ns["bq"] is obj and len(published) == 1
 
 
 def test_value_converts_numpy_like_scalars(bq):

@@ -231,7 +231,30 @@ def tools(http: httpx2.AsyncClient) -> ToolRegistry:
     )
 
 
-async def run_case(row: dict, root: Path, model_url: str, model: str, reference: bool) -> dict:
+def model_settings(args: argparse.Namespace) -> tuple[dict, str, int | None, int]:
+    """Provider config, label, max output tokens and review timeout for one evaluation run."""
+    if args.worker:
+        providers = {name: {} for name in {args.worker.split(":")[0], args.reviewer.split(":")[0]}}
+        config = {
+            "providers": providers,
+            "roles": {"worker": args.worker, "reviewer": args.reviewer},
+            "agent": {"binding_retries": 1, "budget_tokens": args.budget_tokens},
+        }
+        # No output cap: reasoning reviewers can spend thousands of tokens before answering,
+        # and the product does not cap remote models either.
+        return config, f"{args.worker} / {args.reviewer}", None, 1200
+    config = {
+        "providers": {"local": {"kind": "ollama", "base_url": args.url}},
+        "roles": {"worker": f"local:{args.model}", "reviewer": f"local:{args.model}"},
+        "agent": {"binding_retries": 1},
+    }
+    return config, args.model, 900, 40
+
+
+async def run_case(
+    row: dict, root: Path, settings: tuple[dict, str, int | None, int], reference: bool
+) -> dict:
+    config, model, max_output, review_timeout = settings
     case_id = row["id"]
     output = root / case_id
     output.mkdir(parents=True, exist_ok=True)
@@ -242,14 +265,10 @@ async def run_case(row: dict, root: Path, model_url: str, model: str, reference:
     )
     if ws.classification is not Classification.PUBLIC:
         raise ValueError("Public evaluation requires a public project")
-    ws.config = {
-        "providers": {"local": {"kind": "ollama", "base_url": model_url}},
-        "roles": {"worker": f"local:{model}", "reviewer": f"local:{model}"},
-        "agent": {"binding_retries": 1},
-    }
+    ws.config = config
     controls = ResearchControls(ws)
     sid = controls.new_session(case_id)
-    client = ModelClient(Router(ws.models_config()), controls.store, max_output_tokens=900)
+    client = ModelClient(Router(ws.models_config()), controls.store, max_output_tokens=max_output)
 
     def permissions(servers):
         policy = workspace.default_permissions(ws, allow=[], servers=servers)
@@ -321,7 +340,7 @@ async def run_case(row: dict, root: Path, model_url: str, model: str, reference:
     review = None
     audit_error = None
     try:
-        async with asyncio.timeout(40):
+        async with asyncio.timeout(review_timeout):
             review = await research.audit(
                 ws, controls.store, sid, client, answer_event_id=turn.answer_event_id
             )
@@ -371,14 +390,22 @@ async def run_case(row: dict, root: Path, model_url: str, model: str, reference:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True, help="Existing local Ollama /v1 endpoint")
+    parser.add_argument("--url", help="Existing local Ollama /v1 endpoint")
     parser.add_argument("--model", default="qwen3:4b-instruct")
+    parser.add_argument("--worker", help="Remote worker model, e.g. openai:gpt-6.1-sol")
+    parser.add_argument("--reviewer", help="Remote reviewer model, e.g. deepseek:deepseek-v4-pro")
+    parser.add_argument(
+        "--budget-tokens", type=int, default=400_000, help="Per-case cap for remote models"
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--case", action="append", default=[])
     parser.add_argument(
         "--reference", action="store_true", help="Retrieve fixed source IDs before model synthesis"
     )
     args = parser.parse_args()
+    if bool(args.worker) != bool(args.reviewer) or bool(args.worker) == bool(args.url):
+        parser.error("Give either --url, or both --worker and --reviewer")
+    settings = model_settings(args)
     selected = set(args.case or ("q-A-02", "q-A-03", "q-A-04", "q-A-05"))
     rows = [case for case in yaml.safe_load(CASES.read_text()) if case["id"] in selected]
     if {row["id"] for row in rows} != selected:
@@ -388,8 +415,8 @@ async def main() -> None:
     errors = {}
     for row in rows:
         try:
-            async with asyncio.timeout(210):
-                await run_case(row, args.output.resolve(), args.url, args.model, args.reference)
+            async with asyncio.timeout(2400 if args.worker else 210):
+                await run_case(row, args.output.resolve(), settings, args.reference)
         except Exception as exc:
             errors[row["id"]] = f"{type(exc).__name__}: {exc}"
             print(row["id"], errors[row["id"]], flush=True)

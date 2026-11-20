@@ -190,6 +190,7 @@ async def execute(
     warnings: Callable[[str], None] | None = None,
     plan: ev.PlanProposed | None = None,
     kernel_factory: KernelFactory | None = None,
+    env_lock_hash: str | None = None,
     registry_factory: Callable[[], ToolRegistry] = default_registry,
 ) -> TurnResult:
     options = ws.agent_options()
@@ -273,7 +274,15 @@ async def execute(
                 + "\n\n".join(project_context)
             )
         ctx = wsp.tool_context(
-            ws, store, sid, policy, **({"kernel_factory": kernel_factory} if kernel_factory else {})
+            ws,
+            store,
+            sid,
+            policy,
+            **(
+                {"kernel_factory": kernel_factory, "env_lock_hash": env_lock_hash}
+                if kernel_factory
+                else {}
+            ),
         )
 
         async def first_event(asked: ev.Event) -> None:

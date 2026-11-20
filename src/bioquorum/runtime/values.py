@@ -1,6 +1,7 @@
 """Named values declared in kernel code with ``bq.value()`` (ADR-014).
 
 The kernel gets a small ``bq`` object at start and after every restart (:data:`PRELUDE`).
+It is also registered as the module ``bq``, so ``import bq`` returns the same object.
 It does not import bioquorum, so it works in any Python environment with ipykernel. A call
 publishes one ``display_data`` carrying :data:`VALUE_MIME` (the structured value) and
 ``text/plain`` (so the model sees what it declared); ``tools/runs.py`` turns the structured
@@ -73,6 +74,7 @@ def __bq_install():
 
 bq = __bq_install()
 del __bq_install
+__import__("sys").modules["bq"] = bq  # so a stray ``import bq`` returns the same object
 '''.replace("__NAME__", repr(VALUE_NAME_PATTERN.strip("^$")))
     .replace("__MAXTEXT__", str(MAX_VALUE_TEXT))
     .replace("__MIME__", repr(VALUE_MIME))

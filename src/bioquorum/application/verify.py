@@ -372,7 +372,7 @@ async def replicate(
         raise ValueError("Supply a neutral question and one definition per named result")
     inputs = _blind_inputs(controls, sid, study)
     ws = controls.ws
-    python, _lock = project_environment(
+    python, lock = project_environment(
         ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi"))
     )
     operation = new_id()
@@ -402,7 +402,11 @@ async def replicate(
             f"- {v.name} ({v.unit or 'unitless'}): {definitions[v.name]}" for v in study.targets
         )
         required = "\n".join(f"- {name}" for name in inputs)
-        message = f"{question}\n\nInput files:\n{required or '(none)'}\n\nDeclare these results using bq.value:\n{targets}"
+        message = (
+            f"{question}\n\nInput files:\n{required or '(none)'}\n\n"
+            "Declare these results with bq.value(name, value, unit=...); bq is predefined "
+            f"in the kernel, so do not import or define it:\n{targets}"
+        )
         with TemporaryDirectory(prefix="bq-blind-") as tmp:
             root = Path(tmp).resolve()
             stage = ToolContext(
@@ -463,6 +467,7 @@ async def replicate(
                     require_isolation=True,
                     python_executable=python,
                 ),
+                env_lock_hash=lock,
                 registry_factory=lambda: ToolRegistry([PYTHON_EXECUTE, LIST_FILES, READ_FILE]),
             )
             expected_inputs = {ref.content_hash for ref in inputs.values()}

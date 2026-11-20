@@ -8,6 +8,11 @@ Extension interfaces (checks, connectors, providers, skills) may change before v
 - Add opt-in macOS kernel isolation and offline stdio MCP process isolation.
 - Add a local HTTPS egress proxy and route configured tool and provider HTTP traffic through it.
 - Add a non-root Docker CLI image definition and private deployment guidance.
+- Fix: `import bq` in a kernel returns the injected value helper instead of failing; the
+  blind replication prompt says `bq` is predefined.
+- Fix: blind replication runs record the project's environment lock hash.
+- Add pandas to the v0.4 pixi example; add a Linux bubblewrap MCP isolation integration
+  test, a remote vision chart check and a public benchmark runner.
 
 ## v0.5 development
 

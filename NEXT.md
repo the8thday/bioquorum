@@ -1,9 +1,18 @@
 # 下一步（给回来的作者和任何 AI 协作者）
 
-> 更新：2026-11-20。README 与 DESIGN 已补入作者的项目初衷，见 [Agent first 设计讨论原文](docs/discussions/2026-11-20-agent-first.md)。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
+> 更新：2026-11-20（Linux 服务器验收）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 > 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
 
 README 现以 `0.6.0.dev0` 开发预览为入口，列出实测研究场景，并链接到[私有部署验收清单](docs/release/v0.6-acceptance.md)。
+
+## 2026-11-20 Linux 服务器验收（Ubuntu 24.04，bubblewrap、pixi 0.84.2、Docker 29.1）
+
+作者把 v0.2–v0.6 的代码 push 后，在服务器上做了留给 Linux 的验收。实际模型调用都用 OpenAI（AGENTS.md 已写明优先 OpenAI）。
+
+- **v0.4**：在真实 bwrap kernel 和锁定的 pixi 环境里，同一结论走完 `unverified → grounded → reviewed → reproduced → replicated`。研究包在独立目录和不含 BioQuorum 的 Debian 12 容器里都重跑成功。公开基准四题实跑 4/4（只说明流程跑得通）。独立物理机器和跨操作系统的研究包重跑还没做。见 [v0.4 验收](docs/release/v0.4-acceptance.md)。
+- **v0.5**：远程视觉模型通过（开图 3/3 对，关图 3/3 回答看不到图）。四道靶点题用 GPT-6.1-sol 复测，检索、绑定和审查都明显改善，科学覆盖仍不完整（AI 初查各约 3/5）。见 [v0.5 验收](docs/release/v0.5-acceptance.md)。
+- **v0.6**：Linux 上的隔离 MCP 进程、HTTPS 代理真实往返、Docker 镜像构建和烟测都通过。容器里没有 kernel 隔离（宿主机限制了非特权用户命名空间），confidential 项目会正确拒绝。见 [v0.6 验收](docs/release/v0.6-acceptance.md)。
+- 实跑发现并已修复：`import bq` 报错；盲重复的 run 没记锁摘要；v0.4 示例环境缺 pandas（失败的 import 让 kernel 链不能用于重复，这条规则没放宽）。新增 Linux MCP 隔离集成测试、远程视觉评测、公开基准执行脚本；TableQA 改为上游的选择题形式。
 
 ## 本次独立审查修复
 
@@ -31,9 +40,11 @@ CLI 与工作台共用项目锁，重放继承隔离策略，审查限制和导�
 
 ## 接下来
 
-- v0.5 使用已配置的视觉语言模型端点验收图表推理。针对四道靶点的自主检索覆盖缺口，用更强模型或更可靠的来源路由再测。作者验收公开样例和发布。
-- v0.6 在具备基础镜像、Linux 隔离和可返回公开地址的网络环境里测试部署。
-- 作者准备好锁定的 Linux 环境后，再恢复 v0.4 的真实环境验收。科学、布局和发布仍待作者确认。
+- **作者**：科学验收 v0.5 四道靶点题的回答（`evals/results/v05/target-expansion-remote/*/rendered.md`，只在服务器本地），以及公开样例和发布。
+- v0.4：把研究包拿到另一台物理机器上重跑（例如 Mac 导出的包到这台服务器，或反过来），补上最后一项。
+- v0.5：靶点题的漏项（TYK2 的 JH2 选择性、PCSK9 的结局试验、NOD2 的三个主要变体）是检索路由问题还是合成问题，先看原始记录再决定，不为单题写规则。
+- v0.6：本机模型（Ollama）在服务器上的端到端演练，需要先装 Ollama。
+- 观察到但没处理：沙箱 kernel 启动时仍往终端打印 ipykernel 的提示文字；思考模式的 DeepSeek reviewer 很慢，长回答的审查可能要几分钟。
 
 **设计在 2026-11-17 重新定了方向**：作者把项目交给 AI 当 owner，作者已读过并认可 `docs/DESIGN.md`。决定记为 ADR-014 至 018，ARCHITECTURE / PRODUCT 升到 v0.4，ROADMAP 从 v0.2 起重排。
 沙箱、下载工具和证据绑定都已合进 `main` 并 push（2026-11-18）。以后的 commit / push 仍然只在作者明确要求时做。

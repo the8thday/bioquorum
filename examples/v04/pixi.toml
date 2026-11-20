@@ -7,3 +7,5 @@ platforms = ["linux-64", "linux-aarch64"]
 python = "3.12.*"
 ipykernel = ">=6.29,<8"
 jupyter_client = ">=8.6,<9"
+# Models reach for pandas first; a failed import taints the kernel chain for replication.
+pandas = "*"

@@ -72,4 +72,4 @@ docker run --rm --mount type=bind,src=/path/to/project,dst=/workspace \
   bioquorum:v0.6-dev sessions -C /workspace
 ```
 
-内核隔离能力依赖容器宿主的用户命名空间配置及容器策略。私有项目在隔离不成立时拒绝启动内核。工作台的远程单用户使用方式见上面的 SSH 转发。 [安全边界](../SECURITY.md)
+内核隔离能力依赖容器宿主的用户命名空间配置及容器策略。私有项目在隔离不成立时拒绝启动内核。在 Ubuntu 24.04 默认配置的宿主机上（`kernel.apparmor_restrict_unprivileged_userns = 1`），容器里的 bubblewrap 不可用，放宽 seccomp 和 AppArmor 后也一样。这时 public 项目以 `isolation = none` 运行，敏感项目请直接在宿主机安装运行。工作台的远程单用户使用方式见上面的 SSH 转发。 [安全边界](../SECURITY.md)

@@ -7,7 +7,7 @@ import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from bioquorum.core.hashing import sha256_file
+from bioquorum.core.hashing import sha256_bytes, sha256_file
 
 ALLOW = {
     "bixbench-v1.5": {"bix-34-q5", "bix-34-q6"},
@@ -21,6 +21,14 @@ SOURCES = {
     "lab-bench-tableqa-v1": "https://github.com/Future-House/LAB-Bench/tree/main/TableQA",
 }
 VERSIONS = {"bixbench-v1.5": "1.5", "lab-bench-tableqa-v1": "1.0"}
+# LAB-Bench presents TableQA as multiple choice with this extra option.
+UNSURE = "Insufficient information to answer the question"
+
+
+def choices(uid: str, ideal: str, distractors: list[str]) -> list[str]:
+    """Upstream multiple-choice options in a fixed order derived from the item ID only."""
+    options = [ideal, *distractors]
+    return [*sorted(options, key=lambda text: sha256_bytes((uid + text).encode())), UNSURE]
 
 
 def sample(path: Path, benchmark: str) -> tuple[list[dict], dict[str, str]]:
@@ -39,6 +47,11 @@ def sample(path: Path, benchmark: str) -> tuple[list[dict], dict[str, str]]:
                 "source": SOURCES[benchmark],
                 "question": row["question"],
                 "inputs": row.get("table-path") or [row["data_folder"]],
+                **(
+                    {"choices": choices(uid, row["ideal"], row["distractors"])}
+                    if benchmark.startswith("lab-bench")
+                    else {}
+                ),
             }
         )
         key[uid] = row["ideal"]

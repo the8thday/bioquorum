@@ -6,7 +6,8 @@
 - 在独立目录校验研究包、解包并再执行，原始计算和记录下的重跑结果一致。
 - Chromium 实测了工作台触发重跑、展开左右比对以及下载研究包。
 - 锁定隔离环境下的可信等级升级、CAS 破坏后停止、跨会话隐盲消息以及导出包范围有离线自动测试。
-  Linux 真实 pixi / bubblewrap 的独立重复和另一台机器的重跑是尚待执行的验收。
+  Linux 真实 pixi / bubblewrap 的独立重复已于 2026-11-20 通过；研究包已在独立目录和 Debian 容器中重跑，
+  独立物理机器上的重跑仍待执行（见 [v0.4 验收](../release/v0.4-acceptance.md)）。
 
 ## 审查判断对照
 
@@ -35,6 +36,11 @@ TableQA v1 的读取、ID、版本、输入路径，以及向模型传递的问�
 按 SHA-256 留档。评分器可以读取预先保存的答案，不自动调用模型。这个适配器的
 数字容差和文本核对为项目内规则，不复刻上游 LLM 评分系统。本轮没有报告模型得分，
 也没有执行 BixBench 的数据包。
+
+2026-11-20 在 Linux 服务器上实跑了这四题（GPT-6.1-sol 作 worker，kernel 在 bwrap 中运行，
+BixBench 用锁定的 pixi 环境），严格分母下 4/4 正确，没有失败，也没有缺数据。TableQA 改为上游的
+选择题形式。四题只能说明流程跑得通，不能当作基准成绩。逐题记录见
+[v0.4 验收](../release/v0.4-acceptance.md)。
 
 来源：[BixBench v1.5 数据](https://huggingface.co/datasets/futurehouse/BixBench/tree/v1.5) ·
 [LAB-Bench TableQA 数据](https://github.com/Future-House/LAB-Bench/tree/main/TableQA)。

@@ -30,3 +30,43 @@ uv run python evals/v05_target_validation.py --url http://127.0.0.1:11434/v1 \
 uv run python evals/v05_vision_eval.py --image /path/to/qc.png \
   --output evals/results/v05/native-vision.json
 ```
+
+## 强模型复测（2026-11-20，Linux 服务器）
+
+worker 和 reviewer 都用 `openai:gpt-6.1-sol`，题目、工具入口和提示与上面的本地模型首测完全相同。
+四题并行，各自从空白会话开始，取证由模型自己完成。
+
+| 题目 | 工具调用（成功/失败） | 有效逐字绑定 | 审查结论 | 输入/输出 token |
+|---|---:|---:|---|---:|
+| TYK2 | 31 / 0 | 22/23 | 13 `reviewed`、4 `disputed`、31 `unverified` | 96,701 / 6,638 |
+| PCSK9 | 12 / 0 | 22/22 | 9 `reviewed`、5 `disputed`、12 `unverified` | 28,572 / 4,462 |
+| HSD17B13 | 19 / 0 | 17/19 | 13 `reviewed`、2 `disputed`、30 `unverified` | 55,054 / 6,304 |
+| NOD2 | 11 / 0 | 9/9 | 7 `reviewed`、1 `disputed`、14 `unverified` | 20,724 / 3,126 |
+
+四题的审查都完成了，都导出了研究包。和本地模型首测相比，这次取到了关键的原始来源：TYK2 的遗传研究、
+感染相关研究和 FDA 标签，PCSK9 的发现论文和人群结局研究，HSD17B13 的原始变体研究，NOD2 的原始功能研究；
+回答里也没再出现"一次空查询就推断没有证据"的情况。
+
+对照各题的评分标准，AI 自己初查（**只作参考，科学判断由作者做**），四题大约都满足 3/5：
+
+- TYK2：漏掉 JH2 结合带来的 JAK1–3 选择性，结核易感的原始研究没有取到（回答里明确标为缺口）。其它在研药物用 ClinicalTrials.gov 记录作证。
+- PCSK9：没提双等位功能缺失者的安全性证据，也没引 FOURIER 或 ODYSSEY 结局试验（只引了标签上的心血管适应症）。
+- HSD17B13：没提生理底物和保护机制尚不清楚；小分子项目因检索超时没能核实（回答里明确标为缺口）。
+- NOD2：方向判断正确（反对抑制），但只点名了 3020insC 移码，没提 R702W、G908R 和回肠型表型。
+
+结论：强模型明显改善了检索和证据绑定，科学覆盖仍不完整，公开样例的科学验收继续由作者判断。
+另外有一处实测观察：用 DeepSeek V4 Pro（思考模式）作 reviewer 时，单次结论抽取用了 175 秒、17,680 个输出 token，
+超过了评测脚本当时设的时间上限；所以本轮按作者的要求统一用 OpenAI。
+原始记录在本地 `evals/results/v05/target-expansion-remote/`。
+
+```bash
+uv run python evals/v05_target_validation.py --worker openai:gpt-6.1-sol \
+  --reviewer openai:gpt-6.1-sol --output evals/results/v05/target-expansion-remote
+```
+
+## 远程视觉模型（2026-11-20）
+
+`evals/v05_remote_vision_eval.py` 用 R 画的一张确定性 QC 柱状图（`evals/assets/vision_chart.R`），图上不印数值。
+图由沙箱 kernel 显示，作为 `python_execute` 的结果交给 `openai:gpt-6.1-sol`，经真实的 Responses API。
+问题是：哪个文库最低、大约多少、哪些低于 80% 虚线。开图 3/3 全对（D2-ctrl、62、D2-ctrl 和 D3-ctrl；D3-ctrl 是 79%，
+只比阈值低一点）；关图 3/3 都回答看不到图。这只测了一张合成图，不代表一般的图表理解能力。

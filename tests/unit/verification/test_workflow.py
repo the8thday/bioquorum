@@ -233,6 +233,7 @@ async def test_replication_model_receives_only_the_blind_packet(tmp_path, monkey
         return make
 
     monkeypatch.setattr(verify, "jupyter_factory", factory)
+    monkeypatch.setattr(verify, "project_environment", lambda root, use_pixi: (None, "f" * 64))
     cfg = ModelsConfig.from_dict(
         {"providers": {"deepseek": {}}, "roles": {"worker": "deepseek:test"}}
     )
@@ -276,6 +277,12 @@ async def test_replication_model_receives_only_the_blind_packet(tmp_path, monkey
     )
     assert result["outcome"] == "matched", result
     assert len(prompts) == 1 and "Number of data rows" in prompts[0]
+    assert "predefined" in prompts[0]  # the model is told not to import or define bq
+    blind = next(
+        e.payload["blind_session_id"] for e in store.read(sid) if e.type == "replication_started"
+    )
+    starts = [e.payload for e in store.read(blind) if e.type == "run_started"]
+    assert starts and all(s["env_lock_hash"] == "f" * 64 for s in starts)
     for secret in (
         "Count recorded samples",
         "3 records",
