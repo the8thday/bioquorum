@@ -1,5 +1,9 @@
 # BioQuorum 设计理念
 
+> 我并实质参与过抗体药物的研发。那我想试一下，只通过这套Harness加最好的模型，可不可以得到一个候选抗体序列,并把一个抗体序列推到PCC阶段
+
+2026-11-20，作者与 AI 从 Agent first 谈到人如何与 Agent 共同做科研，并写下上面的项目初衷。[设计讨论原文](discussions/2026-11-20-agent-first.md)按北京时间记录了提问、答复和作者批注，可追溯每一轮讨论。
+
 > 2026-11-17 · 这份文档回答"我们为什么这样做"。怎么做见 [ARCHITECTURE.md](ARCHITECTURE.md)，做什么见 [PRODUCT.md](PRODUCT.md)，先后顺序见 [../ROADMAP.md](../ROADMAP.md)。
 > 四份文档冲突时，本文优先：先改本文，再改其余三份。
 

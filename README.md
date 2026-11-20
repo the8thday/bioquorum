@@ -1,5 +1,7 @@
 # BioQuorum
 
+> 我并实质参与过抗体药物的研发。那我想试一下，只通过这套Harness加最好的模型，可不可以得到一个候选抗体序列,并把一个抗体序列推到PCC阶段
+
 **The open, model-neutral AI workbench for biomedical research — cross-verified, reproducible, and private by design.**
 
 > Status: **v0.4.0 development candidate.** Rerun recorded calculations, compare evidence and export a portable research bundle from the workbench or CLI. Model-written code runs in a sandboxed kernel on Linux (see [Security](#security)).

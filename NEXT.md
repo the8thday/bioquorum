@@ -1,6 +1,6 @@
 # 下一步（给回来的作者和任何 AI 协作者）
 
-> 更新：2026-11-19（v0.5 扩展验收与 v0.6 私有部署开发版）。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
+> 更新：2026-11-20。README 与 DESIGN 已补入作者的项目初衷，见 [Agent first 设计讨论原文](docs/discussions/2026-11-20-agent-first.md)。每次会话结束时更新本文件，让它始终回答"现在做到哪了、下一步干什么"。
 > 接手的 AI（Claude Code、ChatGPT / Codex……）先读 `AGENTS.md`，再读 `docs/DESIGN.md`、本文件、`docs/ARCHITECTURE.md`、`docs/adr/`。
 
 ## 本次独立审查修复
