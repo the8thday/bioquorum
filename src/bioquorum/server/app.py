@@ -203,6 +203,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 "project": controls.ws.name,
                 "plan_default": controls.ws.config.get("agent", {}).get("plan_default", False),
                 "references": controls.ws.agent_options().references,
+                "first_pass": controls.ws.agent_options().first_pass,
                 "project_notes": controls.ws.agent_options().project_notes,
                 "worker_models": controls.worker_models(),
                 "onboarding": onboarding.overview(controls),

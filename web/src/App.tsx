@@ -217,7 +217,7 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
     ...record.figures.map(f => ({seq: f.seq, view: <article key={"f" + f.seq} className="panel figure"><h2>Recorded figure</h2>
       <button className="figure-trigger" aria-label="Open recorded figure" onClick={()=>{const p=resultFigures.get(f.id);if(p)openResult(p);}}>
         <img src={figurePath(base, f.hash)} loading="lazy" alt="Figure from the recorded calculation"/><span>Open figure <Icon name="arrow"/></span></button>{quote && <button className="quiet" onClick={() => quote({kind:"figure",id:f.hash,name:f.run_id})}>Quote figure</button>}</article>})),
-    ...record.answers.map(a => ({seq: a.seq, view: <AnswerCard openTable={openResult} addReference={quote} key={a.id} answer={a} example={!!project.example}
+    ...record.answers.map(a => ({seq: a.seq, view: <AnswerCard discuss={project.first_pass ? add : undefined} openTable={openResult} addReference={quote} key={a.id} answer={a} example={!!project.example}
       verification={record.verification} onEvidence={(answer, ref) => evidence(answer, ref).catch(report)}
       onReview={answer => mutate("/answers/" + answer + "/review", {}).catch(report)}
       onVerify={(claim, kind) => verify(claim, kind).catch(report)}/>})),
@@ -281,7 +281,7 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
     <div className="compose-dock">
     {(record || home && !project.example) && <Composer executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
-      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} attachments={attachments} setAttachments={setAttachments} refs={project.references ? refs : []} setRefs={setRefs} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
+      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
     <p id="message" role="status" aria-live="polite">{message || error}</p></div>{home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project}/></>}</main>
 
     {id && !collapsed && <Splitter side="right" value={sizes.rightWidth} min={280} max={sizes.rightMax} change={sizes.setRight}/>}

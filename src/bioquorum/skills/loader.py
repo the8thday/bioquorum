@@ -123,6 +123,10 @@ class Skill:
         return SkillContent(text, sha256_bytes(raw), member.as_posix())
 
 
+def builtin_catalog() -> dict[str, Skill]:
+    return discover(Path(__file__).resolve().parent / "builtin")
+
+
 def discover(directory: Path) -> dict[str, Skill]:
     """Only parse frontmatter. The model never receives undeclared skill bodies."""
     if not directory.is_dir() or directory.is_symlink() or directory.resolve() != directory:

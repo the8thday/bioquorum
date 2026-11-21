@@ -12,13 +12,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from bioquorum import __version__
 from bioquorum.core import events as ev
 from bioquorum.core.bundle_v1 import ManifestV1, PortableRun
+from bioquorum.core.coverage import coverage_view
 from bioquorum.core.enums import Actor, PermissionClass
 from bioquorum.core.hashing import canonical_json, env_lock_hash, sha256_file
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import Message, TextPart
 from bioquorum.core.refs import DataRef, QuoteRef
 from bioquorum.core.review_record import answer_reviews
-from bioquorum.policy.secrets import display_path, download_text, redact
+from bioquorum.policy.secrets import display_path, download_text, recorded_args, redact
 from bioquorum.provenance.manifest import build_manifest
 from bioquorum.provenance.methods import methods_draft
 from bioquorum.runtime.values import PRELUDE
@@ -238,7 +239,21 @@ def export_spec(
                         preceding_runs=[p.run_id for p in chain[:-1]],
                     )
                 )
-            if not selected and not sources and not limitations and not claims:
+            ledgers = {
+                e.id: ledger
+                for i, e in enumerate(event_log)
+                if isinstance(p := e.parsed(), ev.AssistantMessage)
+                and not p.message.tool_calls()
+                and (ledger := coverage_view(event_log[:i])) is not None
+            }
+            if ledgers:
+                for ledger in ledgers.values():
+                    for query in ledger["queries"]:
+                        query["scope"] = recorded_args(query["tool"], query["scope"], ctx.workdir)
+                        if query["reason"]:
+                            query["reason"] = download_text(query["reason"]).replace(str(ctx.workdir), ".")
+                write("review/coverage.json", canonical_json(ledgers))
+            if not selected and not sources and not limitations and not claims and not ledgers:
                 raise ValueError("The session has no exportable runs or retrieved evidence")
 
             pixi = None

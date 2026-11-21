@@ -1,0 +1,40 @@
+- source: target-reference/q-A-02
+  text: 'No evidence is provided in the retrieved records about the human genetic safety of TYK2 as a target,
+    including variants or polymorphisms associated with disease risk or adverse effects.  '
+  reason: packet limitation
+  unsupported: false
+- source: target-reference/q-A-02
+  text: 'No information is provided about other TYK2 inhibitors, competing drugs, or comparative efficacy/safety
+    profiles.  '
+  reason: packet limitation
+  unsupported: false
+- source: target-reference/q-A-04
+  text: 'No evidence is provided in the supplied records for a direct link between HSD17B13 inhibition and
+    alcohol-related liver disease.  '
+  reason: packet limitation
+  unsupported: false
+- source: target-reference/q-A-04
+  text: 'However, no direct genetic evidence links HSD17B13 to either MASH or alcohol-related liver disease.
+    The gene shows tissue and cell-specific expression, but its functional role in liver disease remains unverified.
+    The provided records do not include any studies on HSD17B13 in human genetics or disease mechanisms. The
+    clinical trial is focused on NASH, not on MASH or alcohol-related liver disease, indicating a limited scope
+    of application. While the gene is expressed in tissue and cell types, inhibition of HSD17B13 as a therapeutic
+    strategy for MASH or alcohol-related liver disease is not supported by the current evidence.  '
+  reason: unrestricted absence without supporting search
+  unsupported: true
+- source: target-reference/q-A-05
+  text: 'No verbatim passage from any of the requested sources is available due to failed retrieval attempts.  '
+  reason: retrieval failure
+  unsupported: false
+- source: target-reference/q-A-05
+  text: 'The lack of accessible evidence does not imply absence of a genetic link between NOD2 and Crohn''s
+    disease; however, the provided data set is insufficient to evaluate whether inhibition would be supported
+    by genetics.  '
+  reason: explicit warning against generalization
+  unsupported: false
+- source: target-reference-recovered/q-A-05
+  text: 'Missing data: The provided evidence does not include information on the effects of NOD2 inhibition,
+    pharmacological inhibitors of NOD2, or clinical outcomes of targeting NOD2 in Crohn''s disease. The original
+    record (PMID: 11385576) focuses on genetic associations and molecular mechanisms, not therapeutic interventions.  '
+  reason: packet limitation
+  unsupported: false

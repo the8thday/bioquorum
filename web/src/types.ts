@@ -1,4 +1,5 @@
 export interface Project {
+  first_pass?:boolean;
   project: string;
   classification: string;
   references?: boolean;
@@ -27,13 +28,24 @@ export interface Claim {
   has_calculation: boolean;
   findings: {check: string; severity: string; evidence: string}[];
 }
+export interface CoverageLedger {
+  topics: Record<string,string>;
+  queries: {id:string; call_id:string; tool:string; time:string; scope:Record<string,unknown>;
+    topic:string|null; count:number|null; status:string; reason:string}[];
+  closed:boolean; gaps:string[]; decisive:string;
+}
 export interface Answer {
+  first_pass?: boolean;
+  discussion_items?: Record<string,string>;
+  missing_sections?: string[];
+  clarification?: {id:string;question:string;assumption:string}|null;
+  coverage?: CoverageLedger|null;
   turn?:string|null;
   model?: string | null;
   id: string;
   seq: number;
   inherited: boolean;
-  paragraphs: {segments: Segment[]; unbound: string[]}[];
+  paragraphs: {unscoped_absence?:boolean; segments: Segment[]; unbound: string[]}[];
   claims: Claim[];
   review_completed?: boolean;
   review_limitations: string[];

@@ -4,7 +4,7 @@ import { Dialog } from "./Dialog";
 
 import { Icon } from "./Icon";
 
-export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|null}
+export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string | null; turn_number?: number | null; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|null}
 
 export function Artifacts({base, rows, attach, open}: {base: string; rows: Product[]|undefined; attach:(a:Product)=>void;open:(a:Product)=>void}) {
   return <aside className="ledger" aria-label="Session artifacts"><h2>Artifacts</h2>
@@ -12,7 +12,7 @@ export function Artifacts({base, rows, attach, open}: {base: string; rows: Produ
     {!rows && <p role="status">Loading artifacts…</p>}
     {rows?.length === 0 && <p>Uploaded files, figures and exported bundles will appear here.</p>}
     {[...(rows ?? [])].reverse().map(row => <article key={row.id} className="artifact-row"><strong>{row.name}</strong>
-      <p>{row.kind} · v{row.version} · {row.status}</p>
+      <p>{row.kind} · v{row.version} · {row.status}{row.turn_number != null ? ` · Turn ${row.turn_number}` : row.turn ? ` · Turn ${row.turn}` : ""}</p>
       <a href={base+"/artifacts/"+row.id+"/file"} download>Download</a>{" "}
       {row.preview && <button className="quiet" onClick={()=>open(row)}>
         {row.preview==="table"?"Preview table":row.preview==="figure"?"Enlarge figure":"Read report"}</button>}

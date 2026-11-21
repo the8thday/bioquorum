@@ -205,10 +205,17 @@ class ResearchControls:
                 raise ValueError("Choose up to eight registered files from this session")
         if references:
             from bioquorum.agent.context import reference_text
+            from bioquorum.application.first_pass import valid_followup
 
-            if not self.ws.agent_options().references or len(references) > 8:
-                raise ValueError("Enable references and select at most eight items")
             history = self.store.history(sid)
+            options = self.ws.agent_options()
+            if len(references) > 8 or not (
+                options.references
+                or (
+                    options.first_pass and all(valid_followup(history, item) for item in references)
+                )
+            ):
+                raise ValueError("Enable references and select at most eight items")
             for item in references:
                 reference_text(history, item, load_event=self.store.get)
         question = question.strip()
@@ -241,6 +248,20 @@ class ResearchControls:
             Actor.USER,
             events[-1].id,
         )
+        answered = {e.payload["request_id"] for e in events if e.type == "clarification_answered"}
+        for item in references or ():
+            if (
+                item.kind == "activity"
+                and item.id not in answered
+                and any(e.id == item.id and e.type == "clarification_requested" for e in events)
+            ):
+                self._append(
+                    sid,
+                    ev.ClarificationAnswered(request_id=item.id, turn_id=turn.id),
+                    Actor.USER,
+                    turn.id,
+                )
+                answered.add(item.id)
         if plan_id and steps:
             self._append(sid, ev.PlanProposed(plan_id=plan_id, steps=steps), Actor.USER, turn.id)
         else:

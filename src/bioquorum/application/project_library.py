@@ -34,11 +34,17 @@ def entries(current: workspace.Workspace) -> list[dict[str, str]]:
                 continue
             meta = path / workspace.STATE_DIR / "project.json"
             if meta.is_file():
-                info = json.loads(meta.read_text(encoding="utf-8"))
+                try:
+                    info = json.loads(meta.read_text(encoding="utf-8"))
+                    name, level = info["name"], info["classification"]
+                    if not isinstance(name, str) or not isinstance(level, str):
+                        continue
+                except (OSError, json.JSONDecodeError, KeyError, TypeError):
+                    continue
                 rows.append(
                     {
-                        "name": info["name"],
-                        "classification": info["classification"],
+                        "name": name,
+                        "classification": level,
                         "href": f"/projects/{path.name}/",
                     }
                 )

@@ -1,0 +1,26 @@
+{
+  "url": "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pubmed.cgi/BioC_json/17068223/unicode",
+  "retrieved": "2026-11-21",
+  "response_sha256": "b1c894b2874c486cf24f4a4fabe89fb80b21e5535df60c6541db4ba0af5993e8",
+  "projection": [
+    {
+      "documents": [
+        {
+          "id": "17068223",
+          "passages": [
+            {
+              "infons": {
+                "type": "title"
+              }
+            },
+            {
+              "infons": {
+                "type": "abstract"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

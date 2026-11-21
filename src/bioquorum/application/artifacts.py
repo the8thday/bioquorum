@@ -29,11 +29,15 @@ def catalog_records(parsed: Iterable[tuple[ev.Event, ev.EventPayload]]) -> list[
     versions: Counter = Counter()
     statuses = {}
     turns = {}
+    turn_numbers: dict[str, int] = {}
     turn = None
+    turn_count = 0
     for event, p in parsed:
         row: dict | None = None
         if isinstance(p, ev.TurnStarted):
+            turn_count += 1
             turn = p.turn_id
+            turn_numbers[turn] = turn_count
         elif isinstance(p, ev.TurnFinished):
             turn = None
         elif isinstance(p, ev.RunStarted):
@@ -128,7 +132,9 @@ def catalog_records(parsed: Iterable[tuple[ev.Event, ev.EventPayload]]) -> list[
             else:
                 preview = None
             row.update(seq=event.seq, preview=preview)
-            row["turn"] = turns.get(row.get("run"), turn)
+            row_turn = turns.get(row.get("run"), turn)
+            row["turn"] = row_turn
+            row["turn_number"] = turn_numbers.get(row_turn) if row_turn else None
             rows.append(row)
     for row in rows:
         row["status"] = statuses.get(row["id"], row["status"])

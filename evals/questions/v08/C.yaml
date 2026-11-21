@@ -1,0 +1,175 @@
+- id: q-C-06
+  split: development
+  question: Does intensive glucose control prevent cardiovascular events in type 2 diabetes?
+  criteria:
+    trial design: Distinguish populations and treatment targets in named trials.
+    outcomes: Separate microvascular from macrovascular endpoints.
+    harm: Address hypoglycaemia or mortality using comparative evidence.
+- id: q-C-07
+  split: development
+  question: What does randomized evidence show about omega-3 formulations in cardiovascular prevention?
+  criteria:
+    formulation: Identify formulation and dose context for contrasting trials.
+    outcomes: Compare cardiovascular endpoints and controls.
+    inference: Distinguish between-trial differences from randomized head-to-head evidence.
+- id: q-C-08
+  split: development
+  question: Review aspirin for primary prevention in older adults.
+  criteria:
+    population: Distinguish primary from secondary prevention.
+    benefit: Report an outcome from a controlled trial in older adults.
+    harm: Compare bleeding outcomes over the same study window.
+- id: q-C-09
+  split: development
+  question: Does vitamin D supplementation reduce fractures in community-dwelling adults?
+  criteria:
+    population: Describe baseline deficiency or eligibility in the studies.
+    endpoint: Use fracture outcomes from an intervention study.
+    cointervention: Distinguish vitamin D alone from calcium coadministration.
+- id: q-C-10
+  split: development
+  question: Review urate lowering for slowing chronic kidney disease.
+  criteria:
+    association: Separate epidemiological urate associations from intervention evidence.
+    trial: Identify a kidney-function endpoint and comparator.
+    scope: State which patient populations the findings cover.
+- id: q-C-11
+  split: development
+  question: Does early rhythm control improve outcomes in atrial fibrillation?
+  criteria:
+    timing: Describe how early treatment was defined.
+    outcome: Distinguish composite clinical outcomes from sinus-rhythm prevalence.
+    strategy: Separate a treatment strategy from a single drug or procedure.
+- id: q-C-12
+  split: development
+  question: Review exercise training for heart failure with preserved ejection fraction.
+  criteria:
+    function: Report exercise capacity or quality-of-life evidence.
+    events: Assess whether hospitalization or death was measured adequately.
+    population: Identify entry criteria and limits of generalization.
+- id: q-C-13
+  split: development
+  question: Compare evidence for intermittent and continuous energy restriction in obesity.
+  criteria:
+    design: Identify randomization and the comparator regimen.
+    weight: Report change over a specified duration.
+    adherence: Address attrition or differences in energy intake.
+- id: q-C-14
+  split: development
+  question: Does intravenous iron improve outcomes for people with heart failure and iron deficiency?
+  criteria:
+    eligibility: State the iron-deficiency criteria and heart-failure population.
+    symptoms: Separate symptom or exercise endpoints from events.
+    events: Compare trial event findings including uncertainty.
+- id: q-C-15
+  split: development
+  question: Review blood-pressure lowering after lacunar stroke.
+  criteria:
+    population: Identify a lacunar-stroke population and target comparison.
+    efficacy: Separate recurrent stroke types and primary outcome.
+    precision: Report uncertainty and avoid treating a nonsignificant result as equivalence.
+- id: q-C-16
+  split: development
+  question: Does lowering homocysteine with B vitamins prevent recurrent vascular events?
+  criteria:
+    surrogate: Document homocysteine change.
+    trial: Identify a randomized vascular endpoint.
+    context: Address the population and nutritional setting.
+- id: q-C-17
+  split: development
+  question: Review the effect of pulmonary rehabilitation after COPD exacerbation.
+  criteria:
+    timing: Identify when rehabilitation began relative to discharge.
+    outcomes: Separate function from readmissions and mortality.
+    quality: Discuss risk of bias or heterogeneity.
+- id: q-C-18
+  split: development
+  question: Does CPAP prevent recurrent cardiovascular events in obstructive sleep apnoea?
+  criteria:
+    population: Identify the trial selection criteria.
+    analysis: Distinguish randomized intention-to-treat from adherence analyses.
+    endpoints: Separate sleepiness from event prevention.
+- id: q-C-19
+  split: development
+  question: Review ketogenic diets for drug-resistant epilepsy.
+  criteria:
+    population: Separate paediatric and adult evidence.
+    efficacy: Report seizure frequency or responder endpoints from a comparison.
+    burden: Discuss retention and adverse effects.
+- id: q-C-20
+  split: development
+  question: Does albuminuria reduction predict clinical benefit across kidney interventions?
+  criteria:
+    evidence unit: Separate individual-level prediction from trial-level surrogacy.
+    outcome: Identify a hard kidney endpoint and timing.
+    limits: Discuss uncertainty when transporting across drug classes.
+- id: q-C-21
+  split: heldout
+  question: Compare exercise and education for knee osteoarthritis.
+  criteria:
+    comparator: Identify what the control received.
+    function: Distinguish pain and function outcomes.
+    durability: Report follow-up length and persistence.
+- id: q-C-22
+  split: heldout
+  question: Review wearable detection of atrial fibrillation in population screening.
+  criteria:
+    test: Distinguish an alert from ECG-confirmed diagnosis.
+    selection: State who received confirmatory testing.
+    impact: Separate detection yield from clinical benefit.
+- id: q-C-23
+  split: heldout
+  question: Does coronary calcium scoring improve primary prevention decisions?
+  criteria:
+    prognosis: Identify cohort evidence and the prediction metric.
+    intervention: Identify what randomized management evidence exists.
+    scope: Distinguish improved classification from fewer events.
+- id: q-C-24
+  split: heldout
+  question: Review balanced crystalloids versus saline in critically ill adults.
+  criteria:
+    exposure: Describe fluid strategies and trial design.
+    outcomes: Separate mortality from composite kidney outcomes.
+    heterogeneity: Address differences between study settings.
+- id: q-C-25
+  split: heldout
+  question: What evidence links hearing intervention to slower cognitive decline?
+  criteria:
+    population: Identify baseline cognitive risk and eligibility.
+    trial: Report the overall randomized cognitive endpoint.
+    subgroup: Distinguish prespecified subgroup evidence from the primary result.
+- id: q-C-26
+  split: heldout
+  question: Review early versus delayed initiation of dialysis for advanced chronic kidney disease.
+  criteria:
+    assignment: Distinguish randomized initiation strategy from achieved timing.
+    outcome: Identify patient-important outcomes and follow-up.
+    crossover: Discuss symptoms or crossover affecting interpretation.
+- id: q-C-27
+  split: heldout
+  question: Does intensive blood-pressure lowering prevent cognitive impairment?
+  criteria:
+    population: State who was eligible for the randomized comparison.
+    endpoints: Separate dementia and mild cognitive impairment outcomes.
+    precision: Address power or early stopping.
+- id: q-C-28
+  split: heldout
+  question: Review the benefit of thrombectomy in patients with a large infarct core.
+  criteria:
+    imaging: Describe how core size was defined.
+    function: Identify the randomized disability outcome and time point.
+    harm: Address bleeding or mortality and uncertainty.
+- id: q-C-29
+  split: heldout
+  question: Review Mediterranean diet interventions for cardiovascular prevention.
+  criteria:
+    design: Identify allocation and any reported design limitations.
+    outcomes: Separate primary composite from components.
+    generalization: Specify population and intervention support.
+- id: q-C-30
+  split: heldout
+  question: Does remote monitoring improve outcomes in chronic heart failure?
+  criteria:
+    intervention: Distinguish implanted sensors from remote symptom or weight monitoring.
+    outcomes: Report hospitalizations and mortality separately.
+    delivery: Describe how measurements triggered changes in care.

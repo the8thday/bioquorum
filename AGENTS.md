@@ -37,7 +37,7 @@
 ## 环境与权限（这台机器上的实际情况）
 - 依赖用 uv 管理。**不要自己安装依赖或下载二进制**：请作者在终端里运行（Claude Code 里是 `! uv add ...`）。改 `pyproject.toml` 后 `uv run` 会自动同步环境，这一点要告诉作者。
 - API key 只在作者自己的终端里 `export`（`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`），不写进仓库、配置文件或 `.env`。配置里只写 `env:NAME` 引用。检查时只报告 set / missing，不打印值。
-- 需要调真实模型做测试或评测时，**优先用 OpenAI**（worker 和 reviewer 都用，例如 `openai:gpt-6.1-sol`）。只有测试本身针对 DeepSeek（例如思考内容回放）或者要做跨家族对照时才用 DeepSeek。
+- 需要调真实模型做测试或评测时，**优先用 OpenAI**，新开发测试的 worker 和 reviewer 默认用 `openai:gpt-6.2-sol`。已冻结的评测按协议复用原模型。只有测试本身针对 DeepSeek（例如思考内容回放）或者要做跨家族对照时才用 DeepSeek。
 - 提交前确认 diff 里没有用户名路径、公司邮箱和密钥；commit 身份是 `the8thday <the8thday@users.noreply.github.com>`。只有作者明确要求时才 commit / push。
 - 公开仓库：https://github.com/the8thday/bioquorum。
 - kernel 在 bubblewrap 沙箱里运行（ADR-017，本机可用）：不能联网、不能装包、只能写项目目录。需要外部数据就加工具，不要放宽沙箱。

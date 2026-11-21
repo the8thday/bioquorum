@@ -376,3 +376,9 @@ td,th { padding:5px 8px;border-bottom:1px solid var(--line);text-align:left; }
 .viewer-bar nav { flex:1; min-width:0; }
 .back-inspector { flex:none; }
 .viewing-result .result-viewer { margin-top:0; }
+
+.coverage-ledger {margin-block:1rem; padding:.75rem 0; border-block:1px solid var(--line); overflow-wrap:anywhere}
+.coverage-ledger summary {cursor:pointer; font-weight:600}
+.coverage-ledger section {margin-block:.8rem}
+.coverage-ledger ul {padding-inline-start:1.4rem}
+.coverage-ledger small {color:var(--muted)}

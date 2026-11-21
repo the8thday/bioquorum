@@ -42,6 +42,7 @@ jobs:
       - run: BQ_TEST_LAYOUT=1 npm test --prefix tests/e2e
       - run: BQ_TEST_FIRST_RUN=1 npm test --prefix tests/e2e
       - run: BQ_TEST_UPLOAD=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_COVERAGE=1 npm test --prefix tests/e2e
       - run: BQ_TEST_REFERENCES=1 npm test --prefix tests/e2e
       - run: BQ_TEST_PROJECT_NOTE=1 npm test --prefix tests/e2e
       - run: uv build --wheel

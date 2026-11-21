@@ -1,3 +1,4 @@
+import { Coverage } from "./Coverage";
 import { ResultTable, tableAt, type AnswerTable } from "./ResultTables";
 import type { TurnRef, Answer, Claim, EvidenceRef, Segment, Turn, Verification } from "./types";
 
@@ -59,7 +60,7 @@ function VerificationResult({entry}: {entry: Verification}) {
   </details>;
 }
 
-type AnswerProps = Actions & {openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
+type AnswerProps = Actions & {discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
 const rawText = (segments: Segment[]) => segments.map(segment => segment.raw ?? segment.text).join("").trim();
 
 function inlineText(text: string) {
@@ -109,7 +110,9 @@ export function AnswerCard(props: AnswerProps) {
   let tableCount=0;
   function claimRow(i:number) {
     const {p,claim}=rows[i];
-    return <ClaimRow key={i} {...props} parts={p.segments} sharedStatus={sharedStatus} claim={claim} unbound={p.unbound}/>;
+    return <div key={i}><ClaimRow {...props} parts={p.segments} sharedStatus={sharedStatus} claim={claim} unbound={p.unbound}/>
+      {p.unscoped_absence && <p className="warning">Assertion only · No matching scoped query supports this absence claim.</p>}
+      </div>;
   }
   for (let i=0;i<rows.length;i++) {
     const cells = tableAt(lines,i);
@@ -128,6 +131,14 @@ export function AnswerCard(props: AnswerProps) {
   return <article className="panel answer"><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
     <p className="muted">{answer.model ?? "Model not recorded"}</p>
     {body}
+    {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}
+    {props.discuss && Object.entries(answer.discussion_items ?? {}).map(([label,excerpt])=>
+      <button className="quiet" key={label} onClick={()=>props.discuss?.({kind:"answer",id:answer.id,excerpt})}>Discuss {label.toLowerCase()}</button>)}
+    {answer.coverage && <Coverage ledger={answer.coverage}/>}
+    {answer.clarification && <aside><strong>{answer.clarification.question}</strong>
+      <p>Working assumption · {answer.clarification.assumption}</p>
+      {props.discuss && <button className="quiet" onClick={()=>props.discuss?.({
+        kind:"activity",id:answer.clarification!.id})}>Answer this question</button>}</aside>}
     {sharedStatus && <Badge status="unverified"/>}
     {answer.review_completed && !answer.review_limitations.length && <p className="muted review-result">Review finished · {answer.claims.length} {answer.claims.length === 1 ? "claim" : "claims"} assessed</p>}
     {answer.review_limitations.length > 0 && <details className="review-limits"><summary>Review incomplete</summary>{answer.review_limitations.map((reason, i) => <p key={i}>{reason}</p>)}</details>}

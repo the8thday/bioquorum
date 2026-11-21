@@ -6,6 +6,7 @@ type Value = boolean | string | string[] | number | null;
 type Patch = Record<string, Record<string, unknown>>;
 interface Settings {
   revision: string | null; example: boolean;
+  profile: {name:string;recommended_available:boolean;presets:Record<string,Record<string,Value>>};
   project: {name: string; classification: string; data_dirs: string[]};
   agent: Record<string, Value>; models: Record<string, {allowed: boolean; [key: string]: number | boolean | null}>;
   roles: Record<string, string | string[]>; keys: {reference: string; state: string}[];
@@ -22,6 +23,9 @@ const mechanisms = [
   ["literature_subtasks","Literature subtasks","Allow a child session to search the listed literature tools.","v05-literature-subtasks"],
   ["source_to_kernel","Sources in kernel","Stage retrieved source content for computation.","v05-literature-subtasks"],
   ["references","Follow-up references","Attach the recorded source, calculation or finding to a question.","v07-references"],
+  ["coverage","Evidence coverage","Record subquestions, actual searches and remaining gaps.","v08-baseline"],
+  ["evidence_skills","Evidence category skills","Suggest evidence types and sources for the three research scenarios.","v08-retrieval-diagnosis"],
+  ["first_pass","First-pass judgment","Record a judgment, counterevidence, disagreement and next step.","v08-baseline"],
   ["vision","Figure inspection","Let a compatible model inspect recorded images.","v05-target-expansion"],
   ["plan_default","Request plan approval by default","Start new questions with the plan approval option selected.","v03-plan-gate"],
 ];
@@ -37,11 +41,17 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
     return () => c.abort();
   }, []);
   function update(section: string, key: string, value: unknown) {
-    setPatch(old => ({...old, [section]: {...old[section], [key]: value}}));
+    setPatch(old => {
+      const preset = String(old.profile?.name ?? data?.profile.name);
+      if (section === "agent" && preset !== "custom" && key in (data?.profile.presets.minimal ?? {})) {
+        return {...old,profile:{name:"custom"},agent:{...data?.profile.presets[preset],...old.agent,[key]:value}};
+      }
+      return {...old, [section]: {...old[section], [key]: value}};
+    });
     setMessage("");
   }
   function agentValue(key: string) {
-    return Object.hasOwn(patch.agent ?? {}, key) ? patch.agent[key] : data?.agent[key];
+    return Object.hasOwn(patch.agent ?? {}, key) ? patch.agent[key] : (data?.profile.presets[String(patch.profile?.name)]?.[key] ?? data?.agent[key]);
   }
   function numeric(key: string, label: string) {
     return <label>{label}<input aria-label={label} type="number" min={key === "binding_retries" ? 0 : undefined}
@@ -72,7 +82,13 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
       <fieldset disabled={busy || data.example}>
       {quick ? <><p className="muted">Project defaults for future questions in this project.</p>
         {mechanisms.filter(([key]) => common.includes(key)).map(mechanism)}</> : <>
-      <details open><summary>Mechanisms</summary>{mechanisms.map(mechanism)}
+      <details open><summary>Mechanisms</summary>
+        <label>Research profile<select aria-label="Research profile" value={String(patch.profile?.name ?? (patch.agent ? "custom" : data.profile.name))}
+          onChange={e=>{const name=e.target.value; setPatch(old=>{const next:Patch={...old,profile:{name}}; delete next.agent; return next;});}}>
+          <option value="recommended" disabled={!data.profile.recommended_available}>Recommended{data.profile.recommended_available ? "" : " (evaluation pending)"}</option>
+          <option value="minimal">Minimal</option><option value="custom">Custom</option>
+        </select></label>
+        {mechanisms.map(mechanism)}
         <label>Literature tool names (comma-separated)<input defaultValue={(data.agent.literature_tools as string[]).join(", ")}
           onChange={e => update("agent","literature_tools",e.target.value.split(",").map(s => s.trim()).filter(Boolean))}/></label>
       </details>

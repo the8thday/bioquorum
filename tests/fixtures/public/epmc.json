@@ -1,0 +1,15 @@
+{
+  "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=EXT_ID%3A17068223&format=json",
+  "retrieved": "2026-11-21",
+  "response_sha256": "6b24edd4a35b538cc26059328e8e8a68f8f57de1dbe0a4886af90b7df48ed220",
+  "projection": {
+    "resultList": {
+      "result": [
+        {
+          "pmid": "17068223",
+          "pubYear": "2006"
+        }
+      ]
+    }
+  }
+}

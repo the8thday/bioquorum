@@ -87,3 +87,77 @@ def test_package_only_imports_safe_text():
     assert list(files) == ["SKILL.md"]
     with pytest.raises(ValueError):
         unpack("table.zip", archive("read-table/references/../outside.md"))
+
+
+def test_package_rejects_oversized_decompressed_entry_with_spoofed_header(monkeypatch):
+    from bioquorum.skills.loader import MAX_TEXT
+    from bioquorum.skills.package import unpack
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as package:
+        package.writestr("read-table/SKILL.md", DESCRIPTOR)
+        package.writestr("read-table/references/big.md", "A" * (MAX_TEXT * 4))
+
+    with pytest.raises(ValueError, match="Duplicate or oversized"):
+        unpack("table.zip", buffer.getvalue())
+
+    real_infolist = zipfile.ZipFile.infolist
+
+    def spoofed_infolist(self):
+        entries = real_infolist(self)
+        for entry in entries:
+            if entry.filename.endswith("big.md"):
+                entry.file_size = 10
+        return entries
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", spoofed_infolist)
+    with pytest.raises(ValueError):
+        unpack("table.zip", buffer.getvalue())
+
+
+def test_install_skill_allows_symlinked_project_ancestor_but_rejects_symlinked_store(tmp_path):
+    from bioquorum.application import extensions
+
+    real_project = tmp_path / "real"
+    init_project(real_project)
+    alias = tmp_path / "alias"
+    alias.symlink_to(real_project, target_is_directory=True)
+    ws = load(alias)
+    ws.root = alias  # keep unresolved ancestor path as a caller might pass
+    controls = ResearchControls(ws)
+    content = base64.b64encode(DESCRIPTOR).decode()
+
+    extensions.save(
+        controls,
+        extensions.Edit(
+            revision=None,
+            action="install_skill",
+            filename="SKILL.md",
+            content=content,
+        ),
+    )
+    entry = controls.ws.config["extensions"]["skills"]["read-table"]
+    assert (
+        real_project
+        / ".bioquorum"
+        / "installed-skills"
+        / entry["version"]
+        / "read-table"
+        / "SKILL.md"
+    ).is_file()
+
+    bad_project = tmp_path / "bad"
+    init_project(bad_project)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (bad_project / ".bioquorum" / "installed-skills").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="local directory"):
+        extensions.save(
+            ResearchControls(load(bad_project)),
+            extensions.Edit(
+                revision=None,
+                action="install_skill",
+                filename="SKILL.md",
+                content=content,
+            ),
+        )

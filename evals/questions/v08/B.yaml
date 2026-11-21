@@ -1,0 +1,150 @@
+- id: q-B-06
+  split: development
+  question: How many cells and donors contribute to each condition?
+  criteria:
+    composition: Report counts by condition.
+    replication: Count distinct biological donors per condition.
+- id: q-B-07
+  split: development
+  question: Does pooling cells change the estimated B-cell fraction compared with averaging donors?
+  criteria:
+    pooled fraction: Compute the fraction using pooled cell counts.
+    donor fraction: Compute equal-weight donor fractions and explain any difference.
+- id: q-B-08
+  split: development
+  question: Assess paired shifts in monocyte abundance after stimulation.
+  criteria:
+    pairing: Match donor-condition records before contrasting.
+    abundance: Use all retained cells as denominator and report donor-level shifts.
+- id: q-B-09
+  split: development
+  question: Which samples have unusually high mitochondrial fractions?
+  criteria:
+    quality: Summarize per-sample mitochondrial fractions.
+    sensitivity: State an explicit outlier criterion and the resulting sample set.
+- id: q-B-10
+  split: development
+  question: Does a mitochondrial fraction filter at 0.15 affect cell types equally?
+  criteria:
+    retention: Compute before and after counts by type.
+    composition: Report differential retention across donors.
+- id: q-B-11
+  split: development
+  question: Compare expression of G1 between cell types after accounting for library size.
+  criteria:
+    counts: Use total_umi for cell-wise normalization.
+    summary: Compare cell types across independent donors.
+- id: q-B-12
+  split: development
+  question: Are pooled G2 detection rates dominated by one donor?
+  criteria:
+    detection: Use nonzero raw counts and report donor fractions.
+    influence: Recompute the pooled estimate omitting each donor.
+- id: q-B-13
+  split: development
+  question: How much G3 signal comes from a few high-count cells?
+  criteria:
+    tail: Report an explicit upper-tail concentration statistic.
+    samples: Assess variation in that statistic across biological samples.
+- id: q-B-14
+  split: development
+  question: Assess the stimulated versus control G1 shift within T cells.
+  criteria:
+    aggregation: Aggregate raw G1 counts and library sizes by donor and condition.
+    contrast: Compute the paired normalized change with its direction.
+- id: q-B-15
+  split: development
+  question: Does restricting the analysis to deep libraries change detection of G2?
+  criteria:
+    depth: Define and report a library-depth threshold.
+    sensitivity: Compare detection before and after filtering within cell type.
+- id: q-B-16
+  split: development
+  question: Can the batch effect be separated from the donor effect in this experiment?
+  criteria:
+    design: Tabulate batch by donor and condition.
+    identifiability: Explain which contrasts can be estimated from that design.
+- id: q-B-17
+  split: development
+  question: Compare donor-level and cell-level variability of G3 in monocytes.
+  criteria:
+    within donor: Summarize per-cell dispersion within a specified sample.
+    between donors: Compare sample means without counting cells as independent donors.
+- id: q-B-18
+  split: development
+  question: How similar are sample-level cell-type compositions?
+  criteria:
+    matrix: Construct a sample by cell-type proportion table.
+    distance: Compute and interpret a stated distance metric.
+- id: q-B-19
+  split: development
+  question: Are zero counts for G1 more common at low library depth?
+  criteria:
+    stratification: Define depth strata and report their sizes.
+    zero fraction: Compare zero fractions within type and discuss sampling.
+- id: q-B-20
+  split: development
+  question: Which donor contributes most to the aggregate stimulation contrast for G2?
+  criteria:
+    effect: Define a donor-paired normalized contrast.
+    influence: Recalculate it with each donor omitted and rank changes.
+- id: q-B-21
+  split: heldout
+  question: Audit the paired design and identify any missing donor-condition combinations.
+  criteria:
+    design: Enumerate unique donors and conditions.
+    completeness: Compare observed combinations with their full cross product.
+- id: q-B-22
+  split: heldout
+  question: How much does removing very small samples affect monocyte fractions?
+  criteria:
+    threshold: Report an explicit minimum sample size and exclusions.
+    sensitivity: Compare fractions with and without that restriction.
+- id: q-B-23
+  split: heldout
+  question: Within B cells, does the G1 shift reflect detection frequency or intensity among positive cells?
+  criteria:
+    frequency: Compute per-sample nonzero fractions.
+    intensity: Compare normalized expression among positive cells in paired conditions.
+- id: q-B-24
+  split: heldout
+  question: Can a high pooled G3 average be explained by varying cell-type composition?
+  criteria:
+    weights: Estimate cell-type weights by condition.
+    standardization: Compare observed and standardized averages using a common composition.
+- id: q-B-25
+  split: heldout
+  question: How reproducible is the within-donor G2 direction across cell types?
+  criteria:
+    pairing: Compute matched donor-condition differences within each type.
+    agreement: Report direction agreement and unresolved ties.
+- id: q-B-26
+  split: heldout
+  question: Do sample-level raw G1 totals track library size more closely than normalized G1?
+  criteria:
+    depth: Aggregate total_umi and G1 by sample.
+    normalization: Compare correlations before and after depth adjustment.
+- id: q-B-27
+  split: heldout
+  question: Is stimulation associated with a change in B-to-T cell balance?
+  criteria:
+    balance: Compute a defined ratio or log-ratio using explicit zero handling.
+    paired contrast: Summarize changes within donors and disclose sample sizes.
+- id: q-B-28
+  split: heldout
+  question: Do rare high mitochondrial cells account for the observed G3 shift?
+  criteria:
+    outliers: Define the high mitochondrial subset before contrasting.
+    robustness: Compare paired effects with and without this subset.
+- id: q-B-29
+  split: heldout
+  question: What can this dataset tell us about absolute numbers of circulating monocytes?
+  criteria:
+    observations: Calculate sampled monocyte counts and fractions per sample.
+    measurement scope: Identify the missing sampling or blood-volume information needed for absolute abundance.
+- id: q-B-30
+  split: heldout
+  question: Would treating each cell as an independent replicate change the uncertainty for mean G1?
+  criteria:
+    unit: Identify biological donors and repeated conditions.
+    uncertainty: Compare a cell-based estimate with an uncertainty estimate clustered by donor.

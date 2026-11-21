@@ -54,3 +54,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Public research sources
+
+The opt-in public evidence tools query Europe PMC, NCBI BioC, ClinicalTrials.gov, GWAS Catalog, openFDA and the Human Protein Atlas. Tests include small, dated metadata projections. Source-specific terms and credits are in the [fixture catalogue](tests/fixtures/public/README.md).

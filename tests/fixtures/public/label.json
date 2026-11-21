@@ -1,0 +1,13 @@
+{
+  "url": "https://api.fda.gov/drug/label.json?search=openfda.brand_name%3A%22REPATHA%22&limit=1",
+  "retrieved": "2026-11-21",
+  "response_sha256": "3ae2f3ee45591668e53faa3deb494eedfd89619e68a0d72faca5e9328fdc64a2",
+  "projection": {
+    "results": [
+      {
+        "id": "06ed6b58-e662-4be7-82bf-30fb4265534a",
+        "effective_time": "20261012"
+      }
+    ]
+  }
+}

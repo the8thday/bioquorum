@@ -29,7 +29,7 @@ TOOLS = [
 
 @pytest.mark.parametrize(
     ("spec", "key"),
-    [("deepseek:deepseek-v4-pro", "DEEPSEEK_API_KEY"), ("openai:gpt-6.1-sol", "OPENAI_API_KEY")],
+    [("deepseek:deepseek-v4-pro", "DEEPSEEK_API_KEY"), ("openai:gpt-6.2-sol", "OPENAI_API_KEY")],
 )
 async def test_two_turn_tool_roundtrip(store, spec, key):
     if not os.environ.get(key):
@@ -73,7 +73,7 @@ async def test_workbench_switches_openai_deepseek_openai(tmp_path, monkeypatch):
         pytest.skip("Missing in this terminal: " + ", ".join(missing))
     monkeypatch.delenv("BQ_MODEL_CASSETTE", raising=False)
     ws = init_project(tmp_path, classification=Classification.PUBLIC)
-    first = "openai:gpt-6.1-sol"
+    first = "openai:gpt-6.2-sol"
     second = "deepseek:deepseek-v4-pro"
     ws.config = {
         "providers": {"openai": {}, "deepseek": {}},

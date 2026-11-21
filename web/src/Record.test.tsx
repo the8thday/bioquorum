@@ -84,3 +84,17 @@ it("offers a side view for answer tables and keeps bound values actionable", () 
   expect(html).toContain('<button class="evidence-link">7</button>');
   expect(html).toContain("Original rows and evidence status");
 });
+
+describe("coverage in the research record", () => {
+  it("shows observed empty results, open gaps and unscoped claims", () => {
+    const answer: Answer = {id:"a", seq:1, inherited:false, review_limitations:[], claims:[],
+      paragraphs:[{segments:[{text:"There is no evidence."}],unbound:[],unscoped_absence:true}],
+      coverage:{topics:{trials:"Which trials?"},closed:false,gaps:["No outcome data"],decisive:"",
+        queries:[{id:"q1",call_id:"real",scope:{query:"sample term"},topic:"trials",tool:"search",
+          time:"2026-11-20",count:0,status:"empty",reason:""}]}};
+    const html=renderToStaticMarkup(<AnswerCard answer={answer} example verification={[]}
+      onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
+    for (const text of ["sample term","Which trials?","No outcome data","No records in this search","matching scoped query"])
+      expect(html).toContain(text);
+  });
+});

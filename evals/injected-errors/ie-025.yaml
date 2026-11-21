@@ -1,0 +1,16 @@
+id: ie-025
+scenario: C
+title: A scoped negative search and an unsupported global inference
+question: What did the registry search establish?
+evidence:
+  coverage:
+    queries:
+      - {id: q1, tool: registry_search, scope: {query: "marker outcomes"}, status: empty}
+answer: |
+  registry_search returned no records for marker outcomes [q1].
+  There are no clinical trials of this marker.
+claims:
+  - {index: 1, text: "registry_search returned no records for marker outcomes [q1].", kind: plan}
+  - {index: 2, text: "There are no clinical trials of this marker.", kind: plan}
+injected_errors:
+  - {type: unsupported_absence, claim_index: 2}

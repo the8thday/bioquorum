@@ -19,6 +19,7 @@ import yaml
 
 from bioquorum.core.enums import ClaimKind
 from bioquorum.review.checks import Finding, deterministic_checks
+from bioquorum.review.checks.absence import unsupported_absence
 from bioquorum.review.evidence import ClaimInput, Evidence
 
 CORPUS = Path(__file__).resolve().parent / "injected-errors"
@@ -26,6 +27,7 @@ CHECK_FOR = {
     "value_mismatch": "value_match",
     "fabricated_citation": "citation_resolves",
     "execution_unsupported": "execution_evidence",
+    "unsupported_absence": "negative_search_scope",
     "plan_incomplete": "plan_complete",
 }
 
@@ -93,8 +95,14 @@ def main(argv: list[str] | None = None) -> None:
         help="also score cached model-written answers, e.g. deepseek:deepseek-v4-pro",
     )
     args = ap.parse_args(argv)
-    if args.heldout:
-        for worker, h in asyncio.run(score_heldout(args.heldout)).items():
+    if args.heldout is not None:
+        sample = yaml.safe_load((CORPUS.parent / "questions/v08/absence-heldout.yaml").read_text())
+        positives = sum(r["unsupported"] for r in sample)
+        flagged = [r for r in sample if unsupported_absence(r["text"], {"queries": []})]
+        caught = sum(r["unsupported"] for r in flagged)
+        print(f"Model-written absence sample: recall {caught}/{positives}; false positives "
+              f"{len(flagged)-caught}/{len(sample)-positives} negative controls")
+        for worker, h in asyncio.run(score_heldout(args.heldout or ["ollama:qwen3:4b-instruct"])).items():
             got, tot = sum(h["caught"].values()), sum(h["total"].values())
             per = ", ".join(f"{t} {h['caught'].get(t, 0)}/{n}" for t, n in h["total"].items())
             print(
@@ -146,7 +154,7 @@ async def score_heldout(workers: list[str], seed: str = "bq-v0") -> dict[str, An
         total: dict[str, int] = defaultdict(int)
         fps: list[str] = []
         n_claims = 0
-        for case in rx.load_corpus():
+        for case in rx.load_corpus(limit=24):  # frozen historical worker experiment
             claims = rx.worker_answer(llm, case)
             rng = random.Random(f"{seed}:{case['id']}")
             n_errors = 0 if case["id"] in clean_ids else rng.choice([1, 1, 2])

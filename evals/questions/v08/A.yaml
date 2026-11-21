@@ -1,0 +1,175 @@
+- id: q-A-06
+  split: development
+  question: Assess whether inhibiting ANGPTL3 is justified in homozygous familial hypercholesterolaemia.
+  criteria:
+    genetics: Connect a human loss-of-function observation to a lipid phenotype.
+    trial: Report the studied population and lipid endpoint.
+    outcomes: Distinguish the lipid endpoint from cardiovascular event evidence.
+- id: q-A-07
+  split: development
+  question: Assess Lp(a) lowering via LPA for secondary prevention.
+  criteria:
+    inherited risk: Distinguish genetically raised Lp(a) from the effects of intervention.
+    intervention: Identify a modality and its measured biomarker response.
+    outcomes: Check a dated outcome trial record and separate published results from trial intent.
+- id: q-A-08
+  split: development
+  question: Assess TTR silencing in hereditary amyloid polyneuropathy.
+  criteria:
+    disease biology: Describe variant and protein deposition evidence.
+    clinical function: Identify a neurological outcome in an intervention study.
+    scope: Distinguish neuropathy from cardiomyopathy evidence.
+- id: q-A-09
+  split: development
+  question: Evaluate CFTR modulation for people with rare CFTR variants.
+  criteria:
+    variant function: Relate the variant class to modulator mechanism.
+    response: Identify the model or patient population used to measure response.
+    eligibility: Check label scope and limits of extrapolation.
+- id: q-A-10
+  split: development
+  question: Evaluate HIF2A inhibition for VHL-associated renal tumours.
+  criteria:
+    mechanism: Trace VHL loss to HIF signalling.
+    efficacy: Characterize the patient selection and reported tumour endpoint.
+    safety: Connect an observed toxicity to a trial or label.
+- id: q-A-11
+  split: development
+  question: Assess BCL2 inhibition in chronic lymphocytic leukaemia.
+  criteria:
+    dependency: Identify direct support for BCL2 dependence.
+    clinical evidence: Separate monotherapy from combination evidence.
+    risk: Describe a treatment-specific risk with a source.
+- id: q-A-12
+  split: development
+  question: Evaluate blocking CGRP versus its receptor for migraine prevention.
+  criteria:
+    target identity: Name the molecular target for a representative of each strategy.
+    preventive efficacy: Compare the endpoint and comparator in trial evidence.
+    limitations: Address whether a direct comparative trial supports ranking.
+- id: q-A-13
+  split: development
+  question: Assess whether IL5 depletion and IL5R targeting are interchangeable in eosinophilic asthma.
+  criteria:
+    mechanism: Distinguish cytokine neutralization from receptor-directed cell effects.
+    population: Specify eosinophil selection in clinical evidence.
+    endpoint: Compare exacerbation outcomes without inferring head-to-head equivalence.
+- id: q-A-14
+  split: development
+  question: Evaluate SOST inhibition as a bone-forming strategy in osteoporosis.
+  criteria:
+    genetic phenotype: Describe human skeletal evidence with a source.
+    fractures: Report clinical fracture evidence and comparator.
+    safety: Check the cardiovascular safety evidence and its scope.
+- id: q-A-15
+  split: development
+  question: Assess the case for inhibiting complement C5 in paroxysmal nocturnal haemoglobinuria.
+  criteria:
+    mechanism: Connect the disease lesion with terminal complement activation.
+    clinical outcome: Separate measured haemolysis from patient outcomes.
+    residual disease: Identify a limitation of terminal complement blockade.
+- id: q-A-16
+  split: development
+  question: Evaluate the mineralocorticoid receptor in diabetic kidney disease.
+  criteria:
+    mechanism: Connect the target to a tested intervention.
+    outcomes: Distinguish a kidney composite from changes in albuminuria.
+    safety: Report potassium-related safety in the studied population.
+- id: q-A-17
+  split: development
+  question: Evaluate ACVR1 as a target in fibrodysplasia ossificans progressiva.
+  criteria:
+    genetics: Identify disease-linked receptor variation and inheritance evidence.
+    biology: Relate altered signalling to heterotopic ossification.
+    translation: Distinguish receptor-directed from downstream therapeutic evidence.
+- id: q-A-18
+  split: development
+  question: Evaluate PTH1R agonism for fracture prevention.
+  criteria:
+    exposure: Distinguish intermittent stimulation from sustained exposure.
+    efficacy: Identify fracture endpoints in a named population.
+    limits: Separate bone mineral density from direct fracture outcomes.
+- id: q-A-19
+  split: development
+  question: Evaluate the case for MC4R agonism in genetic obesity.
+  criteria:
+    eligibility: Identify the pathway defect in a treated population.
+    response: Relate hunger or weight endpoints to study design.
+    generalization: Explain the bounds on inference for unselected obesity.
+- id: q-A-20
+  split: development
+  question: Assess TSLP blockade in severe asthma across biomarker strata.
+  criteria:
+    pathway: Identify the targeted signal and relevant disease setting.
+    trial: Describe a randomized exacerbation endpoint.
+    subgroups: Evaluate precision of subgroup estimates and interaction evidence.
+- id: q-A-21
+  split: heldout
+  question: Evaluate FGF23 neutralization in X-linked hypophosphataemia.
+  criteria:
+    mechanism: Connect phosphate handling to disease biology.
+    clinical evidence: Report a skeletal or functional endpoint by age group.
+    boundaries: Distinguish biochemical correction from clinical benefit.
+- id: q-A-22
+  split: heldout
+  question: Assess whether GIPR agonism has an independent effect on weight in humans.
+  criteria:
+    intervention: Distinguish selective from dual agonism.
+    comparators: Identify a comparison that can or cannot isolate GIPR effects.
+    causality: State the remaining uncertainty in attributing effects.
+- id: q-A-23
+  split: heldout
+  question: Evaluate the case for inhibiting xanthine oxidase to improve cardiovascular outcomes.
+  criteria:
+    target engagement: Report the urate-lowering evidence.
+    outcome evidence: Identify an outcome trial with population and comparator.
+    interpretation: Separate gout management from a cardiovascular benefit claim.
+- id: q-A-24
+  split: heldout
+  question: Assess PDGFR signalling as a therapeutic target in idiopathic pulmonary fibrosis.
+  criteria:
+    tissue evidence: Identify relevant cells or tissue with source evidence.
+    pharmacology: Account for activity against other targets.
+    endpoints: Distinguish lung-function change from survival.
+- id: q-A-25
+  split: heldout
+  question: Evaluate the thrombin receptor PAR1 as a target for preventing recurrent vascular events.
+  criteria:
+    mechanism: Connect platelet effects to a target-specific intervention.
+    benefit: Report the prespecified trial outcome and population.
+    harm: Describe bleeding and relevant exclusion or subgroup boundaries.
+- id: q-A-26
+  split: heldout
+  question: Assess the evidence for reducing APOC3 in familial chylomicronaemia.
+  criteria:
+    human biology: Identify a human genotype or biochemical phenotype.
+    efficacy: Separate triglyceride lowering from pancreatitis outcomes.
+    safety: Check safety in a modality-specific population.
+- id: q-A-27
+  split: heldout
+  question: Assess IL4R-alpha blockade in atopic dermatitis.
+  criteria:
+    mechanism: Describe which signals the targeted receptor transmits.
+    clinical response: Identify a controlled skin outcome and time point.
+    scope: Distinguish patient symptoms from tissue or biomarker changes.
+- id: q-A-28
+  split: heldout
+  question: Evaluate neprilysin inhibition for heart failure.
+  criteria:
+    pharmacology: Identify co-interventions and what their effects prevent attributing.
+    patient outcomes: Report trial comparator and population.
+    harm: Anchor a safety concern to observed data.
+- id: q-A-29
+  split: heldout
+  question: Assess HMGCR inhibition as a strategy for secondary prevention.
+  criteria:
+    human genetics: Use a relevant human genetic study and state the direction.
+    intervention: Identify a controlled cardiovascular outcome.
+    limitations: Distinguish lifelong genetic exposure from drug treatment.
+- id: q-A-30
+  split: heldout
+  question: Evaluate RANKL blockade in postmenopausal osteoporosis, including what happens after withdrawal.
+  criteria:
+    target biology: Link osteoclast biology to direct evidence.
+    fracture outcomes: Identify treatment-period fracture evidence.
+    withdrawal: State the design and limits of follow-up evidence after stopping.

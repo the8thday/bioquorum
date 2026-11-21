@@ -174,7 +174,7 @@ Event(
 
 | 类别 | 类型 |
 |---|---|
-| 项目 | `project_created`（唯一一个 session_id 为空的事件类型） |
+| 项目 | `project_created`（v2 记录创建时的推荐开关，v1 项目沿用原设置） |
 | 项目设置与连接器检查 | `project_settings_changed`, `connector_checked` |
 | 项目笔记 | `project_note_saved`, `project_note_drafted` |
 | 会话 | `session_created`, `session_forked`, `session_title_set`, `session_archived` |
@@ -190,6 +190,8 @@ Event(
 | 复现 | `rerun_started`, `rerun_finished`, `replication_started`, `replication_finished`, `bundle_exported` |
 | 研究交互 | `turn_requested`, `turn_started`, `turn_finished` |
 | 文献子任务 | `literature_started`, `literature_finished` |
+| 首轮判断 | `first_pass_started`, `clarification_requested`, `clarification_answered` |
+| 证据覆盖 | `coverage_planned`, `coverage_updated`, `coverage_closed` |
 | 探索控制 | `context_compacted`, `exploration_stopped` |
 | 系统 | `error` |
 
@@ -429,6 +431,7 @@ ToolSpec(
 - 【承重】机制与开关（ADR-018）：下列机制各有独立配置开关，关掉后循环仍能跑；每个机制合入时附带 harness 提升评测的前后对比。主循环保持小，机制以可插拔步骤接入。
   - 预算（v0.2，ADR-019）：token、估算费用和用时阈值独立可配。已配置预算的运行省略显式步数上限时按预算推进。探索结束后可执行一次无工具回答，审查单独计量。
   - 压缩（v0.2）：`compact_at_bytes` 触发对话前缀摘要，保留最近问题与完整工具交互；证据仍取自完整事件。流式输出（v0.2）：`stream` 更新即时生成进度，解析绑定后的正文在完整回答写入后显示。
+  - v0.8 的独立开关为 `[agent] coverage`、`first_pass` 和 `evidence_skills`。覆盖台账与讨论条目从本轮事件重建。对外查询走 `tools.invoke()`，公开来源的返回按不受信任材料处理。启用条件与实测进度见[开关比较](research/v08-profile.md)。
   - 证据绑定（已实现）：`[agent] binding` 默认开启，控制提示词里的绑定说明和 `[source sN]` 行，关闭时使用 v0.1 提示词。解析失败时，`[agent] binding_retries` 控制退回轮数（0 到 2），通过 `user_message`、`actor = system` 列出失败项。退回收益未证实，按 ADR-018 默认设为 0。配对结果见 [绑定评测](research/binding-eval.md)。
   - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
   - 文献子任务（ADR-024）：空白上下文、已有权限、明确列出的文献工具，使用量计入父轮预算。子流与主对话分离，主会话只收到有限摘要和核对过的原文摘录。
@@ -561,3 +564,4 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 035 | [工作台偏好与研究设置](adr/035-workbench-preferences.md) |
 | 036 | [项目 Skills 和 MCP 连接器管理](adr/036-project-extension-library.md) |
 | 037 | [对话旁的结果阅读区与可调整侧栏](adr/037-result-reader.md) |
+| 038 | [v0.8 新项目的推荐配置](adr/038-v08-recommended-profile.md) |

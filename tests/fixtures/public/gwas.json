@@ -1,0 +1,21 @@
+{
+  "url": "https://www.ebi.ac.uk/gwas/rest/api/v2/associations?rs_id=rs11209026&size=1",
+  "retrieved": "2026-11-21",
+  "response_sha256": "c74fc5e79a7a202a947c1cbd77f94fbd2b3fb71771c09d2f4a314ad89fbdfb3d",
+  "projection": {
+    "_embedded": {
+      "associations": [
+        {
+          "accession_id": "GCST90994001",
+          "pubmed_id": "42305533"
+        }
+      ]
+    },
+    "page": {
+      "size": 1,
+      "totalElements": 26,
+      "totalPages": 26,
+      "number": 0
+    }
+  }
+}

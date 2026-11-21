@@ -24,6 +24,8 @@ ACTIVITY: dict[str, tuple[str, ...]] = {
     "plan_deviation": ("plan_id", "change", "reason"),
     "review_started": ("review_id", "target_event_id"),
     "review_finished": ("review_id", "finding_count", "claim_count", "limitations"),
+    "clarification_requested": ("question", "assumption"),
+    "clarification_answered": ("request_id", "turn_id"),
     "exploration_stopped": ("reason",),
     "error": ("where", "error"),
     "rerun_started": ("claim_id",),

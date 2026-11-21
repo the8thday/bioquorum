@@ -1,0 +1,11 @@
+{
+  "url": "https://www.proteinatlas.org/api/search_download.php?search=IL23R&format=json&columns=g%2Ceg&compress=no",
+  "retrieved": "2026-11-21",
+  "response_sha256": "99499540f528caff73823b153b32ebd42ea5f53e1ae959d180a61f975d1ce731",
+  "projection": [
+    {
+      "Gene": "IL23R",
+      "Ensembl": "ENSG00000162594"
+    }
+  ]
+}

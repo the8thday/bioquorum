@@ -112,3 +112,47 @@ async def test_workbench_preferences_follow_user_across_projects_and_ports(tmp_p
                     await http.post("/api/workbench-settings", json={**prefs, "roles": {}})
                 ).status_code == 400
             assert (await http.get("/api/workbench-settings")).json() == prefs
+
+
+def test_settings_snapshot_replays_cleanly_from_base_config(tmp_path):
+    from bioquorum.application.settings import SettingsEdit, save, snapshot
+
+    init_project(tmp_path)
+    (tmp_path / "bioquorum.toml").write_text('[providers.openai]\n[roles]\nworker="openai:a"\n')
+    controls = ResearchControls(load(tmp_path))
+    first = save(
+        controls,
+        SettingsEdit(
+            revision=None,
+            patch={"models": {"openai:a": {"context_window": 4096}}},
+        ),
+    )
+    assert first["models"]["openai:a"]["context_window"] == 4096
+    cleared = save(
+        controls,
+        SettingsEdit(
+            revision=first["revision"],
+            patch={"models": {"openai:a": {"context_window": None}}},
+        ),
+    )
+    assert cleared["models"]["openai:a"]["context_window"] is None
+    assert snapshot(controls)["models"]["openai:a"]["context_window"] is None
+
+
+def test_project_library_skips_corrupted_project_metadata(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from bioquorum.application import project_library
+    from bioquorum.core.enums import Classification
+    from bioquorum.core.ids import new_id
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    current = init_project(tmp_path / "current", name="Current")
+    good = project_library.create("Good Project", Classification.PUBLIC)
+    broken_dir = project_library.library_root() / new_id() / ".bioquorum"
+    broken_dir.mkdir(parents=True)
+    (broken_dir / "project.json").write_text("{not valid json", encoding="utf-8")
+
+    rows = project_library.entries(current)
+    names = [r["name"] for r in rows]
+    assert "Current" in names and good["name"] in names

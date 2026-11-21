@@ -179,6 +179,23 @@ async function verifyConversation(page) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
+    if (process.env.BQ_TEST_COVERAGE) {
+      await page.getByRole("heading", {name:"Conversation fixture"}).waitFor();
+      const question = page.getByLabel("Research question");
+      await question.fill("Assess this evidence");
+      await page.getByRole("button",{name:"Run research",exact:true}).click();
+      await page.getByText("Evidence coverage · closed").click();
+      await page.getByText("Registry outcomes were not searched.").waitFor();
+      await page.getByRole("button",{name:"Discuss next step"}).click();
+      await page.getByRole("list",{name:"References"}).getByText("Search the registry.").waitFor();
+      await question.fill("Follow that step");
+      await page.getByRole("button",{name:"Run research",exact:true}).click();
+      await page.getByText("Follow-up reference received.",{exact:true}).waitFor();
+      await page.reload();
+      await page.getByText("Follow-up reference received.",{exact:true}).waitFor();
+      console.log("Coverage ledger, first-pass discussion and recorded follow-up verified");
+      return;
+    }
     if (process.env.BQ_TEST_EXTENSIONS) {
       const button = (parent,name) => parent.getByRole("button",{name,exact:true});
       const dialog = page.getByRole("dialog",{name:"Workbench settings"});
@@ -247,6 +264,18 @@ async function verifyConversation(page) {
       await page.getByRole("heading", {name:"Local session"}).waitFor();
       assert.equal(await page.locator(".shell").getAttribute("data-reading-size"),"large");
       await page.getByRole("region",{name:"Model usage"}).waitFor();
+      const projectSettings = page.getByRole("button", {name:"Project settings", exact:true});
+      const profile = page.getByLabel("Research profile");
+      const binding = page.getByLabel("Evidence binding", {exact:true});
+      for (const [oldName, newName] of [["recommended", "minimal"], ["minimal", "recommended"]]) {
+        await projectSettings.click();
+        assert.equal(await profile.inputValue(), oldName);
+        assert.equal(await binding.isChecked(), oldName === "recommended");
+        await profile.selectOption(newName);
+        await page.getByRole("button", {name:"Save settings"}).click();
+        await page.getByText("Saved for future research turns.").waitFor();
+        await page.reload();
+      }
       const chatSettings = page.getByRole("button",{name:"Chat settings"});
       await page.getByLabel("Research question").fill("Draft survives settings");
       await chatSettings.click();
@@ -258,6 +287,7 @@ async function verifyConversation(page) {
       assert.equal(await page.getByLabel("Research question").inputValue(),"Draft survives settings");
       await page.getByRole("button",{name:"Project settings",exact:true}).click();
       assert.ok(await page.getByLabel("Follow-up references").isChecked());
+      assert.equal(await profile.inputValue(), "custom");
       assert.deepEqual(errors,[]);console.log("Created, switched and reopened an isolated project");return;
     }
     if (process.env.BQ_TEST_LAYOUT) {

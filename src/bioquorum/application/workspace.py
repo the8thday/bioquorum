@@ -12,6 +12,7 @@ CLI and workbench share this composition so lower layers stay injectable.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -100,7 +101,43 @@ class AgentOptions:
     literature_tools: tuple[str, ...] = ()
     source_to_kernel: bool = False
     references: bool = False
+    evidence_skills: bool = False
+    first_pass: bool = False
+    coverage: bool = False
     vision: bool = False
+
+    @property
+    def allows_references(self) -> bool:
+        return self.references or self.first_pass
+
+
+# The v0.8 confirmation reproduced the current profile on the six frozen cases (ADR-038).
+RECOMMENDED: dict[str, Any] | None = {"binding": True}
+MINIMAL = {
+    "binding": False,
+    "binding_retries": 0,
+    "compact_at_bytes": None,
+    "skills": False,
+    "project_notes": False,
+    "literature_subtasks": False,
+    "source_to_kernel": False,
+    "references": False,
+    "vision": False,
+    "coverage": False,
+    "first_pass": False,
+    "evidence_skills": False,
+    "plan_default": False,
+}
+
+
+def profile_settings(name: str) -> dict[str, Any]:
+    if name == "minimal":
+        return MINIMAL.copy()
+    if name == "recommended" and RECOMMENDED is not None:
+        return {**MINIMAL, **RECOMMENDED}
+    if name == "custom":
+        return {}
+    raise WorkspaceError("Unknown or unevaluated research profile")
 
 
 @dataclass
@@ -111,6 +148,7 @@ class Workspace:
     classification: Classification
     data_dirs: list[Path] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
+    base_config: dict[str, Any] | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -123,9 +161,10 @@ class Workspace:
         return ContentStore(self.state_dir / "cas")
 
     def project_skills(self, *, include_disabled: bool = False):
-        from bioquorum.skills.loader import discover
+        from bioquorum.skills.loader import builtin_catalog, discover
 
-        catalog = discover(self.state_dir / "skills")
+        catalog = builtin_catalog() if self.agent_options().evidence_skills else {}
+        catalog.update(discover(self.state_dir / "skills"))
         for name, entry in self.config.get("extensions", {}).get("skills", {}).items():
             if not entry:
                 continue
@@ -203,13 +242,24 @@ class Workspace:
     def models_config(self) -> ModelsConfig:
         return ModelsConfig.from_dict(self.config)
 
+    @property
+    def profile_name(self) -> str:
+        return self.config.get("profile", {}).get("name", "custom")
+
     def agent_options(self) -> AgentOptions:
-        cfg = self.config.get("agent", {})
+        preset = profile_settings(self.profile_name)
+        configured = self.config.get("agent", {})
+        cfg = (
+            {**configured, **preset} if self.profile_name == "minimal" else {**preset, **configured}
+        )
         for flag in (
             "skills",
             "project_notes",
             "literature_subtasks",
             "source_to_kernel",
+            "evidence_skills",
+            "first_pass",
+            "coverage",
             "references",
             "vision",
         ):
@@ -252,6 +302,9 @@ class Workspace:
             literature_subtasks=cfg.get("literature_subtasks", False),
             literature_tools=tuple(literature),
             source_to_kernel=cfg.get("source_to_kernel", False),
+            evidence_skills=cfg.get("evidence_skills", False),
+            first_pass=cfg.get("first_pass", False),
+            coverage=cfg.get("coverage", False),
             references=cfg.get("references", False),
             vision=cfg.get("vision", False),
         )
@@ -345,7 +398,11 @@ def find_root(start: Path) -> Path | None:
 
 
 def init_project(
-    root: Path, *, name: str | None = None, classification: Classification = Classification.INTERNAL
+    root: Path,
+    *,
+    name: str | None = None,
+    classification: Classification = Classification.INTERNAL,
+    use_recommended: bool = True,
 ) -> Workspace:
     root = root.resolve()
     meta = root / STATE_DIR / "project.json"
@@ -355,16 +412,19 @@ def init_project(
         root=root, project_id=new_id(), name=name or root.name, classification=classification
     )
     ws.state_dir.mkdir(parents=True, exist_ok=True)
-    EventStore(ws.database()).append(
-        ev.ProjectCreated(
-            project_id=ws.project_id,
-            name=ws.name,
-            root_dir=str(root),
-            classification=classification,
-        ),
-        session_id=None,
-        actor=Actor.USER,
+    recommended = (
+        profile_settings("recommended") if use_recommended and RECOMMENDED is not None else None
     )
+    created = ev.ProjectCreated(
+        project_id=ws.project_id,
+        name=ws.name,
+        root_dir=str(root),
+        classification=classification,
+        recommended_agent=recommended,
+    )
+    if recommended is not None:
+        ws.config = {"profile": {"name": "recommended"}, "agent": recommended}
+    EventStore(ws.database()).append(created, session_id=None, actor=Actor.USER)
     meta.write_text(
         json.dumps(
             {"project_id": ws.project_id, "name": ws.name, "classification": classification.value},
@@ -390,6 +450,19 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
         config = _merge(config, tomllib.loads(cfg.read_text(encoding="utf-8")))
     store = EventStore(Database.at(root / STATE_DIR / "bioquorum.db"))
     try:
+        for event in store.read(None, types=[ev.ProjectCreated.event_type]):
+            if event.payload["project_id"] != meta["project_id"]:
+                continue
+            recommended = event.payload.get("recommended_agent")
+            if recommended is not None:
+                switches = config.get("agent", {})
+                customized = any(
+                    switches[k] != recommended[k] for k in switches.keys() & recommended.keys()
+                )
+                default_name = "custom" if customized else "recommended"
+                config = _merge({"profile": {"name": default_name}, "agent": recommended}, config)
+            break
+        base_config = copy.deepcopy(config)
         for event in store.read(None, types=[ev.ProjectSettingsChanged.event_type]):
             if event.payload["project_id"] == meta["project_id"]:
                 config = settings_overlay(config, event.payload["patch"])
@@ -404,6 +477,7 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
         classification=Classification(meta["classification"]),
         data_dirs=data_dirs,
         config=config,
+        base_config=base_config,
     )
 
 

@@ -48,15 +48,14 @@ def unpack(filename: str, raw: bytes) -> tuple[str, dict[str, bytes]]:
                     key = path.relative_to(roots[0]).as_posix()
                     if key != "SKILL.md" and not is_resource(key):
                         continue
-                    total += entry.file_size
-                    if (
-                        key in files
-                        or len(key) > 200
-                        or entry.file_size > MAX_TEXT
-                        or total > MAX_PACKAGE
-                    ):
+                    if key in files or len(key) > 200:
                         raise ValueError("Duplicate or oversized skill resources")
-                    files[key] = archive.read(entry)
+                    with archive.open(entry) as stream:
+                        data = stream.read(MAX_TEXT + 1)
+                    total += len(data)
+                    if len(data) > MAX_TEXT or total > MAX_PACKAGE:
+                        raise ValueError("Duplicate or oversized skill resources")
+                    files[key] = data
         except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, zlib.error):
             raise ValueError("Could not read the skill archive") from None
     else:

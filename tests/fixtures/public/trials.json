@@ -1,0 +1,17 @@
+{
+  "url": "https://clinicaltrials.gov/api/v2/studies?query.term=NCT04999839&fields=NCTId&pageSize=1",
+  "retrieved": "2026-11-21",
+  "response_sha256": "62c08d4e68f6064cb2de40b42b06e34a12d5a836befa69748cb22ba2af9f1425",
+  "projection": {
+    "studies": [
+      {
+        "protocolSection": {
+          "identificationModule": {
+            "nctId": "NCT04999839"
+          }
+        }
+      }
+    ],
+    "nextPageToken": "ZVNj7o2Elu8o3lpyU83-vqbumpOQJJxsZPKs1fIbkA"
+  }
+}

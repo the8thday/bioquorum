@@ -2,6 +2,15 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## Unreleased · Coverage
+
+- New projects start with the evaluated Recommended profile. Evidence binding is enabled with zero retries. Project settings can switch profiles or customize individual mechanisms.
+
+- Inspect actual query outcomes and evidence gaps under an answer and in its research bundle.
+- Enable scoped absence checks, first-pass discussion and built-in evidence-category Skills independently.
+- Compare the frozen 90-question bank using paired research profiles and a shared evaluation budget.
+- Report held-out coverage, cost, elapsed time, and observed feature use from 128 completed ablation pairs.
+
 ## v0.7.0.dev0 · Workbench
 
 - Create and switch local projects in the sidebar. Session actions share a menu, and the usage inspector shows intact values and expandable role totals.

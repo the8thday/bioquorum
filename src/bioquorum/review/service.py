@@ -20,6 +20,7 @@ from bioquorum.core.ids import new_id
 from bioquorum.core.refs import CitationRef, ClaimRef, QuoteRef, RunRef, ValueRef
 from bioquorum.core.status import StatusTrigger, VerificationStatus, aggregate, transition
 from bioquorum.review.binding import Grounding, ground_claim, render
+from bioquorum.review.checks.absence import NAME as NEGATIVE_SCOPE
 from bioquorum.review.checks.base import Check, Finding
 from bioquorum.review.checks.citations import CITATION_UNAVAILABLE
 from bioquorum.review.checks.supports import CITATION_SUPPORT_UNAVAILABLE
@@ -199,6 +200,8 @@ async def review(
         r.status = new
 
     for r in reviewed:
+        if any(f.check == NEGATIVE_SCOPE for f in r.findings):
+            continue
         state = r.grounding.state
         if state == "grounded":
             move(r, StatusTrigger.BINDINGS_RESOLVED, f"{len(r.grounding.bindings)} bindings hold")

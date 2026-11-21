@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from bioquorum.core import events as ev
+from bioquorum.core.coverage import coverage_view
 from bioquorum.core.enums import ClaimKind, OutputStream
 from bioquorum.core.messages import TextPart
 from bioquorum.core.refs import NamedValue, QuoteRef
@@ -77,6 +78,8 @@ def result_text(part) -> str:
 
 NON_SOURCE_TOOLS = {
     *KERNEL_TOOLS,
+    "ask_clarification",
+    "research_coverage",
     "record_plan_step",
     "request_plan_deviation",
     "replay_recorded_run",
@@ -138,6 +141,8 @@ class Evidence:
     """Named values of successful runs; for a repeated name, the latest declaration."""
     sources: list[Source] = field(default_factory=list)
 
+    coverage: dict[str, Any] | None = None
+
     def run(self, run_id: str) -> RunEvidence | None:
         return next((r for r in self.runs if r.run_id == run_id), None)
 
@@ -151,6 +156,7 @@ class Evidence:
     def from_case(cls, case: dict[str, Any]) -> Evidence:
         e = case.get("evidence") or {}
         return cls(
+            coverage=e.get("coverage"),
             question=case.get("question", ""),
             runs=[
                 RunEvidence(
@@ -180,6 +186,7 @@ class Evidence:
         """Runs from run_* events; citations from identifiers seen in tool results; plan
         steps from plan_* events; named values from run_finished; quotable sources from
         non-kernel tool results."""
+        events = list(events)
         runs: dict[str, dict[str, Any]] = {}
         values: dict[str, DeclaredValue] = {}
         sources: list[Source] = []
@@ -225,6 +232,7 @@ class Evidence:
             for i, s in enumerate(items)
         ]
         return cls(
+            coverage=coverage_view(events),
             question=question,
             runs=[
                 RunEvidence(rid, r["ok"], r["code"], "".join(r["stdout"]))

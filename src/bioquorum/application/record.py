@@ -6,13 +6,15 @@ from typing import Any
 
 from bioquorum.application.artifacts import catalog_records
 from bioquorum.application.controls import ResearchControls
+from bioquorum.application.first_pass import HEADINGS, sections
 from bioquorum.application.onboarding import disconnected
 from bioquorum.core import events as ev
 from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor
 from bioquorum.core.refs import QuoteRef, RunRef, ValueRef
 from bioquorum.core.review_record import AnswerReview, answer_reviews
-from bioquorum.review.binding import find_bindings, ground_claim
+from bioquorum.review.binding import find_bindings, ground_claim, render
+from bioquorum.review.checks.absence import unsupported_absence
 from bioquorum.review.evidence import Evidence, result_text
 from bioquorum.tools.replay import recorded_inputs, run_chain
 
@@ -112,9 +114,28 @@ def _answer(
     findings: dict[str, list[dict]],
 ) -> dict:
     evidence = Evidence.from_events(prefix)
+    start = next(
+        (
+            i
+            for i in range(len(prefix) - 1, -1, -1)
+            if prefix[i].type == "user_message" and prefix[i].actor is Actor.USER
+        ),
+        len(prefix),
+    )
+    first_pass = any(e.type == "first_pass_started" for e in prefix[start:])
+    clarification = next(
+        ({"id": e.id, **e.payload} for e in prefix[start:] if e.type == "clarification_requested"),
+        None,
+    )
+    parts = sections(render(text, evidence)) if first_pass else {}
     lines = text.splitlines()
     return {
         "id": event.id,
+        "coverage": evidence.coverage,
+        "first_pass": first_pass,
+        "discussion_items": {k: v for k, v in parts.items() if k in ("Disagreement", "Next step")},
+        "missing_sections": [h for h in HEADINGS if h not in parts] if first_pass else [],
+        "clarification": clarification,
         "seq": event.seq,
         "inherited": event.seq < 0,
         "review_completed": review.review_id is not None,
@@ -135,6 +156,7 @@ def _answer(
         "paragraphs": [
             {
                 "segments": _bindings(line, evidence),
+                "unscoped_absence": unsupported_absence(line, evidence.coverage),
                 "unbound": list(ground_claim(line, evidence).unbound),
             }
             for line in lines

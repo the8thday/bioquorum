@@ -425,3 +425,46 @@ async def test_bundle_keeps_file_bound_in_an_unreviewed_answer(tmp_path):
     with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
         source = json.loads(archive.read("review/sources.json"))["source"]
         assert "protocol.txt" in source and quote in source and str(tmp_path) not in source
+
+
+async def test_coverage_bundle_scopes_paths_and_download_urls(tmp_path):
+    from bioquorum.core.enums import PermissionClass
+
+    controls = ResearchControls(workspace.init_project(tmp_path))
+    sid = controls.new_session("Scope")
+
+    def add(payload, actor):
+        return controls.store.append(payload, session_id=sid, actor=actor)
+
+    add(ev.UserMessage(message=Message.user("Inspect the evidence.")), Actor.USER)
+    add(ev.CoveragePlanned(topics={"source": "Which data?"}), Actor.AGENT)
+    add(
+        ev.ToolCallRequested(
+            call_id="kernel",
+            tool="python_execute",
+            args={"input_files": [str(tmp_path / "cells.csv")]},
+            permission=PermissionClass.EXECUTE,
+        ),
+        Actor.AGENT,
+    )
+    add(
+        ev.ToolCallRequested(
+            call_id="download",
+            tool="download_file",
+            args={"url": "https://example.org/data?session=privatefixture"},
+            permission=PermissionClass.NETWORK,
+        ),
+        Actor.AGENT,
+    )
+    answer = add(
+        ev.AssistantMessage(message=Message.assistant("The search remains incomplete.")),
+        Actor.AGENT,
+    )
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        data = archive.read("review/coverage.json")
+        assert str(tmp_path).encode() not in data and b"privatefixture" not in data
+        queries = json.loads(data)[answer.id]["queries"]
+        assert len(queries) == 2
+        assert queries[0]["scope"]["input_files"] == ["cells.csv"]
+        assert queries[1]["scope"]["url"] == "https://example.org/data"

@@ -1,5 +1,6 @@
 """Review checks. Deterministic ones never call a model (ARCHITECTURE.md §6.5)."""
 
+from bioquorum.review.checks.absence import NegativeSearchScope
 from bioquorum.review.checks.base import Check, Finding
 from bioquorum.review.checks.citations import CitationResolves
 from bioquorum.review.checks.execution import ExecutionEvidence
@@ -16,6 +17,7 @@ def deterministic_checks(
         ValueMatch(),
         CitationResolves(online_citations, causation_id=causation_id),
         PlanComplete(),
+        NegativeSearchScope(),
     ]
 
 

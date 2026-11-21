@@ -30,6 +30,8 @@ def conversation_controls(directory: str) -> ResearchControls:
         "roles": {"worker": "openai:fixture", "reviewer": "openai:review"},
         "models": {"deepseek:fixture": {"context_window": 32000}, "other:restricted": {}},
     }
+    if os.environ.get("BQ_TEST_COVERAGE"):
+        ws.config["agent"] = {"coverage": True, "first_pass": True, "references": False}
     cfg = ws.models_config()
 
     def respond(messages, info):
@@ -49,6 +51,34 @@ def conversation_controls(directory: str) -> ResearchControls:
             import time
 
             time.sleep(1.5)
+        if os.environ.get("BQ_TEST_COVERAGE"):
+            if "Follow that step" in str(messages):
+                assert "Search the registry." in str(messages)
+                return pa.ModelResponse(
+                    parts=[pa.TextPart(content="Follow-up reference received.")]
+                )
+            returns = [
+                p
+                for p in parts
+                if isinstance(p, pa.ToolReturnPart) and p.tool_name == "research_coverage"
+            ]
+            if not returns:
+                action = {"action": "plan", "topics": {"outcomes": "Which outcomes were studied?"}}
+            elif len(returns) == 1:
+                action = {
+                    "action": "close",
+                    "gaps": ["Registry outcomes were not searched."],
+                    "decisive": "An outcome study.",
+                }
+            else:
+                return pa.ModelResponse(
+                    parts=[
+                        pa.TextPart(
+                            content="Judgment: Uncertain.\nStrongest counterevidence: Unavailable.\nDisagreement: Which outcomes matter?\nNext step: Search the registry."
+                        )
+                    ]
+                )
+            return pa.ModelResponse(parts=[pa.ToolCallPart("research_coverage", action)])
         if question == "Use the installed table skill":
             if not any(
                 isinstance(p, pa.ToolReturnPart) and p.tool_name == "open_skill" for p in parts
@@ -130,7 +160,10 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         from reference_fixture import reference_controls
 
         controls = reference_controls(directory)
-    elif os.environ.get("BQ_TEST_CONVERSATION") or os.environ.get("BQ_TEST_EXTENSIONS"):
+    elif any(
+        os.environ.get(k)
+        for k in ("BQ_TEST_CONVERSATION", "BQ_TEST_EXTENSIONS", "BQ_TEST_COVERAGE")
+    ):
         controls = conversation_controls(directory)
     elif os.environ.get("BQ_TEST_PROJECT_NOTE"):
         ws = init_project(Path(directory), name="Notes test project")

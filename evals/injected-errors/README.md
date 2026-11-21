@@ -1,7 +1,7 @@
 # Injected-error corpus
 
-24 synthetic cases for measuring how well the review layer (ARCHITECTURE.md section 6.5) catches errors.
-Each case pairs an agent answer with the evidence it should be judged against. 20 cases contain 1 to 3
+25 synthetic cases for measuring how well the review layer (ARCHITECTURE.md section 6.5) catches errors.
+Each case pairs an agent answer with the evidence it should be judged against. 21 cases contain 1 to 3
 deliberately injected errors. 4 cases (ie-021 to ie-024) are clean controls for measuring false positives.
 
 Everything is fictional: DOIs use the prefix `10.0000/bq.`, GEO accessions use `GSE9xxxxxx`, trial IDs use
@@ -62,9 +62,10 @@ The answer must be judged only against `evidence`. Apart from the injected error
 | ie-022 | B | pbmc3k standard workflow | none (clean) |
 | ie-023 | C | Finerenone in diabetic kidney disease | none (clean) |
 | ie-024 | C | BTK inhibitors in MS | none (clean) |
+| ie-025 | C | Scoped registry search | unsupported_absence |
 
-Totals: 36 injected errors, as follows: value_mismatch 11, fabricated_citation 5, execution_unsupported 5,
-citation_unsupported 4, stat_method 4, overclaim_causal 4, plan_incomplete 3.
+Totals: 37 injected errors, as follows: value_mismatch 11, fabricated_citation 5, execution_unsupported 5,
+citation_unsupported 4, stat_method 4, overclaim_causal 4, plan_incomplete 3, unsupported_absence 1.
 
 ## Scoring notes
 

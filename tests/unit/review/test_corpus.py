@@ -34,6 +34,7 @@ async def test_corpus_recall_and_false_positives():
         "fabricated_citation": 3,
         "execution_unsupported": 5,
         "plan_incomplete": 3,
+        "unsupported_absence": 1,
     }
     assert r["false_positives"] == []
     assert r["clean_flagged"] == []

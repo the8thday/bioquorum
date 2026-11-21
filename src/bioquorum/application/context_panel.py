@@ -30,7 +30,7 @@ def view(controls: ResearchControls, sid: str, worker: str | None = None) -> dic
     messages = conversation(
         events,
         source_labels=options.binding,
-        references=options.references,
+        references=options.allows_references,
         load_event=controls.store.get,
         compacted=options.compact_at_bytes is not None,
     )
@@ -92,7 +92,7 @@ async def compact(controls: ResearchControls, sid: str) -> None:
             attempted_through=events[0].seq - 2,
             cause=events[-1].id,
             manual=True,
-            references=ws.agent_options().references,
+            references=ws.agent_options().allows_references,
         )
     except (ModelUnavailableError, PolicyViolation) as exc:
         raise ConflictError("The summarizer could not complete this request") from exc

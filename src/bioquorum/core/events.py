@@ -149,7 +149,7 @@ class Event(BaseModel):
 
 
 @register
-class ProjectCreated(EventPayload):
+class ProjectCreatedV1(EventPayload):
     event_type: ClassVar[str] = "project_created"
     project_id: str
     name: str
@@ -158,6 +158,17 @@ class ProjectCreated(EventPayload):
     classification: Classification = Classification.INTERNAL
     model_policy: dict[str, Any] = Field(default_factory=dict)
     env_id: str | None = None
+
+
+@register
+class ProjectCreated(ProjectCreatedV1):
+    schema_version: ClassVar[int] = 2
+    recommended_agent: dict[str, Any] | None = None
+
+
+@upgrader("project_created", 1)
+def _legacy_project_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "recommended_agent": None}
 
 
 @register
@@ -722,3 +733,41 @@ class ErrorOccurred(EventPayload):
     where: str
     error: str
     policy_violation: bool = False
+
+
+@register
+class CoveragePlanned(EventPayload):
+    event_type: ClassVar[str] = "coverage_planned"
+    topics: dict[str, str]
+
+
+@register
+class CoverageUpdated(EventPayload):
+    event_type: ClassVar[str] = "coverage_updated"
+    assignments: dict[str, str]  # recorded call IDs to declared topic names
+
+
+@register
+class CoverageClosed(EventPayload):
+    event_type: ClassVar[str] = "coverage_closed"
+    gaps: list[str]
+    decisive: str
+
+
+@register
+class FirstPassStarted(EventPayload):
+    event_type: ClassVar[str] = "first_pass_started"
+
+
+@register
+class ClarificationRequested(EventPayload):
+    event_type: ClassVar[str] = "clarification_requested"
+    question: str = Field(min_length=1, max_length=400)
+    assumption: str = Field(min_length=1, max_length=500)
+
+
+@register
+class ClarificationAnswered(EventPayload):
+    event_type: ClassVar[str] = "clarification_answered"
+    request_id: str
+    turn_id: str

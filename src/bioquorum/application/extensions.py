@@ -77,7 +77,7 @@ def snapshot(controls: ResearchControls) -> dict:
         example=controls.demo,
         project=ws.name,
         skills=skills,
-        skills_enabled=ws.agent_options().skills,
+        skills_enabled=ws.agent_options().skills or ws.agent_options().evidence_skills,
         connectors=connectors,
     )
 
@@ -161,9 +161,10 @@ def save(controls: ResearchControls, edit: Edit) -> dict:
             if group == "skills" and change["enabled"]:
                 patch["agent"] = {"skills": True}
     patch["extensions"] = {group: {name: change}}
+    store_dir = ws.state_dir.resolve() / "installed-skills"
     try:
         if root is not None:
-            if root.parent.is_symlink() or root.parent.resolve() != root.parent:
+            if root.parent.is_symlink() or root.parent.resolve() != store_dir:
                 raise ValueError("The project skill store must be a local directory")
             (root / name).mkdir(parents=True)
             for member, data in files.items():
@@ -181,7 +182,7 @@ def save(controls: ResearchControls, edit: Edit) -> dict:
         except ValueError:
             raise ConflictError("The project changed. Reload the list and try again.") from None
     except Exception:
-        if root is not None and root.parent.resolve() == root.parent:
+        if root is not None and not root.parent.is_symlink() and root.parent.resolve() == store_dir:
             rmtree(root, ignore_errors=True)
         raise
     return snapshot(controls)

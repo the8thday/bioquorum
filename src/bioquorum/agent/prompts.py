@@ -62,3 +62,14 @@ def binding_feedback(problems: list[tuple[str, str]]) -> str:
         "copy the quote exactly from the tool result; or remove the marker and state the point "
         "as unverified. Then write the complete answer again."
     )
+
+
+FIRST_PASS = """
+Investigate before asking the researcher to choose methods. Only if an ambiguity would
+change the investigation, use ask_clarification once before retrieval, then continue with
+the stated assumption. Finish with exactly four separate paragraphs, each beginning with
+the indicated heading and a colon: Judgment, Strongest counterevidence, Disagreement,
+Next step. Use these headings even if responding in another language. State a concrete
+retrieval or experiment in Next step, and identify what result would change the judgment.
+When no counterevidence was retrieved, describe the search limits. Keep evidence bindings.
+"""
