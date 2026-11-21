@@ -122,11 +122,15 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
     host = f"127.0.0.1:{sock.getsockname()[1]}"
     print(f"WORKBENCH_URL=http://{host}/", flush=True)
     real = os.environ.get("BQ_TEST_REAL_PROJECT")
-    if os.environ.get("BQ_TEST_PROJECTS"):
+    if os.environ.get("BQ_TEST_PROJECTS") or os.environ.get("BQ_TEST_MATERIALS"):
         from bioquorum.application import project_library
 
         project_library.library_root = lambda: Path(directory) / ".bioquorum" / "test-library"
-    if os.environ.get("BQ_TEST_BILINGUAL"):
+    if os.environ.get("BQ_TEST_SCENARIO_D"):
+        from scenario_d_fixture import scenario_d_controls
+
+        controls = scenario_d_controls(directory)
+    elif os.environ.get("BQ_TEST_BILINGUAL"):
         from bioquorum.core import events as ev
         from bioquorum.core.enums import Actor
         from bioquorum.core.hashing import code_hash
@@ -211,7 +215,7 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         controls = reference_controls(directory)
     elif any(
         os.environ.get(k)
-        for k in ("BQ_TEST_CONVERSATION", "BQ_TEST_EXTENSIONS", "BQ_TEST_COVERAGE")
+        for k in ("BQ_TEST_CONVERSATION", "BQ_TEST_EXTENSIONS", "BQ_TEST_COVERAGE", "BQ_TEST_MATERIALS")
     ):
         controls = conversation_controls(directory)
     elif os.environ.get("BQ_TEST_PROJECT_NOTE"):

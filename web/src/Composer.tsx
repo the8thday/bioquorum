@@ -4,15 +4,16 @@ import type { DraftReference, Project, Snapshot } from "./types";
 import { Icon } from "./Icon";
 import type { Product } from "./Artifacts";
 
-export function Composer({executing,connection,upload,openSettings,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
-  executing: boolean; connection: string; upload: ReactNode; openSettings: () => void; attachments:Product[]; setAttachments:(p:Product[])=>void;
+export function Composer({initialDraft,executing,connection,upload,openSettings,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+  initialDraft?:string; executing: boolean; connection: string; upload: ReactNode; openSettings: () => void; attachments:Product[]; setAttachments:(p:Product[])=>void;
   refs: DraftReference[]; setRefs: (items: DraftReference[]) => void;
   planDefault?: boolean; worker: string; setWorker: (value: string) => void;
   models: Project["worker_models"]; classification: string;
   record: Snapshot; example: Project["example"]; preset: number;
   mutate: (suffix: string, body: unknown) => Promise<void>; report: (error: unknown) => void;
 }) {
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(initialDraft ?? "");
+  useEffect(()=>{if(initialDraft) setQuestion(initialDraft);},[initialDraft]);
   const [steps, setSteps] = useState("");
   const [plan, setPlan] = useState(!!planDefault);
   useEffect(() => setPlan(!!planDefault), [planDefault]);

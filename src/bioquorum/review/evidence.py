@@ -86,6 +86,7 @@ NON_SOURCE_TOOLS = {
     "stage_blind_inputs",
     "export_research_bundle",
     "open_skill",
+    "read_program_context",
     "read_project_note",
     "draft_project_note",
     "save_project_note",

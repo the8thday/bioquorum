@@ -536,7 +536,13 @@ async def replicate(
     return finished.model_dump(mode="json")
 
 
-async def export_bundle(controls: ResearchControls, sid: str) -> dict:
+async def export_bundle(
+    controls: ResearchControls,
+    sid: str,
+    *,
+    program_members: frozenset[str] | None = None,
+    through_seq: int | None = None,
+) -> dict:
     from bioquorum.review.binding import find_bindings
     from bioquorum.tools.bundle import export_spec
 
@@ -547,7 +553,7 @@ async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     policy.grant(
         PermissionClass.WRITE_FS, "research-bundle", PermissionScope.SESSION, session_id=sid
     )
-    history = controls.store.history(sid)
+    history = controls.store.history(sid, members=program_members, to_seq=through_seq)
     evidence = Evidence.from_events(history)
     answer_quotes: list[QuoteRef] = []
     for index, event in enumerate(history):
@@ -575,7 +581,13 @@ async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     controls.reviewing = True
     try:
         result = await invoke(
-            export_spec(ws.name, {s.call_id: s.text for s in evidence.sources}, answer_quotes),
+            export_spec(
+                ws.name,
+                {s.call_id: s.text for s in evidence.sources},
+                answer_quotes,
+                program_members=program_members,
+                through_seq=through_seq,
+            ),
             {},
             ctx,
         )

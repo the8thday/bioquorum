@@ -9,7 +9,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.resources import files
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -36,6 +36,10 @@ from bioquorum.core import events as ev
 from bioquorum.core.enums import Classification
 from bioquorum.provenance.cas import IntegrityError
 from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
+from bioquorum.server.programs import program_routes
+from bioquorum.server.recompute import recompute_routes
+from bioquorum.server.request_body import Empty
+from bioquorum.server.request_body import read_body as _body
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
@@ -101,20 +105,6 @@ class PlanDecision(BaseModel):
 
 class PermissionDecision(BaseModel):
     grant: bool
-
-
-async def _body[T: BaseModel](request: Request, model: type[T], *, limit: int = 32_768) -> T:
-    if request.headers.get("content-type", "").split(";")[0] != "application/json":
-        raise ValueError("Expected application/json")
-    data = bytearray()
-    async for chunk in request.stream():
-        data.extend(chunk)
-        if len(data) > limit:
-            raise ValueError(f"Request body exceeds {limit // 1024} KiB")
-    try:
-        return model.model_validate_json(data)
-    except ValidationError:
-        raise ValueError("Invalid request fields") from None
 
 
 def _sid(request: Request) -> str:
@@ -599,6 +589,8 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             ),
             *([] if controls.demo else [Mount("/example", app=offline_example)]),
             Route("/assets/{asset}", asset),
+            *program_routes(controls),
+            *recompute_routes(controls),
             Route("/api/extensions", project_extensions, methods=["GET", "POST"]),
             Route("/api/settings", project_settings, methods=["GET", "POST"]),
             Route(session + "/connectors/{name}/reconnect", reconnect, methods=["POST"]),
@@ -630,10 +622,6 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/bundles/{bundle_id}", download_bundle),
         ],
     }
-
-
-class Empty(BaseModel):
-    pass
 
 
 def create_app(controls: ResearchControls, host: str, *, library: bool = True):

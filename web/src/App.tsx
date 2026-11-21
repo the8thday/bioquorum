@@ -21,11 +21,12 @@ import { useRecord } from "./useRecord";
 import type { DraftReference, EvidenceRef, Project, Snapshot, TurnRef } from "./types";
 import { Icon } from "./Icon";
 import { Projects } from "./Projects";
+import { Materials } from "./Materials";
 import type { Section } from "./Extensions";
 import plate from "./radiolaria.webp";
 
 type Modal = {kind: "new" | "fork" | "rename" | "archive" | "usage" | "context" | "settings" | "chat-settings"} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
-  | {kind: "evidence"; item: TurnRef; data: Awaited<ReturnType<typeof readEvidence>>}
+  | {kind: "evidence"; claimIds:string[]; item: TurnRef; data: Awaited<ReturnType<typeof readEvidence>>}
   | {kind: "replication"; path: string; estimate: Estimate};
 
 const emptyRecord: Snapshot = {last_seq:0,questions:[],turns:[],figures:[],answers:[],pending_plan:null,permissions:[],activity:[],verification:[]};
@@ -36,9 +37,10 @@ function Intro({start}: {start: () => void}) {
     <button className="quiet" onClick={start}>Try the metformin example <Icon name="arrow"/></button></div></article>;
 }
 
-interface Selection {project: Project; id: string; fill: boolean}
-function updateURL(id: string, home = false) {
+interface Selection {project: Project; id: string; fill: boolean; draft?:string}
+function updateURL(id: string, home = false, leaveLine = false) {
   const url = new URL(location.href);
+  if (leaveLine) {url.searchParams.delete("view"); url.hash="";}
   if (url.hash === "#sessions-heading") url.hash = "";
   if (home) url.searchParams.set("home","1"); else url.searchParams.delete("home");
   if (id) url.searchParams.set("session", id);
@@ -66,23 +68,34 @@ export function App() {
     }).catch(e => { if (!controller.signal.aborted) setError(errorMessage(e)); });
     return () => controller.abort();
   }, []);
-  async function select(id: string, fill = false, home = false) {
+  async function select(id: string, fill = false, home = false, draft?:string, leaveLine = false) {
     const version = ++navigation.current;
     const project = await request<Project>("/api/sessions");
     if (version !== navigation.current) return;
     if (!id && !home) id = project.sessions[0]?.id ?? "";
     if (id && !project.sessions.some(s => s.id === id)) throw new Error("Session not found");
-    updateURL(id,home); setSelection({id, project, fill});
+    updateURL(id,home,leaveLine); setSelection({id, project, fill, draft});
     requestAnimationFrame(() => document.getElementById("session-name")?.focus());
   }
   if (!selection) return <main><p role="status">{error || "Loading…"}</p></main>;
   return <Session key={selection.id} layout={layout} {...selection} select={select} prefs={prefs} setPrefs={setPrefs}/>;
 }
 
-function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection & {layout:ReturnType<typeof useSidebarLayout>;prefs: Preferences; setPrefs: (value: Preferences) => void; select: (id: string, fill?: boolean,home?:boolean) => Promise<void>}) {
+function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Selection & {layout:ReturnType<typeof useSidebarLayout>;prefs: Preferences; setPrefs: (value: Preferences) => void; select: (id: string, fill?: boolean,home?:boolean, draft?:string, leaveLine?:boolean) => Promise<void>}) {
   const base = id ? sessionPath(id) : "";
   const {record, refresh, connection, progress, error} = useRecord(base);
   const transcript = useRef<HTMLDivElement>(null);
+  const highlightedClaim = useRef("");
+  useEffect(()=>{
+    const hash=location.hash;
+    if (!record || highlightedClaim.current === hash || !hash.startsWith("#claim-")) return;
+    const node = transcript.current?.querySelector<HTMLElement>('[data-claim-id="'+CSS.escape(hash.slice(7))+'"]');
+    if (!node) return;
+    let closed = node.closest<HTMLDetailsElement>("details:not([open])");
+    while (closed) {closed.open=true; closed=closed.closest("details:not([open])");}
+    node.scrollIntoView({block:"center"});
+    highlightedClaim.current=hash;
+  },[record]);
   const follow = useRef(false);
   const [modal, setModal] = useState<Modal | null>(null);
   const [message, setMessage] = useState<ReactNode>("");
@@ -90,6 +103,16 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
   const [panel,setPanel] = useState<Preferences["initial_panel"]>(prefs.initial_panel);
   const [collapsed,setCollapsed] = useState(() => window.innerWidth < 1000);
   const [navOpen, setNavOpen] = useState(false);
+  const [lineView,setLineView] = useState(() => project.example ? null : new URL(location.href).searchParams.get("view"));
+  const materials = lineView === "materials" || lineView === "program";
+  function showMaterials(open: boolean, overview = false) {
+    const url = new URL(location.href);
+    if (open) url.searchParams.set("view", overview ? "program" : "materials");
+    else { url.searchParams.delete("view"); url.searchParams.delete("program"); }
+    history.replaceState(null, "", url);
+    setLineView(open ? overview ? "program" : "materials" : null);
+    setNavOpen(false);
+  }
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -144,6 +167,7 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
   }
   async function create(title: string, fork = false, fill = false) {
     const row = await request<{id: string}>(fork ? base + "/fork" : "/api/sessions", {title});
+    showMaterials(false);
     await select(row.id, fill);
   }
   async function start() {
@@ -153,7 +177,11 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
   }
   async function evidence(answer: string, ref: EvidenceRef) {
     const item: TurnRef = ref.type === "value" ? {kind:"value",id:ref.run_id,name:ref.name} : {kind:"source",id:ref.call_id,excerpt:ref.quote};
-    setModal({kind: "evidence", item, data: await readEvidence(base, answer, ref)});
+    const claims = record?.answers.find(row=>row.id===answer)?.claims ?? [];
+    const matches = claims.filter(c=>c.segments.some(s=>s.ref?.type === ref.type && (
+      ref.type==="value" && s.ref.type==="value" ? s.ref.run_id===ref.run_id && s.ref.name===ref.name :
+      ref.type==="quote" && s.ref.type==="quote" && s.ref.call_id===ref.call_id && s.ref.quote===ref.quote)));
+    setModal({kind: "evidence", item, claimIds:matches.map(c=>c.id), data: await readEvidence(base, answer, ref)});
   }
   async function runVerification(path: string, body: unknown) {
     setMessage("Verification running…");
@@ -200,7 +228,7 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
   const products = record?.products ?? [];
   const recordedFigures = new Set(record?.figures.map(f=>f.id));
   const resultFigures = new Map(products.filter(p=>recordedFigures.has(p.id)).map(p=>[p.id,p]));
-  const sizes=layout.columns(!!active,!!id && !collapsed);
+  const sizes=layout.columns(!!active && !materials,!!id && !collapsed && !materials);
   const answerPositions = new Map(record?.answers.map(a=>[a.turn,a.seq]));
   const groups = new Map<string,{seq:number;items:Product[]}>();
   for (const p of products) {
@@ -228,28 +256,36 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
 
   const home = !id;
   const preferences = (section:Section) => {setNavOpen(false);setModal({kind:"preferences",section});};
-  return <><a className="skip-link" href="#workspace">Skip to research record</a><div data-reading-size={prefs.reading_size} style={sizes.style} className={"shell"+(collapsed ? " panels-collapsed" : "")+(layout.compact ? " compact-nav" : "")+(active ? " viewing-result" : "")}><header className="masthead">
+  return <><a className="skip-link" href="#workspace">{materials ? lineView==="program" ? "Skip to research line":"Skip to materials" : "Skip to research record"}</a><div data-reading-size={prefs.reading_size} style={sizes.style} className={"shell"+(collapsed ? " panels-collapsed" : "")+(layout.compact ? " compact-nav" : "")+(active ? " viewing-result" : "")}><header className="masthead">
     <button className="desktop-nav icon-button" aria-label={layout.compact?"Expand navigation":"Collapse navigation"} title={layout.compact?"Expand navigation":"Collapse navigation"}
       aria-controls="project-nav" aria-expanded={!layout.compact} onClick={()=>layout.setCompact(!layout.compact)}><Icon name="side"/></button>
     <button className="mobile-nav icon-button" aria-label="Projects and sessions" aria-expanded={navOpen} onClick={() => setNavOpen(v => !v)}><Icon name="menu"/></button>
     <div className="brand"><span className="brand-mark" aria-hidden="true"/><strong>BioQuorum</strong></div>
     <span className="masthead-label">Research workspace</span><span className="mode">
       {project.example ? "Offline example" : project.classification + " project"}</span>
-    {id && <button className="quiet panel-toggle" aria-label={collapsed ? "Show research panels" : "Hide research panels"} title="Research panels" aria-expanded={!collapsed} aria-controls="research-panels"
+    {id && !materials && <button className="quiet panel-toggle" aria-label={collapsed ? "Show research panels" : "Hide research panels"} title="Research panels" aria-expanded={!collapsed} aria-controls="research-panels"
        onClick={() => {setCollapsed(v => !v);setNavOpen(false);}}><Icon name="side"/><span>Inspector</span></button>}
     <button className="icon-button workbench-settings" title="Workbench settings" aria-label="Workbench settings" onClick={() => preferences("General")}><Icon name="gear"/></button>
   </header>
     <aside id="project-nav" className={"sidebar"+(navOpen ? " mobile-open" : "")} aria-label="Project and sessions">
-      <nav className="workspace-nav" aria-label="Workspace"><button className="rail-action" title="Home" aria-current={home ? "page":undefined} onClick={()=>{setNavOpen(false);select("",false,true).catch(report);}}><Icon name="home"/><span>Home</span></button>
+      <nav className="workspace-nav" aria-label="Workspace"><button className="rail-action" title="Home" aria-current={home && !materials ? "page":undefined} onClick={()=>{showMaterials(false);select("",false,true).catch(report);}}><Icon name="home"/><span>Home</span></button>
+        {!project.example && <button className="rail-action" title="Research lines" aria-current={lineView==="program" ? "page":undefined}
+          onClick={()=>{showMaterials(true,true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Evidence"/><span>Research lines</span></button>}
+        {!project.example && <button className="rail-action" title="Materials" aria-current={lineView==="materials" ? "page":undefined}
+          onClick={()=>{showMaterials(true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Artifacts"/><span>Materials</span></button>}
         <button className="rail-action" title="Skills" onClick={()=>preferences("Skills")}><Icon name="skills"/><span>Skills</span></button>
         <button className="rail-action" title="MCP connectors" onClick={()=>preferences("MCP connectors")}><Icon name="plug"/><span>MCP connectors</span></button></nav>
       <Projects name={project.project}/>
       <div className="session-header"><h2 id="sessions-heading" tabIndex={-1}>Sessions</h2>
         <button className="icon-button" aria-label="New session" title="New session" onClick={() => setModal({kind: "new"})}><Icon name="add"/></button></div>
-      <SessionSearch project={project} selected={id} open={sid => {setNavOpen(false);select(sid).catch(report);}}/>
+      <SessionSearch project={project} selected={materials ? "" : id} open={sid => {
+        showMaterials(false);select(sid).then(()=>{if(sid===id) return refresh();}).catch(report);
+      }}/>
       <button className="rail-action settings-link" title="Project settings" onClick={() => setModal({kind:"settings"})}><Icon name="settings"/><span>Project settings</span></button></aside>
     {!layout.compact && <Splitter side="left" value={sizes.leftWidth} min={180} max={sizes.leftMax} change={layout.setLeft}/>}
-    <main id="workspace" className={home ? "home-workspace" : record ? "has-session" : undefined} tabIndex={-1}><header className="record-header">
+    {materials && <Materials currentSession={id} project={project} newSession={()=>setModal({kind:"new"})} overview={lineView==="program"}
+      openSession={(sid,prompt)=>{select(sid,false,false,prompt,true).then(()=>setLineView(null)).catch(report);}}/>}
+    <main hidden={materials} id={materials ? undefined : "workspace"} className={home ? "home-workspace" : record ? "has-session" : undefined} tabIndex={-1}><header className="record-header">
     <p className="crumb">{project.project}{!home && <> <span aria-hidden="true">/</span> Session</>}</p>
     <div className="title-row"><h1 id="session-name" tabIndex={-1}>{title}</h1>
     {id && <div className="session-tools" ref={actionsRef}><button className="icon-button" aria-label="Session actions" aria-expanded={actionsOpen} onClick={() => setActionsOpen(v => !v)}><Icon name="more"/></button>
@@ -279,13 +315,13 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
     {quote && !modal && <SelectedText add={quote}/>}
     </div>
     <div className="compose-dock">
-    {(record || home && !project.example) && <Composer executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
+    {(record || home && !project.example) && <Composer initialDraft={draft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
       onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
     <p id="message" role="status" aria-live="polite">{message || error}</p></div>{home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project}/></>}</main>
 
-    {id && !collapsed && <Splitter side="right" value={sizes.rightWidth} min={280} max={sizes.rightMax} change={sizes.setRight}/>}
-    <div className="margin-column" id="research-panels" hidden={collapsed || !id}>{!active && <div className="inspector-title">Research inspector</div>}
+    {id && !collapsed && !materials && <Splitter side="right" value={sizes.rightWidth} min={280} max={sizes.rightMax} change={sizes.setRight}/>}
+    <div className="margin-column" id="research-panels" hidden={collapsed || !id || materials}>{!active && <div className="inspector-title">Research inspector</div>}
       {id && !active && <nav className="panel-tabs" aria-label="Research panels">{panels.map(name =>
         <button key={name} className="quiet" aria-pressed={!active && panel===name} onClick={() => {setActiveId("");setPanel(name);}}><Icon name={name}/>{name}</button>)}</nav>}
       {!active && opened.length>0 && <div className="resume-results">{opened.map(item=><button className="quiet" key={item.id} onClick={()=>setActiveId(item.id)}>{item.name}</button>)}</div>}
@@ -315,7 +351,7 @@ function Session({id, project, fill, select, prefs, setPrefs,layout}: Selection 
           try { await request(base + "/archive", {}); await select(""); }
           catch (e) { close(); report(e); }
         }}>Archive session</button></div></Dialog>}
-    {modal?.kind === "evidence" && <EvidenceDialog openFigure={hash=>{
+    {modal?.kind === "evidence" && <EvidenceDialog claimIds={modal.claimIds} openFigure={hash=>{
       const file=products.find(p=>p.run===modal.item.id && p.hash===hash && p.preview==="figure");
       if(file){close();openResult(file);}
     }} add={quote} item={modal.item} evidence={modal.data} base={base} close={close}/>}

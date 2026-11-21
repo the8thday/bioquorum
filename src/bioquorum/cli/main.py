@@ -14,7 +14,9 @@ from rich.console import Console
 from rich.table import Table
 
 from bioquorum import __version__
+from bioquorum.application import programs
 from bioquorum.application import workspace as wsp
+from bioquorum.application.controls import ResearchControls
 from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
@@ -33,6 +35,8 @@ app = typer.Typer(
 )
 db_app = typer.Typer(help="Event store maintenance.")
 project_app = typer.Typer(help="Create and inspect a project in the current directory.")
+program_app = typer.Typer(help="List and inspect research programs.")
+app.add_typer(program_app, name="program")
 mcp_app = typer.Typer(help="Serve BioQuorum tools over MCP.")
 app.add_typer(db_app, name="db")
 app.add_typer(project_app, name="project")
@@ -173,6 +177,27 @@ def project_show(project: ProjectDir = Path(".")) -> None:
     console.print(f"root            {ws.root}")
     for s in ws.mcp_servers():
         console.print(f"mcp server      {s.name} (clearance: {s.clearance or 'local'})")
+
+
+@program_app.command("list")
+def program_list(project: ProjectDir = Path(".")) -> None:
+    """List all research programs in the selected project."""
+    typer.echo(
+        json.dumps(
+            programs.list_programs(ResearchControls(_load(project))), ensure_ascii=False, indent=2
+        )
+    )
+
+
+@program_app.command("show")
+def program_show(program_id: str, project: ProjectDir = Path(".")) -> None:
+    """Show the program's sessions and the latest status of their claims."""
+    try:
+        detail = programs.show(ResearchControls(_load(project)), program_id)
+    except LookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(json.dumps(detail, ensure_ascii=False, indent=2))
 
 
 @app.command("models")

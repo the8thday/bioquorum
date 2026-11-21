@@ -176,6 +176,10 @@ Event(
 |---|---|
 | 项目 | `project_created`（v2 记录创建时的推荐开关，v1 项目沿用原设置） |
 | 项目设置与连接器检查 | `project_settings_changed`, `connector_checked` |
+| 更正与复核 | `claim_review_flagged`, `claim_review_cleared`, `recompute_started`, `recompute_finished` |
+| 研究决定与导出 | `decision_recorded`, `decision_revised`, `program_bundle_exported` |
+| 研究线 | `program_created`, `program_updated`, `session_attached` |
+| 材料版本 | `material_registered`, `material_superseded`, `material_withdrawn` |
 | 项目笔记 | `project_note_saved`, `project_note_drafted` |
 | 会话 | `session_created`, `session_forked`, `session_title_set`, `session_archived` |
 | 对话 | `user_message`, `assistant_message` |
@@ -435,6 +439,7 @@ ToolSpec(
   - v0.8 的独立开关为 `[agent] coverage`、`first_pass` 和 `evidence_skills`。覆盖台账与讨论条目从本轮事件重建。对外查询走 `tools.invoke()`，公开来源的返回按不受信任材料处理。启用条件与实测进度见[开关比较](research/v08-profile.md)。
   - 证据绑定（已实现）：`[agent] binding` 默认开启，控制提示词里的绑定说明和 `[source sN]` 行，关闭时使用 v0.1 提示词。解析失败时，`[agent] binding_retries` 控制退回轮数（0 到 2），通过 `user_message`、`actor = system` 列出失败项。退回收益未证实，按 ADR-018 默认设为 0。配对结果见 [绑定评测](research/binding-eval.md)。
   - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
+  - 研究线背景（ADR-031、041）：`[agent] program_context` 默认关闭。加入研究线的会话可通过 `read_program_context` 分页读取当前结论与决定；返回内容不参与证据别名或引文绑定。
   - 文献子任务（ADR-024）：空白上下文、已有权限、明确列出的文献工具，使用量计入父轮预算。子流与主对话分离，主会话只收到有限摘要和核对过的原文摘录。
   - Skills、项目笔记（ADR-023）：分开启用。先给 Skill 目录，正文和引用经工具按需打开；笔记保存在项目事件流，模型只能建议，作者保存后才跨会话生效。
 - 入口：`bq run` 提问 → 循环 → 回答 → 自动审查（`review.review_answer`）；`bq review [--answer-file]` 审查会话最后一条回答，或审查外部（例如 Claude Code 经 MCP）写出的回答，证据都取自会话事件。
@@ -567,3 +572,5 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 037 | [对话旁的结果阅读区与可调整侧栏](adr/037-result-reader.md) |
 | 038 | [v0.8 新项目的推荐配置](adr/038-v08-recommended-profile.md) |
 | 039 | [双语言内核、文件交接和重跑](adr/039-bilingual-kernels.md) |
+| 040 | [研究线归属与材料版本的身份](adr/040-program-membership-and-material-versions.md) |
+| 041 | [研究线更正、重算与接手](adr/041-correction-and-handoff.md) |

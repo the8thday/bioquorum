@@ -19,6 +19,7 @@ const mechanisms = [
   ["binding_retries","Binding retries","Return unresolved bindings to the worker for up to two revisions.","binding-repair-eval"],
   ["compact_at_bytes","Compress at this many bytes","Summarize older messages past this threshold. Leave blank for manual compression.","v02-runtime-controls"],
   ["skills","Research skills","Let the worker load applicable research instructions.","v05-project-context"],
+  ["program_context","Research line context","Read previous findings and researcher decisions as background in attached sessions.","v10-program-context"],
   ["project_notes","Project notes","Make the saved researcher note available across sessions.","v05-project-context"],
   ["literature_subtasks","Literature subtasks","Allow a child session to search the listed literature tools.","v05-literature-subtasks"],
   ["source_to_kernel","Sources in kernel","Stage retrieved source content for computation.","v05-literature-subtasks"],

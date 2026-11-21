@@ -172,6 +172,37 @@ def _legacy_project_defaults(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @register
+class ProgramCreated(EventPayload):
+    event_type: ClassVar[str] = "program_created"
+    project_id: str
+    program_id: str
+    name: str = Field(min_length=1, max_length=160)
+
+
+@register
+class ProgramUpdated(EventPayload):
+    event_type: ClassVar[str] = "program_updated"
+    project_id: str
+    program_id: str
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    closed: bool = False
+
+    @model_validator(mode="after")
+    def one_change(self) -> Self:
+        if (self.name is not None) == self.closed:
+            raise ValueError("Choose one change to the program")
+        return self
+
+
+@register
+class SessionAttached(EventPayload):
+    event_type: ClassVar[str] = "session_attached"
+    project_id: str
+    program_id: str
+    session_id: str
+
+
+@register
 class ConnectorChecked(EventPayload):
     event_type: ClassVar[str] = "connector_checked"
     project_id: str
@@ -532,6 +563,84 @@ class FileRegistered(EventPayload):
     source: Literal["user_upload"] = "user_upload"
 
 
+MaterialKind = Literal["experimental_data", "vendor_delivery", "literature", "other"]
+
+
+class MaterialChange(EventPayload):
+    project_id: str
+    program_id: str
+
+
+@register
+class MaterialRegistered(MaterialChange):
+    event_type: ClassVar[str] = "material_registered"
+    upload_event_id: str
+    kind: MaterialKind
+    source: str = Field(min_length=1, max_length=1200)
+
+
+@register
+class MaterialSuperseded(MaterialChange):
+    event_type: ClassVar[str] = "material_superseded"
+    prior_version_id: str
+    upload_event_id: str
+    source: str = Field(min_length=1, max_length=1200)
+    reason: str = Field(min_length=1, max_length=1200)
+
+
+@register
+class MaterialWithdrawn(MaterialChange):
+    event_type: ClassVar[str] = "material_withdrawn"
+    version_id: str
+    reason: str = Field(min_length=1, max_length=1200)
+
+
+class MaterialReview(EventPayload):
+    project_id: str
+    program_id: str
+    material_version_id: str
+
+
+@register
+class ClaimReviewFlagged(MaterialReview):
+    event_type: ClassVar[str] = "claim_review_flagged"
+    claim_id: str
+
+
+@register
+class ClaimReviewCleared(MaterialReview):
+    event_type: ClassVar[str] = "claim_review_cleared"
+    claim_id: str
+    recompute_id: str
+    replacement_claim_id: str
+
+
+@register
+class RecomputeStarted(MaterialReview):
+    event_type: ClassVar[str] = "recompute_started"
+    recompute_id: str
+    session_id: str
+    replacement_version_id: str
+    run_ids: list[str]
+    claim_ids: list[str]
+
+
+class RecomputedClaim(BaseModel):
+    old_claim_id: str
+    new_claim_id: str | None = None
+    review_cleared: bool = False
+
+
+@register
+class RecomputeFinished(MaterialReview):
+    event_type: ClassVar[str] = "recompute_finished"
+    recompute_id: str
+    status: Literal["completed", "failed"]
+    reason: str = ""
+    run_map: dict[str, str] = Field(default_factory=dict)
+    comparisons: list[RecomputedClaim] = Field(default_factory=list)
+
+
 @register
 class ArtifactVersionCreated(EventPayload):
     event_type: ClassVar[str] = "artifact_version_created"
@@ -670,6 +779,8 @@ class BundleExported(EventPayload):
     bundle_id: str
     path: str
     manifest_hash: str
+    run_ids: list[str] | None = None
+    claim_ids: list[str] | None = None
 
 
 # ----------------------------------------------------------------- compaction & errors
@@ -771,3 +882,42 @@ class ClarificationAnswered(EventPayload):
     event_type: ClassVar[str] = "clarification_answered"
     request_id: str
     turn_id: str
+
+
+class DecisionClaim(BaseModel):
+    """An immutable citation to a particular claim and its trust event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str
+    session_id: str
+    source_event_id: str
+    revision: str
+    text: str
+    status: VerificationStatus
+
+
+@register
+class DecisionRecorded(EventPayload):
+    event_type: ClassVar[str] = "decision_recorded"
+    project_id: str
+    program_id: str
+    decision_id: str
+    text: str = Field(min_length=1, max_length=4000)
+    claims: list[DecisionClaim] = Field(min_length=1, max_length=100)
+
+
+@register
+class DecisionRevised(DecisionRecorded):
+    event_type: ClassVar[str] = "decision_revised"
+    prior_revision: str
+
+
+@register
+class ProgramBundleExported(EventPayload):
+    event_type: ClassVar[str] = "program_bundle_exported"
+    project_id: str
+    program_id: str
+    bundle_id: str
+    material_version_ids: list[str]
+    session_bundle_ids: list[str]
+    manifest_hash: str

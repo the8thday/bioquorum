@@ -76,13 +76,16 @@ function ClaimRow({addReference, parts, claim, unbound, sharedStatus, answer, ex
   const status = claim?.status ?? "unverified";
   const canVerify = claim?.has_calculation && !answer.inherited && !example &&
     ["reviewed", "reproduced", "replicated"].includes(status);
-  return <div className={"claim " + status}>
+  return <div className={"claim " + status} data-claim-id={claim?.id}>
     <p data-ref-kind="answer" data-ref-id={answer.id}>{parts.map(({ref, text, problem}, i) => ref
       ? <button key={i} type="button" className="evidence-link" onClick={() => onEvidence(answer.id, ref)}
           title={ref.type === "quote" ? "Open cited source" : "Open calculation for " + ref.name}>
           {ref.type === "quote" ? <><span hidden>{text.slice(0,-("["+ref.source+"]").length)}</span>{"[" + ref.source + "]"}</> : text}</button>
       : <span key={i} className={"segment" + (problem ? " error" : "")} title={problem}>{inlineText(text)}</span>)}</p>
     {!sharedStatus && <Badge status={status}/>}
+    {claim?.needs_review && <span className="review-notice">Needs review</span>}
+    {claim?.replacement_claim_id && claim.replacement_session_id && <a className="replacement-link"
+      href={"?session="+encodeURIComponent(claim.replacement_session_id)+"#claim-"+encodeURIComponent(claim.replacement_claim_id)}>View corrected claim</a>}
     {claim && addReference && <button className="quiet" onClick={() => addReference({kind:"claim",id:claim.id})}>Quote claim</button>}
     {!!unbound?.length && <span className="muted" title={unbound.join(", ")}> · Unbound values or citations</span>}
     {claim?.findings.map((f, i) => <p key={i} className={"muted " + (f.severity === "error" ? "error" : "warning")}>

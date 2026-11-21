@@ -2,6 +2,15 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## Unreleased · Research lines (v0.10)
+
+- Group sessions under a research line and inspect the latest recorded status of its claims with `bq program list` and `bq program show`.
+- Register uploaded files on the workbench Materials page, record the reason for a correction or withdrawal, and download each version by its recorded content hash.
+- Trace a material version to calculations, values, figures, claims, decisions and previous exports. Follow a claim back to the input it used.
+- Preview a correction, recompute the original cells in isolated kernels and compare recorded values side by side. Preserve pending interpretations and the history of researcher decisions.
+- Download a research-line handoff summary and a bundle containing member sessions and versioned materials.
+- Enable audited research-line background retrieval per project. See the [paired evaluation](docs/research/v10-program-context.md) and the [scored human handoff comparison](docs/research/v10-day2-comparison.md).
+
 ## Unreleased · Bilingual (v0.9)
 
 - Add project-local IRkernel support alongside Python, per-session workbench kernels and R named-value declarations.

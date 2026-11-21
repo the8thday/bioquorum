@@ -96,6 +96,7 @@ class AgentOptions:
     stream: bool = False
     show_cost: bool = True
     skills: bool = False
+    program_context: bool = False
     project_notes: bool = False
     literature_subtasks: bool = False
     literature_tools: tuple[str, ...] = ()
@@ -118,6 +119,7 @@ MINIMAL = {
     "binding_retries": 0,
     "compact_at_bytes": None,
     "skills": False,
+    "program_context": False,
     "project_notes": False,
     "literature_subtasks": False,
     "source_to_kernel": False,
@@ -254,6 +256,7 @@ class Workspace:
         )
         for flag in (
             "skills",
+            "program_context",
             "project_notes",
             "literature_subtasks",
             "source_to_kernel",
@@ -298,6 +301,7 @@ class Workspace:
             stream=bool(cfg.get("stream", False)),
             show_cost=bool(cfg.get("show_cost", True)),
             skills=cfg.get("skills", False),
+            program_context=cfg.get("program_context", False),
             project_notes=cfg.get("project_notes", False),
             literature_subtasks=cfg.get("literature_subtasks", False),
             literature_tools=tuple(literature),

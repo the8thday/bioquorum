@@ -1,7 +1,6 @@
 """Session-scoped files, recorded products and portable kernel cells."""
 
 import csv
-import re
 from collections import Counter
 from collections.abc import AsyncIterable, Iterable
 from itertools import islice
@@ -11,7 +10,6 @@ from bioquorum.application.controls import ResearchControls
 from bioquorum.application.verify import bundle_file
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, PermissionClass, PermissionScope
-from bioquorum.core.hashing import sha256_file
 from bioquorum.core.messages import DataRefPart
 from bioquorum.policy.permissions import PermissionPolicy
 from bioquorum.tools.builtin.files import upload_tool
@@ -185,13 +183,7 @@ def download(controls: ResearchControls, sid: str, ident: str) -> tuple[Path, st
     row = _record(controls, sid, ident)
     if row["kind"] == "bundle":
         return bundle_file(controls, row["session"], ident), row["name"]
-    digest = row["hash"]
-    if not re.fullmatch("[0-9a-f]{64}", digest):
-        raise LookupError("Invalid recorded content hash")
-    path = controls.ws.cas().path(digest)
-    if not path.is_file() or sha256_file(path) != digest:
-        raise LookupError("Recorded artifact content unavailable")
-    return path, Path(row["name"]).name
+    return controls.ws.cas().verified_path(row["hash"]), Path(row["name"]).name
 
 
 def table(controls: ResearchControls, sid: str, ident: str, page: int, size: int = 30) -> dict:

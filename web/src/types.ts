@@ -22,6 +22,7 @@ export type EvidenceRef =
 
 export interface Segment {text: string; raw?: string; problem?: string; ref?: EvidenceRef}
 export interface Claim {
+  needs_review?:boolean; replacement_claim_id?:string|null; replacement_session_id?:string|null;
   id: string;
   segments: Segment[];
   status: string;

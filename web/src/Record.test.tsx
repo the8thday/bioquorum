@@ -51,6 +51,14 @@ describe("claim verification controls", () => {
     return renderToStaticMarkup(<AnswerCard answer={{...answer, inherited, claims: [{...claim, status}]}}
       example={false} verification={[]} onEvidence={() => {}} onReview={() => {}} onVerify={() => {}}/>);
   }
+  it("displays material review separately from the historical trust grade and links the corrected claim", () => {
+    const row = {...claim, needs_review:true, replacement_claim_id:"new-claim", replacement_session_id:"new-session"};
+    const html=renderToStaticMarkup(<AnswerCard answer={{...answer, claims:[row]}} example={false} verification={[]}
+      onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
+    expect(html).toContain("Reproduced");
+    expect(html).toContain("Needs review");
+    expect(html).toContain("?session=new-session#claim-new-claim");
+  });
   it("offers replication only after reproduction and only on a local claim", () => {
     expect(render(false, "reviewed")).toContain("Rerun calculation");
     expect(render(false, "reviewed")).not.toContain("Independent replication");

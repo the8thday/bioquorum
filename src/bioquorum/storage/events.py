@@ -13,6 +13,7 @@ from bioquorum.core.events import Event, EventPayload
 from bioquorum.storage import db as schema
 from bioquorum.storage.db import Database
 from bioquorum.storage.projections import apply_all
+from bioquorum.storage.recompute import validate_change
 
 
 class EventStore:
@@ -43,12 +44,28 @@ class EventStore:
         causation_id: str | None = None,
     ) -> list[Event]:
         """Commit linked events and their projections together, each caused by the preceding event."""
+        return self.append_streams(
+            [(session_id, payload) for payload in payloads], actor=actor, causation_id=causation_id
+        )
+
+    def append_streams(
+        self,
+        entries: Sequence[tuple[str | None, EventPayload]],
+        *,
+        actor: Actor,
+        causation_id: str | None = None,
+    ) -> list[Event]:
+        """Append a causally linked command spanning session and project streams atomically."""
         written = []
+        positions: dict[str | None, int] = {}
         with self.db.begin() as conn:
             if conn.dialect.name == "sqlite":
                 conn.exec_driver_sql("BEGIN IMMEDIATE")
-            first_seq = self._next_seq(conn, session_id)
-            for seq, payload in enumerate(payloads, first_seq):
+            for session_id, payload in entries:
+                if session_id not in positions:
+                    positions[session_id] = self._next_seq(conn, session_id)
+                seq = positions[session_id]
+                positions[session_id] += 1
                 if isinstance(payload, (ev.ProjectNoteSaved, ev.ProjectSettingsChanged)):
                     current = self._revision(conn, payload.project_id, payload.event_type)
                     subject = (
@@ -58,6 +75,15 @@ class EventStore:
                         raise ValueError(f"Changes to {subject} require a direct researcher action")
                     if payload.prior_revision != (current.id if current else None):
                         raise ValueError(f"The {subject} changed. Reload it before saving.")
+                if isinstance(
+                    payload,
+                    ev.RecomputeStarted
+                    | ev.RecomputeFinished
+                    | ev.MaterialSuperseded
+                    | ev.MaterialWithdrawn
+                    | ev.ProgramUpdated,
+                ):
+                    validate_change(conn, payload, session_id, actor)
                 event = Event.build(
                     payload, session_id=session_id, seq=seq, actor=actor, causation_id=causation_id
                 )
@@ -121,13 +147,19 @@ class EventStore:
         with self.db.connect() as conn:
             return [_from_row(r) for r in conn.execute(q)]
 
-    def history(self, session_id: str) -> list[Event]:
+    def history(
+        self, session_id: str, *, members: frozenset[str] | None = None, to_seq: int | None = None
+    ) -> list[Event]:
         """Include a fork's immutable ancestry, with distinct local display positions."""
-        own = self.read(session_id)
+        if members is not None and session_id not in members:
+            raise LookupError("Session is outside the selected research line")
+        own = self.read(session_id, to_seq=to_seq)
         segment = own
         segments: list[list[Event]] = []
         seen = {session_id}
         while segment and isinstance(fork := segment[0].parsed(), ev.SessionForked):
+            if members is not None and fork.parent_session_id not in members:
+                break
             if fork.parent_session_id in seen:
                 raise ValueError("Cyclic session ancestry")
             seen.add(fork.parent_session_id)

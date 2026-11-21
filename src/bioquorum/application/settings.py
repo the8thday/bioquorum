@@ -31,6 +31,7 @@ from bioquorum.tools.spec import ToolResult, ToolSpec
 FLAGS = (
     "binding",
     "skills",
+    "program_context",
     "project_notes",
     "literature_subtasks",
     "source_to_kernel",

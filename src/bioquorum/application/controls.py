@@ -45,10 +45,11 @@ class ResearchControls:
         make_client: research.ClientFactory = research.model_client,
         kernel_factory: KernelFactory | None = None,
         registry_factory: Callable[[], ToolRegistry] = default_registry,
+        store: EventStore | None = None,
         demo: bool = False,
     ) -> None:
         self.ws = workspace
-        self.store = EventStore(workspace.database())
+        self.store = store if store is not None else EventStore(workspace.database())
         self.make_client = make_client
         self.kernel_factory = kernel_factory
         self.session_kernels = SessionKernels()
@@ -469,6 +470,53 @@ class ResearchControls:
 
     async def recover_verification(self) -> None:
         """Record an inconclusive result when a local verification process has exited."""
+        project_history = self.store.read(
+            None,
+            types=(
+                "recompute_started",
+                "recompute_finished",
+                "tool_call_finished",
+                "tool_call_failed",
+            ),
+        )
+        terminal = {
+            e.payload["recompute_id"] for e in project_history if e.type == "recompute_finished"
+        }
+        closed_calls = {
+            e.payload["call_id"]
+            for e in project_history
+            if e.type in ("tool_call_finished", "tool_call_failed")
+        }
+        for event in project_history:
+            if event.type != ev.RecomputeStarted.event_type:
+                continue
+            start = ev.RecomputeStarted.model_validate(event.payload)
+            if start.project_id != self.ws.project_id or start.recompute_id in terminal:
+                continue
+            history = self.require_session(start.session_id)
+            await self._recover_calls(start.session_id, history)
+            note = "The previous process exited before completing the recalculation."
+            endings: list[ev.EventPayload] = [
+                ev.RecomputeFinished(
+                    project_id=start.project_id,
+                    program_id=start.program_id,
+                    material_version_id=start.material_version_id,
+                    recompute_id=start.recompute_id,
+                    status="failed",
+                    reason=note,
+                )
+            ]
+            requested = self.store.get(history[0].causation_id) if history[0].causation_id else None
+            call = requested.parsed() if requested else None
+            if (
+                isinstance(call, ev.ToolCallRequested)
+                and call.tool == "recompute_material"
+                and call.call_id not in closed_calls
+            ):
+                endings.append(ev.ToolCallFailed(call_id=call.call_id, tool=call.tool, error=note))
+            self.store.append_chain(
+                endings, session_id=None, actor=Actor.SYSTEM, causation_id=event.id
+            )
         for row in self.sessions():
             sid = row["id"]
             events = self.require_session(sid)

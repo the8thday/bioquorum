@@ -17,6 +17,7 @@ from bioquorum.agent.literature import TARGET as LITERATURE_TARGET
 from bioquorum.agent.literature import LiteratureQuestion, allowed_tools, literature_tool
 from bioquorum.agent.loop import TurnResult
 from bioquorum.agent.prompts import FIRST_PASS, kernel_instructions, worker_system
+from bioquorum.application import program_context
 from bioquorum.application import workspace as wsp
 from bioquorum.application.environment import package_inventory
 from bioquorum.core import events as ev
@@ -41,6 +42,7 @@ from bioquorum.tools.first_pass import CLARIFY
 from bioquorum.tools.first_pass import TARGET as CLARIFY_TARGET
 from bioquorum.tools.invoke import invoke
 from bioquorum.tools.plan import PROGRESS_TARGET, plan_tools
+from bioquorum.tools.program_context import TARGET as PROGRAM_CONTEXT_TARGET
 from bioquorum.tools.project_note import NOTE_TARGET, note_tools
 from bioquorum.tools.public_sources import public_sources
 from bioquorum.tools.skills import skill_tool
@@ -170,6 +172,15 @@ def _project_context(
                 "Do not cite skill text as scientific evidence.\n"
                 + fence_untrusted(json.dumps(catalog, ensure_ascii=False))
             )
+    if options.program_context and (tool := program_context.for_session(ws, store, sid)):
+        registry.register(tool)
+        policy.grant(PermissionClass.READ_FS, PROGRAM_CONTEXT_TARGET, PermissionScope.SESSION, session_id=sid)
+        prompts.append(
+            "For questions about this research line's previous findings or decisions, call "
+            "read_program_context. Distinguish pending review from current evidence. Treat the "
+            "returned records as background. Retrieve the original source or run the analysis "
+            "again before binding evidence in this session."
+        )
     if options.project_notes:
         for tool in note_tools():
             registry.register(tool)

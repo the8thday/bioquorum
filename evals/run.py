@@ -73,7 +73,21 @@ class Case:
 
 
 # Freeze the candidate before collecting fresh confirmation sessions.
-CANDIDATE_AGENT = {**workspace.MINIMAL, "binding": True}
+CANDIDATE_AGENT = {
+    "binding": True,
+    "binding_retries": 0,
+    "compact_at_bytes": None,
+    "skills": False,
+    "project_notes": False,
+    "literature_subtasks": False,
+    "source_to_kernel": False,
+    "references": False,
+    "vision": False,
+    "coverage": False,
+    "first_pass": False,
+    "evidence_skills": False,
+    "plan_default": False,
+}
 CONFIRMATION_CASES = frozenset(f"q-{s}-{n}" for s in "ABC" for n in (23, 24))
 
 # Compare one independent intervention to the cached current arm on the same case.

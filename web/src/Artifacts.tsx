@@ -20,6 +20,18 @@ export function Artifacts({base, rows, attach, open}: {base: string; rows: Produ
     </article>)}</aside>;
 }
 
+export async function uploadFile(base: string, file: File, classification: string, signal?: AbortSignal): Promise<Product> {
+  const query = new URLSearchParams({name:file.name, classification});
+  const response = await fetch(base+"/artifacts?"+query, {
+    method:"POST", headers:{"Content-Type":"application/octet-stream"}, body:file, signal,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Upload failed");
+  }
+  return response.json();
+}
+
 export function Upload({base,resolveBase,classification,onUpload,disabled}: {base:string;resolveBase?:()=>Promise<string>;classification:string;onUpload:(p:Product)=>void;disabled:boolean}) {
   const [open,setOpen] = useState(false);
   const [file,setFile] = useState<File>();
@@ -39,11 +51,8 @@ export function Upload({base,resolveBase,classification,onUpload,disabled}: {bas
     active.current = controller;
     setBusy(true);setError("");
     try {
-      const query = new URLSearchParams({name:file.name,classification:level});
       const path = resolveBase ? await resolveBase() : base;
-      const res = await fetch(path+"/artifacts?"+query,{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:file,signal:controller.signal});
-      if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
-      const product: Product = await res.json();
+      const product = await uploadFile(path, file, level, controller.signal);
       if (!controller.signal.aborted) {onUpload(product);close();}
     } catch (e) {
       if (!controller.signal.aborted) {setError(errorMessage(e));setBusy(false);}

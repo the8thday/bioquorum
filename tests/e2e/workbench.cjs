@@ -179,6 +179,12 @@ async function verifyConversation(page) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
+    if (process.env.BQ_TEST_SCENARIO_D) {
+      try { await require("./scenario_d.cjs")(page); }
+      catch (error) { console.error(await page.locator("body").innerText()); throw error; }
+      assert.deepEqual(errors, []);
+      return;
+    }
     if (process.env.BQ_TEST_BILINGUAL) {
       await page.getByRole("button", {name:"7",exact:true}).click();
       const evidence = page.getByRole("dialog", {name:"total",exact:true});
@@ -197,6 +203,12 @@ async function verifyConversation(page) {
       for (const name of ["research-python.ipynb","research-r.ipynb"]) assert.ok(archive.includes(Buffer.from(name)));
       assert.deepEqual(errors, []);
       console.log("R evidence, project package inventory and mixed notebook download passed");
+      return;
+    }
+    if (process.env.BQ_TEST_MATERIALS) {
+      try { await require("./materials.cjs")(page); }
+      catch (error) { console.error(await page.locator("body").innerText()); throw error; }
+      assert.deepEqual(errors, []);
       return;
     }
     if (process.env.BQ_TEST_COVERAGE) {

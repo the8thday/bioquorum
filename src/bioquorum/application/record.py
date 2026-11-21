@@ -8,14 +8,17 @@ from bioquorum.application.artifacts import catalog_records
 from bioquorum.application.controls import ResearchControls
 from bioquorum.application.first_pass import HEADINGS, sections
 from bioquorum.application.onboarding import disconnected
+from bioquorum.application.program_lineage import review_state
 from bioquorum.core import events as ev
 from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor
 from bioquorum.core.refs import QuoteRef, RunRef, ValueRef
 from bioquorum.core.review_record import AnswerReview, answer_reviews
+from bioquorum.provenance.recompute import replacement_claims
 from bioquorum.review.binding import find_bindings, ground_claim, render
 from bioquorum.review.checks.absence import unsupported_absence
 from bioquorum.review.evidence import Evidence, result_text
+from bioquorum.storage.programs import for_session
 from bioquorum.tools.replay import dependency_chain, recorded_inputs
 
 AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -112,6 +115,8 @@ def _answer(
     review: AnswerReview,
     statuses: dict[str, str],
     findings: dict[str, list[dict]],
+    pending_claims: dict[str, set[str]],
+    replacements: dict[str, tuple[str, str]],
 ) -> dict:
     evidence = Evidence.from_events(prefix)
     start = next(
@@ -150,6 +155,13 @@ def _answer(
                 ),
                 "status": statuses.get(c.claim_id, "unverified"),
                 "findings": findings.get(c.claim_id, []),
+                "needs_review": c.claim_id in pending_claims,
+                "replacement_claim_id": replacements[c.claim_id][0]
+                if c.claim_id in replacements
+                else None,
+                "replacement_session_id": replacements[c.claim_id][1]
+                if c.claim_id in replacements
+                else None,
             }
             for c in review.claims
         ],
@@ -167,6 +179,21 @@ def _answer(
 
 def snapshot(controls: ResearchControls, sid: str) -> dict:
     local = controls.require_session(sid)
+    program_id = for_session(controls.store.db, controls.ws.project_id, sid)
+    pending_claims: dict[str, set[str]] = {}
+    replacements: dict[str, tuple[str, str]] = {}
+    if program_id:
+        review_events = controls.store.read(
+            None,
+            types=(
+                "claim_review_flagged",
+                "claim_review_cleared",
+                "recompute_started",
+                "recompute_finished",
+            ),
+        )
+        pending_claims, _ = review_state(controls, program_id)
+        replacements = replacement_claims(review_events, controls.ws.project_id, program_id)
     events = controls.store.history(sid)
     parsed = [(e, e.parsed()) for e in events]
     rerun_ids = {
@@ -265,6 +292,8 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
                     reviews.get(e.id, AnswerReview()),
                     statuses,
                     findings,
+                    pending_claims,
+                    replacements,
                 ),
                 "turn": answer_turns.get(e.id),
                 "model": models.get(p.model_call_id) if p.model_call_id else None,

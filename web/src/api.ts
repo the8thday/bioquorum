@@ -1,4 +1,4 @@
-function apiPath(path: string) {
+export function apiPath(path: string) {
   if (typeof location === "undefined" || !path.startsWith("/api/") || ["/api/projects", "/api/workbench-settings"].includes(path)) return path;
   return location.pathname.replace(/\/$/, "") + path;
 }

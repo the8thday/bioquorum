@@ -546,7 +546,7 @@ def test_released_profile_matches_the_frozen_candidate_and_persists(runner, tmp_
         legacy = workspace.init_project(tmp_path / "legacy")
     project = workspace.init_project(tmp_path / "candidate")
     assert project.profile_name == "recommended"
-    assert project.config["agent"] == runner.CANDIDATE_AGENT
+    assert project.config["agent"] == {**runner.CANDIDATE_AGENT, "program_context": False}
     assert workspace.load(project.root).agent_options() == legacy.agent_options()
     assert workspace.load(legacy.root).profile_name == "custom"
     controls = ResearchControls(project)
