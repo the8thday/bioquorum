@@ -98,14 +98,16 @@
 
 ## v0.9 · Bilingual：Python 与 R
 
-**目标**：R 和 Python 同等可用。现状：两者都走 Jupyter 协议（ADR-009）；Python（ipykernel）从 v0.1 起可用，R（IRkernel）还没接。之前只提"R kernel"是因为缺的只有它。
+**目标**：同一会话里的 Python（ipykernel）和 R（IRkernel）都能出具可绑定、可重跑的结果，两者共用 Jupyter 协议（ADR-009）。
 
-- [ ] **0.9.1 R kernel 接入。** `r_execute` 工具，与 `python_execute` 并列；一个会话里两个 kernel 各自常驻。项目的 pixi 环境加入 `r-base`、`r-irkernel`（**作者**安装）；kernelspec 从项目环境里找，不用用户全局的。沙箱挂载 R 的库目录；确认 IRkernel 在沙箱里的中断方式（Python 用的是控制通道消息，R 需要实测，不行就按超时终止并重启）。· `runtime/`、`tools/builtin/kernel.py`、`application/` · 无新事件（`run_started` 增加 `language` 字段）· 验收：`FakeKernel` 的单元测试；integration 测试覆盖沙箱里的 R：不能联网、项目外不可见、打断和超时后可继续用。
-- [ ] **0.9.2 R 里的值声明。** R 端的 `bq_value(name, value, unit = NULL)`，kernel 启动时注入，发出与 Python `bq.value` 相同的自定义 MIME；名字在一次回答内跨语言唯一。图（png）和表的输出摘要支持 `data.frame`、`tibble`、`Seurat`、`SummarizedExperiment`、`DESeqDataSet`。· `runtime/values.py`、`runtime/summarize.py` · 验收：R 算出的数字在回答里以 `{{name}}` 绑定，点开看到 R 代码。
-- [ ] **0.9.3 两种语言之间传数据。** 只经项目目录里的文件（parquet、csv、h5ad、rds），写出和读入都记哈希，读入的文件成为 run 的输入。不做内存桥。提示词告诉模型这条规则和环境里可用的包（顺带解决"环境里没有 scipy，模型白跑两次"的问题）。· `agent/prompts.py`、`provenance/` · 验收：Python 预处理 → 写文件 → R 做差异分析，血缘从结论一路连到原始输入。
-- [ ] **0.9.4 重跑、盲重复和研究包支持 R。** 重跑按语言恢复各自的单元链；环境锁包含 R 包；`rerun.sh` 能重跑 R 单元并比对；`.ipynb` 导出按语言分两个文件。· `application/verify.py`、`provenance/bundle/`、`bundle-spec/` · 验收：含 R 的研究包在不装 BioQuorum 的容器里重跑一致。
-- [ ] **0.9.5 环境页。** 设置页"运行环境"列出 Python 和 R 各自可用的包和版本、锁文件哈希；缺包时给出作者要运行的 pixi 命令（沙箱里不能装包，这条不放宽）。· `application/environment.py`、`web/` · 验收：e2e。
-- [ ] **0.9.6 场景 B 的 R 版本与评测。** 用 Seurat 或 DESeq2 重做一个已有的组学示例；评测题里加入要求或适合用 R 的题。**作者**：科学验收。· `evals/`、`examples/` · 验收：`docs/research/v09-r-kernel.md`。
+2026-11-21，v0.9 六项验收全部通过。详见[逐项验收表](docs/release/v0.9-acceptance.md)。
+
+- [x] **0.9.1 R kernel 接入。** `r_execute` 工具，与 `python_execute` 并列；一个会话里两个 kernel 各自常驻。项目的 pixi 环境加入 `r-base`、`r-irkernel`（**作者**安装）；kernelspec 从项目环境里找，不用用户全局的。沙箱挂载 R 的库目录；确认 IRkernel 在沙箱里的中断方式（Python 用的是控制通道消息，R 需要实测，不行就按超时终止并重启）。· `runtime/`、`tools/builtin/kernel.py`、`application/` · 无新事件（`run_started` 增加 `language` 字段）· 验收：`FakeKernel` 的单元测试；integration 测试覆盖沙箱里的 R：不能联网、项目外不可见、打断和超时后可继续用。
+- [x] **0.9.2 R 里的值声明。** R 端的 `bq_value(name, value, unit = NULL)`，kernel 启动时注入，发出与 Python `bq.value` 相同的自定义 MIME；名字在一次回答内跨语言唯一。图（png）和表的输出摘要支持 `data.frame`、`tibble`、`Seurat`、`SummarizedExperiment`、`DESeqDataSet`。· `runtime/values.py`、`runtime/summarize.py` · 验收：R 算出的数字在回答里以 `{{name}}` 绑定，点开看到 R 代码。
+- [x] **0.9.3 两种语言之间传数据。** 只经项目目录里的文件（parquet、csv、h5ad、rds），写出和读入都记哈希，读入的文件成为 run 的输入。不做内存桥。提示词告诉模型这条规则和环境里可用的包（顺带解决"环境里没有 scipy，模型白跑两次"的问题）。· `agent/prompts.py`、`provenance/` · 验收：Python 预处理 → 写文件 → R 做差异分析，血缘从结论一路连到原始输入。
+- [x] **0.9.4 重跑、盲重复和研究包支持 R。** 重跑按语言恢复各自的单元链；环境锁包含 R 包；`rerun.sh` 能重跑 R 单元并比对；`.ipynb` 导出按语言分两个文件。· `application/verify.py`、`provenance/bundle/`、`bundle-spec/` · 验收：含 R 的研究包在不装 BioQuorum 的容器里重跑一致。
+- [x] **0.9.5 环境页。** 设置页"运行环境"列出 Python 和 R 各自可用的包和版本、锁文件哈希；缺包时给出作者要运行的 pixi 命令（沙箱里不能装包，这条不放宽）。· `application/environment.py`、`web/` · 验收：e2e。
+- [x] **0.9.6 场景 B 的 R 版本与评测。** 用 Seurat 或 DESeq2 重做一个已有的组学示例；评测题里加入要求或适合用 R 的题。**作者**：科学验收。· `evals/`、`examples/` · 验收：`docs/research/v09-r-kernel.md`。
 
 **版本验收**：同一个会话里先用 Python 再用 R 完成一次分析，两边的数字都能点开看到代码，导出的研究包在另一个环境重跑一致。
 

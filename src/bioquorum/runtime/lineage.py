@@ -64,7 +64,7 @@ def __bq_watch_outputs():
 
     root = os.path.realpath(os.getcwd())
     extensions = {".csv", ".tsv", ".md", ".markdown", ".txt", ".png", ".jpg", ".jpeg",
-                  ".svg", ".webp", ".gif"}
+                  ".svg", ".webp", ".gif", ".parquet", ".h5ad", ".rds"}
     pending = {}
     active = False
 

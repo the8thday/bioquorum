@@ -1,0 +1,5 @@
+.pixi/
+.bioquorum/
+data/*
+!data/geo-inputs.json
+outputs/

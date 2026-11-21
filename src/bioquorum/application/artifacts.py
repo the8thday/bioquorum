@@ -212,7 +212,7 @@ def table(controls: ResearchControls, sid: str, ident: str, page: int, size: int
     return {"header": header, "rows": data[:size], "page": page, "more": len(data) > size}
 
 
-def notebook(controls: ResearchControls, sid: str) -> dict:
+def notebook(controls: ResearchControls, sid: str, language: str = "python") -> dict:
     controls.require_session(sid)
     cells = [
         {
@@ -223,13 +223,19 @@ def notebook(controls: ResearchControls, sid: str) -> dict:
             "source": p.code.splitlines(keepends=True),
         }
         for e in controls.store.history(sid)
-        if isinstance(p := e.parsed(), ev.RunStarted) and not p.verification_run
+        if isinstance(p := e.parsed(), ev.RunStarted)
+        and not p.verification_run
+        and p.language == language
     ]
     return {
         "nbformat": 4,
         "nbformat_minor": 4,
         "metadata": {
-            "kernelspec": {"name": "python3", "language": "python", "display_name": "Python 3"}
+            "kernelspec": (
+                {"name": "ir", "language": "R", "display_name": "R"}
+                if language == "r"
+                else {"name": "python3", "language": "python", "display_name": "Python 3"}
+            )
         },
         "cells": cells,
     }

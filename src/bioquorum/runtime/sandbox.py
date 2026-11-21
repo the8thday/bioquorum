@@ -155,6 +155,17 @@ def seatbelt_argv(
         "/private/var/db/dyld",
         "/dev",
     )
+    # macOS traverses system and interpreter symlinks before launching a kernel.
+    # Permit metadata on those links, without exposing unrelated files by name.
+    ancestors = {"/var", "/etc", "/tmp", "/private/var/select", "/private/var/select/sh"}
+    for root in (*read_roots, executable):
+        path = Path(root).absolute()
+        for spelling in (path, path.resolve()):
+            ancestors.update(str(parent) for parent in (spelling, *spelling.parents))
+    _, hops = _interpreter_chain(Path(executable).absolute())
+    for link, target in hops:
+        for spelling in (link, target):
+            ancestors.update(str(parent) for parent in (spelling, *spelling.parents))
     writes = (workdir, *writable)
     profile = [
         "(version 1)",
@@ -163,7 +174,9 @@ def seatbelt_argv(
         "(allow sysctl-read)",
         "(allow process-exec process-fork)",
         "(allow signal (target self))",
-        "(allow file-read-metadata)",
+        "(allow file-read-metadata "
+        + " ".join(f"(literal {json.dumps(p)})" for p in sorted(ancestors))
+        + ")",
         "(allow file-read* file-map-executable "
         + " ".join(_seatbelt_path(root) for root in read_roots)
         + ")",
@@ -200,6 +213,18 @@ def _inside(path: Path, roots: Sequence[Path]) -> bool:
     return any(path == r or r in path.parents for r in roots)
 
 
+def _interpreter_chain(path: Path) -> tuple[Path, list[tuple[Path, Path]]]:
+    hops: list[tuple[Path, Path]] = []  # (link, target)
+    for _ in range(40):  # symlink loops end here
+        link = next((p for p in [*reversed(path.parents), path] if p.is_symlink()), None)
+        if link is None:
+            break
+        target = Path(os.path.normpath(link.parent / os.readlink(link)))
+        hops.append((link, target))
+        path = target / path.relative_to(link)
+    return path, hops
+
+
 def interpreter_mounts(
     executable: str, *, standalone: bool = False
 ) -> tuple[list[Path], list[tuple[str, str]]]:
@@ -214,14 +239,7 @@ def interpreter_mounts(
     if standalone and path != Path(sys.executable).absolute():
         return [path], []
     dirs = [_env_root(path)]
-    hops: list[tuple[Path, Path]] = []  # (link, target)
-    for _ in range(40):  # symlink loops end here
-        link = next((p for p in [*reversed(path.parents), path] if p.is_symlink()), None)
-        if link is None:
-            break
-        target = Path(os.path.normpath(link.parent / os.readlink(link)))
-        hops.append((link, target))
-        path = target / path.relative_to(link)
+    path, hops = _interpreter_chain(path)
     root = _env_root(path)
     if root not in dirs:
         dirs.append(root)

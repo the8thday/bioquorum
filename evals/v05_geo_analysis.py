@@ -163,8 +163,33 @@ def mitochondrial_qc(counts, totals, eligible, ceiling):
     )
 
 
+def write_paired_counts(output, pairs, features, control, treated):
+    samples = pd.DataFrame(
+        [
+            (f"{donor}_{condition}", donor, condition)
+            for condition in ("ctrl", "stim")
+            for donor in pairs
+        ],
+        columns=["sample", "donor", "condition"],
+    ).set_index("sample")
+    raw = np.vstack([control, treated]).T
+    if (raw < 0).any() or not np.array_equal(raw, raw.astype(np.int64)):
+        raise ValueError("DESeq2 input must contain nonnegative integer counts")
+    pd.DataFrame(raw.astype(np.int64), index=features, columns=samples.index).to_csv(
+        output / "paired-counts.csv", index_label="gene"
+    )
+    samples.to_csv(output / "paired-samples.csv")
+
+
 def run_geo(
-    paths: list[str], max_mt: float, min_genes: int, destination: str, declare, show
+    paths: list[str],
+    max_mt: float,
+    min_genes: int,
+    destination: str,
+    declare,
+    show,
+    *,
+    export_paired_counts: bool = False,
 ) -> None:
     """Record QC, descriptive clusters and donor-paired monocyte differential expression."""
     archive, features, annotations = paths
@@ -272,6 +297,10 @@ def run_geo(
     control = np.vstack([pseudobulk[d, "ctrl"][0] for d in pairs])
     treated = np.vstack([pseudobulk[d, "stim"][0] for d in pairs])
     tested = (np.maximum(control, treated) >= MIN_PAIR_COUNTS).sum(axis=0) >= MIN_EXPRESSED_PAIRS
+    if export_paired_counts:
+        write_paired_counts(
+            output, pairs, genes["ensembl"][tested], control[:, tested], treated[:, tested]
+        )
     control_cpm = 1e6 * control[:, tested] / control.sum(axis=1, keepdims=True)
     treated_cpm = 1e6 * treated[:, tested] / treated.sum(axis=1, keepdims=True)
     effect, p_value = paired_effects(np.log2(treated_cpm + 1) - np.log2(control_cpm + 1))

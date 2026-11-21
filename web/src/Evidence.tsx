@@ -7,7 +7,7 @@ import type { TurnRef, EvidenceRef } from "./types";
 interface Source {source: string; tool: string; task_id?: string; scope?: string}
 interface Run {
   values: {name: string; value: string | number; unit?: string}[];
-  previous_cells?: {code: string}[]; code: string; outputs: {text: string}[];
+  language?: string; previous_cells?: {code: string; language?: string; run_id: string}[]; code: string; outputs: {text: string}[];
   figures: string[]; inputs: {content_hash: string; path?: string; uri: string}[];
   code_hash: string; stdout_hash?: string; isolation?: string;
   lineage?: {direction: string; function: string; path: string; post_run_hash?: string}[];
@@ -40,8 +40,8 @@ function Calculation({data, name, base, openFigure}: {data: Run; name: string; b
   ];
   return <>
     {value && <p>{value.value}{value.unit && " " + value.unit}</p>}
-    {!!data.previous_cells?.length && <><h3>Earlier cells in this calculation</h3><pre>{data.previous_cells.map(c => c.code).join("\n\n")}</pre></>}
-    <h3>Code</h3><pre>{data.code}</pre>
+    {!!data.previous_cells?.length && <><h3>Earlier cells in this calculation</h3>{data.previous_cells.map(c => <Fragment key={c.run_id}><p>{c.language === "r" ? "R" : "Python"} · {c.run_id}</p><pre>{c.code}</pre></Fragment>)}</>}
+    <h3>{data.language === "r" ? "R code" : "Code"}</h3><pre>{data.code}</pre>
     <h3>Output</h3><pre>{data.outputs.map(o => o.text).join("\n") || "No text output recorded."}</pre>
     {!!data.figures.length && <><h3>Figures</h3>{data.figures.map((hash,i) =>
       <button className="figure-trigger" key={i} onClick={()=>openFigure?.(hash)} aria-label="Open calculation figure"><img src={figurePath(base, hash)} alt="Figure from this calculation" loading="lazy"/></button>)}</>}

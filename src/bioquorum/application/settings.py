@@ -5,13 +5,12 @@ import copy
 import os
 import re
 from dataclasses import replace
-from importlib import metadata
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from bioquorum.application.controls import ConflictError, ResearchControls
-from bioquorum.application.environment import project_environment
+from bioquorum.application.environment import package_inventory
 from bioquorum.application.workspace import (
     RECOMMENDED,
     Workspace,
@@ -61,29 +60,13 @@ def _environment(ws: Workspace) -> dict:
         isolation = ws.kernel_isolation().value
     except (IsolationUnavailable, WorkspaceError):
         isolation = "unavailable"
-    packages = []
-    try:
-        python, _ = project_environment(
-            ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi"))
-        )
-        if python:
-            prefix = ws.root / ".pixi" / "envs" / "default"
-            paths = [*prefix.glob("lib/python*/site-packages"), prefix / "Lib/site-packages"]
-            distributions = metadata.distributions(path=[str(p) for p in paths])
-        else:
-            distributions = metadata.distributions()
-        packages = sorted(
-            {(d.metadata["Name"], d.version) for d in distributions if d.metadata["Name"]}
-        )
-    except ValueError:
-        pass
     network = {"none": "unrestricted", "unavailable": "unavailable", "bwrap+net": "enabled"}
     if isolation not in network:
         network[isolation] = "enabled" if ws.kernel_network() else "blocked"
     return {
         "isolation": isolation,
         "network": network[isolation],
-        "packages": packages,
+        **package_inventory(ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi"))),
     }
 
 

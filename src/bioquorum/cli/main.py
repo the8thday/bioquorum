@@ -473,7 +473,10 @@ async def _serve(ws: wsp.Workspace, allow: list[PermissionClass], external: bool
     store = EventStore(ws.database())
     session_id = wsp.start_session(ws, store, "mcp serve")
     servers = ws.mcp_servers() if external else []
-    registry = default_registry()
+    from bioquorum.application.environment import package_inventory
+
+    inventory = package_inventory(ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi")))
+    registry = default_registry(r_available=inventory["r_available"])
     ctx = wsp.tool_context(
         ws, store, session_id, wsp.default_permissions(ws, allow=allow, servers=servers)
     )

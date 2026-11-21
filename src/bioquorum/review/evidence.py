@@ -20,7 +20,7 @@ from bioquorum.core.messages import TextPart
 from bioquorum.core.refs import NamedValue, QuoteRef
 from bioquorum.tools.builtin.citation import CITATION_LOOKUP
 
-KERNEL_TOOLS = frozenset({"python_execute"})
+KERNEL_TOOLS = frozenset({"python_execute", "r_execute"})
 """Their output is not a quotable source: text the kernel prints is not evidence (ADR-014)."""
 
 
@@ -195,11 +195,15 @@ class Evidence:
         plan: dict[str, list[str]] = {}
         done: dict[str, set[int]] = {}
         question = ""
+        languages: dict[str, str] = {}
+        name_languages: dict[str, set[str]] = {}
         for e in events:
             p = e.parsed()
-            if isinstance(p, ev.UserMessage) and not question:
-                question = p.message.text()
+            if isinstance(p, ev.UserMessage):
+                question = question or p.message.text()
+                name_languages.clear()
             elif isinstance(p, ev.RunStarted) and not p.verification_run:
+                languages[p.run_id] = p.language
                 runs[p.run_id] = {"code": p.code, "stdout": [], "ok": False}
             elif isinstance(p, ev.RunOutput) and p.run_id in runs and p.text:
                 fragments = runs[p.run_id]["stdout"]
@@ -213,7 +217,10 @@ class Evidence:
                 runs[p.run_id]["ok"] = True
                 for nv in p.values:
                     values.pop(nv.name, None)  # re-insert: keep "latest" also in order
-                    values[nv.name] = DeclaredValue(nv, p.run_id)
+                    owners = name_languages.setdefault(nv.name, set())
+                    owners.add(languages[p.run_id])
+                    if len(owners) == 1:
+                        values[nv.name] = DeclaredValue(nv, p.run_id)
             elif isinstance(p, ev.ToolCallFinished | ev.LiteratureFinished):
                 for source in _sources(p):
                     if source.call_id in source_ids:

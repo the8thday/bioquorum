@@ -260,7 +260,7 @@ AuditEntry(id, ts, actor, action, target, classification, detail)
 - **内存对象**：先序列化为规范形式再哈希。DataFrame 用 parquet（固定压缩参数、按列名排序），AnnData 用 h5ad，matplotlib 图用 PNG 加嵌入的源数据 hash；其他对象用 pickle 协议 5 并标记为"弱哈希"。
 - **代码**：去掉行尾空白、统一换行后哈希，得到 `code_hash`。
 - **环境**：`env_lock_hash = sha256(pixi.lock)`。
-- **Run 身份**：`run_key = sha256(code_hash + env_lock_hash + sorted(input content_hash))`。两次执行 `run_key` 相同而输出 hash 不同，就是复现失败；数值型输出允许按容差比较，容差记录在比较结果里。
+- **Run 身份**：`run_key = sha256(code_hash + env_lock_hash + sorted(input content_hash))`。R 的哈希材料加上 `r\n` 前缀（ADR-039）。两次执行 `run_key` 相同而输出 hash 不同，就是复现失败；数值型输出允许按容差比较，容差记录在比较结果里。
 - 内容寻址存储路径：`<store>/<hash[:2]>/<hash>`。
 
 ### 5.7 验证状态机
@@ -335,6 +335,7 @@ class Kernel(Protocol):
 - `KernelManager`：每个 Session 一个 Python kernel，按需 R kernel；跑在项目的 pixi 环境里；空闲超时回收，回收前可快照变量。
 - 【承重】并发模型：单进程 asyncio；同一 Session 内的 Run 串行；不同 Session 并行。`interrupt()` 产生 `run_cancelled`，超时产生 `run_timed_out`，两者都正常结束 Run，不留悬挂状态。
 - `summarize.py`：输出压缩成模型可看的摘要。DataFrame 给 shape、dtypes、head、describe；AnnData 给维度和 obs/var 列名；图存为产物并给缩略图。摘要的大小有上限，超出截断并注明。
+- v0.9 的 R 内核使用项目 pixi 环境；两种语言通过声明的项目文件交接，由宿主保存内容哈希。R 使用同样的命名值 MIME。工作台跨轮复用内核，R 超时或中断后重新启动并使用新内核 ID（ADR-039）。
 - 命名值（ADR-014）：`JupyterKernel` 在启动和重启后执行 `runtime/values.PRELUDE`，在 kernel 里定义 `bq`（不依赖 kernel 环境里装了 bioquorum）。`bq.value()` 发出 MIME 为 `application/vnd.bioquorum.value+json` 的 `display_data`，`tools/runs.py` 把它记进 `run_finished.values`；失败、超时、打断的 run 不记命名值。
 - 【可调】血缘 hook：kernel 启动时注入，包装 pandas、anndata、numpy、matplotlib 的读写函数，把路径和 hash 记到当前 Run。hook 失效时 Run 仍然成功，只是 inputs/outputs 为空并打标记，不能因为 hook 让分析失败。
 
@@ -565,3 +566,4 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 036 | [项目 Skills 和 MCP 连接器管理](adr/036-project-extension-library.md) |
 | 037 | [对话旁的结果阅读区与可调整侧栏](adr/037-result-reader.md) |
 | 038 | [v0.8 新项目的推荐配置](adr/038-v08-recommended-profile.md) |
+| 039 | [双语言内核、文件交接和重跑](adr/039-bilingual-kernels.md) |

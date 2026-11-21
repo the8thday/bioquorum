@@ -13,9 +13,11 @@ import sys
 import tempfile
 import time
 from collections.abc import AsyncIterator
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from jupyter_client.kernelspec import KernelSpec
 from jupyter_client.manager import AsyncKernelManager
 
 from bioquorum.core.enums import DataKind, OutputStream
@@ -31,6 +33,7 @@ from bioquorum.runtime.kernel import (
 )
 from bioquorum.runtime.lineage import OUTPUT_PRELUDE
 from bioquorum.runtime.lineage import PRELUDE as LINEAGE_PRELUDE
+from bioquorum.runtime.r_environment import R_INVENTORY
 from bioquorum.runtime.sandbox import Isolation, SandboxSpec, bwrap_argv, scrub_env, seatbelt_argv
 from bioquorum.runtime.values import PRELUDE
 
@@ -80,7 +83,7 @@ def _socket_dir() -> str:
     if len(d) > _MAX_SOCKET_PATH:  # long $TMPDIR (e.g. macOS): fall back to /tmp
         os.rmdir(d)
         d = tempfile.mkdtemp(prefix="bq-", dir="/tmp")
-    return d
+    return os.path.realpath(d)
 
 
 def _mime_payload(value: Any) -> str:
@@ -92,6 +95,12 @@ class _SandboxedKernelManager(AsyncKernelManager):
 
     bq_sandbox: SandboxSpec | None = None
     bq_python: str | None = None
+    bq_r_spec: KernelSpec | None = None
+
+    @property
+    def kernel_spec(self) -> KernelSpec | None:
+        return self.bq_r_spec or super().kernel_spec
+
     bq_writable: tuple[str, ...] = ()
     bq_isolation: Isolation = Isolation.BWRAP
 
@@ -107,6 +116,32 @@ class _SandboxedKernelManager(AsyncKernelManager):
             )
         prefix = bwrap_argv(self.bq_sandbox, executable=cmd[0], writable=self.bq_writable)
         return prefix + cmd
+
+
+def project_r_spec(prefix: Path) -> KernelSpec:
+    """Read the project IRkernel template without importing global provisioner metadata."""
+    from bioquorum.runtime.r_environment import r_spec_path
+
+    path = r_spec_path(prefix)
+    if path is None:
+        raise ValueError("Project pixi IRkernel is missing. Run pixi add r-base r-irkernel.")
+    template = json.loads(path.read_text(encoding="utf-8"))
+    if str(template.get("language", "")).lower() != "r":
+        raise ValueError("The project kernelspec is not an R kernelspec")
+    return KernelSpec(
+        argv=[
+            str(prefix / "bin/R"),
+            "--vanilla",
+            "--slave",
+            "-e",
+            "IRkernel::main()",
+            "--args",
+            "{connection_file}",
+        ],
+        display_name="R",
+        language="R",
+        resource_dir=str(path.parent),
+    )
 
 
 class JupyterKernel:
@@ -143,6 +178,11 @@ class JupyterKernel:
             raise RuntimeError("kernel sandboxing is not supported on Windows")
         # IPC (Unix sockets, user-only permissions) instead of unencrypted localhost TCP,
         # which any local user could connect to and run code through.
+        r_spec = None
+        if language == "r":
+            if python_executable is None:
+                raise ValueError("R requires the project pixi environment")
+            r_spec = project_r_spec(python_executable.parent.parent)
         self._sock_dir: str | None = None
         if sys.platform == "win32":
             self._km = _SandboxedKernelManager(kernel_name=kernel_name)
@@ -159,7 +199,9 @@ class JupyterKernel:
                 self._km.connection_file = os.path.join(self._sock_dir, "connection.json")
                 self._km.bq_sandbox = sandbox
                 self._km.bq_writable = (self._sock_dir,)
-        self._km.bq_python = str(python_executable) if python_executable else None
+        self._km.bq_r_spec = r_spec
+        if language != "r" and python_executable:
+            self._km.bq_python = str(python_executable)
         self._km.bq_isolation = self._isolation
         self.environment: str | None = None
         self._kc: Any = None
@@ -207,21 +249,26 @@ class JupyterKernel:
 
     async def _install_prelude(self) -> None:
         """Define ``bq`` in the kernel (ADR-014). Our own code: a failure here is a bug."""
-        prelude = PRELUDE + "\n" + OUTPUT_PRELUDE if self.language == "python" else PRELUDE
+        prelude = (
+            files("bioquorum.runtime").joinpath("r_prelude.R").read_text(encoding="utf-8")
+            if self.language == "r"
+            else PRELUDE + "\n" + OUTPUT_PRELUDE
+        )
         async for item in self.execute(prelude, timeout=30, silent=True):
             if isinstance(item, ExecutionEnd) and item.status is not EndStatus.OK:
                 detail = item.error.short() if item.error else item.status.value
                 raise RuntimeError(f"kernel prelude failed: {detail}")
 
-        if self.language == "python":
-            chunks = []
-            async for part in self.execute(_ENVIRONMENT, timeout=20, silent=True):
-                if isinstance(part, KernelOutput) and part.stream is OutputStream.STDOUT:
-                    chunks.append(part.text or "")
-                elif isinstance(part, ExecutionEnd) and part.status is not EndStatus.OK:
-                    chunks.clear()
-            fingerprint = "".join(chunks).strip()
-            self.environment = sha256_text(fingerprint) if fingerprint else None
+        chunks = []
+        async for part in self.execute(
+            R_INVENTORY if self.language == "r" else _ENVIRONMENT, timeout=20, silent=True
+        ):
+            if isinstance(part, KernelOutput) and part.stream is OutputStream.STDOUT:
+                chunks.append(part.text or "")
+            elif isinstance(part, ExecutionEnd) and part.status is not EndStatus.OK:
+                chunks.clear()
+        fingerprint = "".join(chunks).strip()
+        self.environment = sha256_text(fingerprint) if fingerprint else None
 
         if self.language == "python" and self._observe_lineage:
             async for _ in self.execute(LINEAGE_PRELUDE, timeout=45, silent=True):
@@ -242,9 +289,21 @@ class JupyterKernel:
         timed_out = False
 
         while True:
+            if self.language == "r" and (
+                self._cancel_requested or (deadline is not None and time.monotonic() >= deadline)
+            ):
+                status = EndStatus.CANCELLED if self._cancel_requested else EndStatus.TIMED_OUT
+                if not silent:
+                    await self.restart()
+                yield ExecutionEnd(
+                    status=status, timeout_s=timeout if status is EndStatus.TIMED_OUT else None
+                )
+                return
             if deadline is not None and not timed_out:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    if self.language == "r":
+                        continue
                     timed_out = True
                     await self._km.interrupt_kernel()
                     deadline = time.monotonic() + _DRAIN_S
@@ -255,7 +314,9 @@ class JupyterKernel:
             else:
                 wait = 1.0
             try:
-                msg = await self._kc.get_iopub_msg(timeout=wait)
+                msg = await self._kc.get_iopub_msg(
+                    timeout=min(wait, 0.5) if self.language == "r" else wait
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:  # queue.Empty: no message within `wait`
@@ -291,14 +352,18 @@ class JupyterKernel:
 
     async def interrupt(self) -> None:
         self._cancel_requested = True
-        await self._km.interrupt_kernel()
+        if self.language != "r":
+            await self._km.interrupt_kernel()
 
     async def restart(self) -> None:
-        await self._km.restart_kernel()
+        await self._km.restart_kernel(now=True)
+        self._id = new_id()
         await self._kc.wait_for_ready(timeout=60)
         await self._install_prelude()
 
     async def snapshot_variables(self) -> dict[str, DataRef]:
+        if self.language != "python":
+            return {}
         text = ""
         async for ev in self.execute(_SNAPSHOT, timeout=60, silent=True):
             if isinstance(ev, KernelOutput) and ev.stream is OutputStream.STDOUT and ev.text:

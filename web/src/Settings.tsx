@@ -11,7 +11,7 @@ interface Settings {
   agent: Record<string, Value>; models: Record<string, {allowed: boolean; [key: string]: number | boolean | null}>;
   roles: Record<string, string | string[]>; keys: {reference: string; state: string}[];
   permissions: {permission: string; scope: string; target: string; revoked: boolean}[];
-  environment: {isolation: string; network: string; packages: [string,string][]};
+  environment: {isolation: string; network: string; packages: [string,string][]; r_packages: [string,string][]; r_available: boolean; lock_hash: string | null};
   connectors: {name: string; mode?: string; status: string; clearance: string; tools: number | null; allowed: boolean}[];
 }
 const mechanisms = [
@@ -121,7 +121,12 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
         {data.keys.length ? data.keys.map(k => <p key={k.reference}><code>{k.reference}</code> · {k.state}</p>) : <p>No provider environment variables configured.</p>}</details>
       <details><summary>Runtime and project</summary><p>Kernel isolation: {data.environment.isolation} · Network: {data.environment.network}</p>
         <p>Data directories: {data.project.data_dirs.join(", ") || "Project directory only"}</p>
-        <details><summary>Python packages ({data.environment.packages.length})</summary><ul>{data.environment.packages.map(([n,v]) => <li key={n+v}>{n} {v}</li>)}</ul></details></details></>}
+        <p>Environment lock SHA-256: <code>{data.environment.lock_hash || "No active project lock"}</code></p>
+        <details><summary>Python packages ({data.environment.packages.length})</summary><ul>{data.environment.packages.map(([n,v]) => <li key={n+v}>{n} {v}</li>)}</ul><p>Add a project package with <code>pixi add PACKAGE</code>.</p></details>
+        <details><summary>R packages ({data.environment.r_packages.length})</summary>
+          <ul>{data.environment.r_packages.map(([n,v]) => <li key={n}>{n} {v}</li>)}</ul></details>
+        {data.environment.r_available ? <p>Add an R package with <code>pixi add r-PACKAGE</code>.</p> :
+          <p>To enable R, provision the project with <code>pixi add r-base r-irkernel</code> and set <code>pixi = true</code> under <code>[kernel]</code>.</p>}</details></>}
       <button className="primary" disabled={!Object.keys(patch).length || busy || data.example} onClick={() => act("/api/settings",{revision:data.revision,patch})}>Save settings</button>
       <p role="status">{message}</p></>}
   </Dialog>;

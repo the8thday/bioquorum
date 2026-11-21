@@ -8,6 +8,8 @@ BioQuorum is an open, model-neutral workbench for biomedical research. Ask a que
 
 **v0.7 workbench development preview (`0.7.0.dev0`).** Choose a model for each turn, inspect usage and context, quote a recorded result, or upload a file and follow an answer back to the kernel code and input hash. The React workbench ships inside the Python package. [Workbench walkthrough](docs/demo-v0.7.md) · [Acceptance record](docs/release/v0.7-acceptance.md)
 
+**v0.9 in the source checkout.** Use Python and R in one research session, inspect the calculation behind each reported value, and replay their file handoffs from an exported bundle. The donor-paired DESeq2 example has been run with both kernels and independently replayed in a clean Linux container. [Bilingual walkthrough](docs/demo-v0.9.md) · [Acceptance record](docs/release/v0.9-acceptance.md)
+
 ## Quick start
 
 With Python 3.12+ and [uv](https://docs.astral.sh/uv/), launch the bundled offline example from a source checkout.

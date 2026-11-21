@@ -73,3 +73,40 @@ Next step. Use these headings even if responding in another language. State a co
 retrieval or experiment in Next step, and identify what result would change the judgment.
 When no counterevidence was retrieved, describe the search limits. Keep evidence bindings.
 """
+
+
+def kernel_instructions(*, r_available: bool, inventory: dict | None) -> list[str]:
+    project_context = []
+    if r_available:
+        project_context.append(
+            "R and Python have separate persistent kernels. Exchange data through project files. "
+            "Declare each handoff in output_files when writing and input_files when reading. "
+            "In R use bq_value(name, value, unit=NULL) for {{name}} and bq_summary(x) for tables and omics objects. "
+            "Choose distinct result names across languages. After an R interruption the R state resets."
+        )
+    if inventory is None:
+        return project_context
+    scientific = {
+        "pandas",
+        "numpy",
+        "scipy",
+        "scanpy",
+        "anndata",
+        "pyarrow",
+        "matplotlib",
+        "seurat",
+        "deseq2",
+        "summarizedexperiment",
+        "arrow",
+        "ggplot2",
+        "matrix",
+    }
+    for label, packages in (("Python", inventory["packages"]), ("R", inventory["r_packages"])):
+        if packages and (label == "Python" or r_available):
+            known = [f"{n} {v}" for n, v in packages if n.lower() in scientific]
+            project_context.append(
+                label
+                + " scientific packages detected: "
+                + (", ".join(known) or "none of the surveyed packages")
+            )
+    return project_context

@@ -183,3 +183,72 @@ async def test_local_data_input_requires_read_permission(ctx, store):
     (ctx.workdir / ".env").write_text("sample")
     ctx.permissions.grant(PermissionClass.READ_FS, str(ctx.workdir), PermissionScope.GLOBAL)
     assert (await invoke(SPEC, {"code": "pass", "input_files": [".env"]}, ctx)).is_error
+
+
+async def test_bilingual_tools_use_separate_persistent_kernels(ctx, store):
+    from bioquorum.review.evidence import Evidence
+    from bioquorum.runtime import FakeKernel, KernelManager
+
+    async def create(language):
+        kernel = FakeKernel(language=language)
+        kernel.on("declare", Script(outputs=[value_output("n_" + language, 7)]))
+        return kernel
+
+    ctx.kernels = KernelManager(create)
+    for language in ("r", "python", "r"):
+        spec = default_registry().get(language + "_execute")
+        part = await invoke(spec, {"code": "declare"}, ctx)
+        assert not part.is_error
+    starts = [e.parsed() for e in store.read("S") if e.type == "run_started"]
+    assert [s.language for s in starts] == ["r", "python", "r"]
+    assert starts[0].kernel_id == starts[2].kernel_id != starts[1].kernel_id
+    assert not Evidence.from_events(store.read("S")).sources
+
+
+async def test_cross_language_name_collision_cannot_bind(ctx, store, kernel):
+    from bioquorum.review.evidence import Evidence
+
+    kernel.queue(*(Script(outputs=[value_output("n", value)]) for value in (1, 2)))
+    for language in ("python", "r"):
+        await invoke(default_registry().get(language + "_execute"), {"code": "declare"}, ctx)
+    assert "n" not in Evidence.from_events(store.read("S")).values
+
+
+async def test_cross_language_handoff_records_matching_bytes(ctx, store):
+    from bioquorum.runtime import FakeKernel, KernelManager
+    from bioquorum.tools.replay import dependency_chain
+
+    path = ctx.workdir / "counts.csv"
+
+    def write_counts(code):
+        path.write_text("gene,count\na,7\n")
+        return True
+
+    async def make(language):
+        kernel = FakeKernel(language=language)
+        if language == "python":
+            kernel.on(write_counts, Script())
+        return kernel
+
+    ctx.kernels = KernelManager(make)
+    await invoke(SPEC, {"code": "make", "output_files": ["counts.csv"]}, ctx)
+    await invoke(
+        default_registry().get("r_execute"), {"code": "read", "input_files": ["counts.csv"]}, ctx
+    )
+    events = store.read("S")
+    starts = [e.parsed() for e in events if e.type == "run_started"]
+    writes = [e.parsed() for e in events if e.type == "lineage_observed"]
+    assert writes[0].post_run_hash == starts[1].inputs[0].content_hash
+    assert ctx.cas.get_bytes(writes[0].post_run_hash) == path.read_bytes()
+    assert dependency_chain(events, starts[1]) == starts
+
+
+async def test_declared_output_needs_new_bytes_or_updated_file(ctx, store, kernel):
+    from bioquorum.tools.replay import recorded_writes
+
+    (ctx.workdir / "old.csv").write_text("old")
+    kernel.queue(Script(outputs=[value_output("count", 5)]))
+    part = await invoke(SPEC, {"code": "pass", "output_files": ["old.csv"]}, ctx)
+    assert part.is_error
+    assert not any(e.type == "run_finished" for e in store.read("S"))
+    assert not recorded_writes(store.read("S"))

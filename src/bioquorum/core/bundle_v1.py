@@ -22,6 +22,9 @@ class PortableRun(_Model):
     stdout_sha256: str | None
     environment: str | None
     synthetic: bool = False
+    cell_inputs: dict[str, str] = Field(default_factory=dict)
+    written_files: dict[str, str] = Field(default_factory=dict)
+    kernel_group: str | None = None
     preceding_runs: list[str] = Field(default_factory=list)
 
 

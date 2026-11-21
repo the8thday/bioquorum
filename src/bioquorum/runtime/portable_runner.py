@@ -7,9 +7,11 @@ import base64
 import hashlib
 import json
 import platform
+import queue
 import shutil
 import sys
 import time
+from contextlib import ExitStack, contextmanager
 from importlib.metadata import distributions
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
@@ -58,9 +60,16 @@ def verify(manifest: dict) -> None:
     for run in manifest["runs"]:
         referenced(manifest, run["code_path"])
     for rec in manifest["run_records"]:
-        for sha in rec["inputs"].values():
+        for sha in (*rec["inputs"].values(), *rec.get("written_files", {}).values()):
             if manifest["files"].get("objects/" + sha) != sha:
-                raise ValueError("An input is missing from the manifest")
+                raise ValueError("A recorded file is missing from the manifest")
+
+
+def check_workfile(work: Path, name: str, expected: str) -> None:
+    path = inside(name, work)
+    with path.open("rb") as f:
+        if hashlib.file_digest(f, "sha256").hexdigest() != expected:
+            raise ValueError("Replayed handoff differs: " + name)
 
 
 def referenced(manifest: dict, name: str) -> Path:
@@ -76,7 +85,10 @@ def get_outputs(kernel, message: str) -> list[tuple[str, dict]]:
         remaining = deadline - time.monotonic()
         if remaining <= 0 or len(output) > 100_000:
             raise RuntimeError("The replay exceeded its output limit or deadline")
-        reply = kernel.get_iopub_msg(timeout=min(remaining, 60))
+        try:
+            reply = kernel.get_iopub_msg(timeout=min(remaining, 60))
+        except queue.Empty:
+            continue
         if reply.get("parent_header", {}).get("msg_id") != message:
             continue
         kind, content = reply["msg_type"], reply["content"]
@@ -87,15 +99,80 @@ def get_outputs(kernel, message: str) -> list[tuple[str, dict]]:
         output.append((kind, content))
 
 
-def rerun(manifest: dict) -> list[dict]:
+@contextmanager
+def open_kernel(language, work, socket_dir, manifest):
     from jupyter_client.manager import KernelManager
 
+    # The Python manager supplies the local Jupyter transport; never execute a global R spec.
+    socket_dir.mkdir()
+    if sys.platform == "win32":
+        manager = KernelManager(kernel_name="python3")
+    else:
+        manager = KernelManager(
+            kernel_name="python3",
+            transport="ipc",
+            ip=str(socket_dir / "k"),
+            connection_file=str(socket_dir / "connection.json"),
+        )
+    spec = manager.kernel_spec
+    if spec is None:
+        raise ValueError("Jupyter kernel specification unavailable")
+    prefix = Path(sys.executable).parent
+    if language == "r":
+        r = prefix / "R"
+        if not r.is_file():
+            raise ValueError("The selected project environment lacks R")
+        spec.argv = [
+            str(r),
+            "--vanilla",
+            "--slave",
+            "-e",
+            "IRkernel::main()",
+            "--args",
+            "{connection_file}",
+        ]
+        prelude = "values.R"
+    elif language == "python":
+        spec.argv = [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"]
+        prelude = "values.py"
+    else:
+        raise ValueError("Unsupported run language")
+    manager.start_kernel(
+        cwd=work, env={"PATH": str(prefix) + ":/usr/bin:/bin", "HOME": str(socket_dir)}
+    )
+    try:
+        client = manager.client()
+        client.start_channels()
+        try:
+            client.wait_for_ready(timeout=60)
+            get_outputs(
+                client, client.execute(referenced(manifest, prelude).read_text(encoding="utf-8"))
+            )
+            if language == "r":
+                inventory = get_outputs(
+                    client, client.execute(referenced(manifest, "inventory.R").read_text())
+                )
+                raw = "".join(
+                    c["text"] for k, c in inventory if k == "stream" and c["name"] == "stdout"
+                ).strip()
+                fingerprint = digest(raw.encode()) if raw else None
+            else:
+                fingerprint = environment()
+            yield client, fingerprint
+        finally:
+            client.stop_channels()
+    finally:
+        manager.shutdown_kernel(now=True)
+
+
+def rerun(manifest: dict) -> list[dict]:
     if manifest["project"]["classification"] != "public":
         raise ValueError(
             "This standalone runner only executes public bundles; keep sensitive data in an isolated BioQuorum project"
         )
     runs = {run["run_id"]: run for run in manifest["runs"]}
     results = []
+    records = {entry["run_id"]: entry for entry in manifest["run_records"]}
     for record in manifest["run_records"]:
         run_id = record["run_id"]
         run = runs[run_id]
@@ -105,45 +182,34 @@ def rerun(manifest: dict) -> list[dict]:
                 target = inside(name, work)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(referenced(manifest, "objects/" + sha), target)
-            # Use this interpreter even when a global python3 kernelspec is installed.
-            if sys.platform == "win32":
-                manager = KernelManager(kernel_name="python3")
-            else:
-                socket_prefix = str(work / "ipc")
-                if len(socket_prefix) > 88:
-                    raise ValueError("The temporary path is too long for local IPC")
-                manager = KernelManager(
-                    kernel_name="python3",
-                    transport="ipc",
-                    ip=socket_prefix,
-                    connection_file=str(work / "connection.json"),
+            with ExitStack() as stack:
+                kernels = {}
+                parts = []
+                fingerprint = None
+                socket_root = Path(
+                    stack.enter_context(
+                        TemporaryDirectory(
+                            prefix="bq-", dir="/tmp" if sys.platform != "win32" else None
+                        )
+                    )
                 )
-            spec = manager.kernel_spec
-            if spec is None:
-                raise RuntimeError("Python kernelspec missing")
-            spec.argv = [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"]
-            env = {"PATH": str(Path(sys.executable).parent), "HOME": str(work)}
-            manager.start_kernel(cwd=work, env=env)
-            client = manager.client()
-            try:
-                client.start_channels()
-                client.wait_for_ready(timeout=30)
-                get_outputs(
-                    client,
-                    client.execute(referenced(manifest, "values.py").read_text(encoding="utf-8")),
-                )
-                for precursor_id in record.get("preceding_runs", []):
-                    path = referenced(manifest, runs[precursor_id]["code_path"])
-                    get_outputs(client, client.execute(path.read_text(encoding="utf-8")))
-                parts = get_outputs(
-                    client,
-                    client.execute(
-                        referenced(manifest, run["code_path"]).read_text(encoding="utf-8")
-                    ),
-                )
-            finally:
-                client.stop_channels()
-                manager.shutdown_kernel(now=True)
+                for cell_id in [*record.get("preceding_runs", []), run_id]:
+                    cell = runs[cell_id]
+                    meta = records[cell_id]
+                    for name, sha in meta.get("cell_inputs", {}).items():
+                        check_workfile(work, name, sha)
+                    group = (cell["language"], meta.get("kernel_group"))
+                    if group not in kernels:
+                        kernels[group] = stack.enter_context(
+                            open_kernel(
+                                cell["language"], work, socket_root / str(len(kernels)), manifest
+                            )
+                        )
+                    client, fingerprint = kernels[group]
+                    code = referenced(manifest, cell["code_path"]).read_text(encoding="utf-8")
+                    parts = get_outputs(client, client.execute(code))
+                    for name, sha in meta.get("written_files", {}).items():
+                        check_workfile(work, name, sha)
         values = {}
         stdout = []
         figures = []
@@ -154,7 +220,9 @@ def rerun(manifest: dict) -> list[dict]:
                 data = item["data"]
                 if "application/vnd.bioquorum.value+json" in data:
                     value = data["application/vnd.bioquorum.value+json"]
-                    values[value["name"]] = (value["value"], value["unit"])
+                    if isinstance(value, str):
+                        value = json.loads(value)
+                    values[value["name"]] = (value["value"], value.get("unit"))
                 image = next((mime for mime in IMAGES if mime in data), None)
                 if image:
                     raw = data[image]
@@ -175,7 +243,7 @@ def rerun(manifest: dict) -> list[dict]:
                 "run_id": run_id,
                 "outputs_matched": matched,
                 "environment_matched": bool(
-                    record["environment"] and record["environment"] == environment()
+                    record["environment"] and record["environment"] == fingerprint
                 ),
                 "values": values,
             }

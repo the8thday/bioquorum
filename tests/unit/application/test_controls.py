@@ -347,3 +347,84 @@ async def test_selected_worker_receives_only_its_own_familys_thinking(tmp_path):
         "deepseek:b",
         "openai:a",
     ]
+
+
+async def test_workbench_reuses_session_kernels_until_close(tmp_path):
+    from bioquorum.application import demo
+    from bioquorum.runtime import FakeKernel, KernelManager
+
+    c = demo.make_demo(tmp_path)
+    sid = c.new_session("Persistent")
+    made = []
+
+    async def factory(language):
+        kernel = FakeKernel(language=language)
+        made.append(kernel)
+        return kernel
+
+    for _ in range(2):
+        manager = await c.session_kernels.acquire(sid, "same configuration", KernelManager(factory))
+        for language in ("python", "r"):
+            await manager.get(sid, language)
+    assert len(made) == 2 and not any(k.closed for k in made)
+    await c.session_kernels.acquire(sid, "changed environment", KernelManager(factory))
+    assert all(k.closed for k in made)
+    await c.close()
+
+
+async def test_bilingual_kernels_survive_two_completed_workbench_turns(tmp_path):
+    import asyncio
+
+    from pydantic_ai import messages as pa
+    from pydantic_ai.models.function import FunctionModel
+
+    from bioquorum.core.enums import Classification, ModelRole
+    from bioquorum.models import ModelClient, ModelsConfig, Router
+    from bioquorum.runtime import FakeKernel, Script
+
+    cfg = ModelsConfig.from_dict(
+        {"providers": {"openai": {}}, "roles": {"worker": "openai:w", "reviewer": "openai:r"}}
+    )
+    launched = []
+
+    async def kernel_factory(language):
+        kernel = FakeKernel(language=language).queue(Script(), Script())
+        launched.append(kernel)
+        return kernel
+
+    def make_client(ws, store):
+        number = 1 + sum(e.type == "turn_finished" for e in store.read(sid))
+        code = "x = 4" if number == 1 else "print(x)"
+        calls = iter(("python_execute", "r_execute"))
+
+        def respond(route):
+            def script(*_):
+                if route.role is ModelRole.REVIEWER:
+                    return pa.ModelResponse(parts=[pa.TextPart(content='{"claims": []}')])
+                name = next(calls, None)
+                if name:
+                    part = pa.ToolCallPart(name, {"code": code}, tool_call_id=f"{name}-{number}")
+                    return pa.ModelResponse(parts=[part])
+                return pa.ModelResponse(parts=[pa.TextPart(content="Done.")])
+
+            return FunctionModel(script)
+
+        return ModelClient(Router(cfg), store, factory=respond)
+
+    ws = init_project(tmp_path, classification=Classification.PUBLIC)
+    ws.config["kernel"] = {"pixi": True}
+    c = ResearchControls(ws, make_client=make_client, kernel_factory=kernel_factory)
+    sid = c.new_session("Reuse both kernels")
+    try:
+        for question in ("Set x in each language.", "Read x in both kernels."):
+            c.submit(sid, question)
+            await asyncio.wait_for(c.tasks[sid].task, timeout=5)
+            outcome = c.store.read(sid)[-1].payload
+            assert outcome["outcome"] == "completed", outcome["error"]
+        starts = [e.payload for e in c.store.read(sid) if e.type == "run_started"]
+        assert [r["language"] for r in starts] == ["python", "r"] * 2
+        assert [r["kernel_id"] for r in starts] == [k.kernel_id for k in launched] * 2
+        assert all(k.executed == ["x = 4", "print(x)"] and not k.closed for k in launched)
+    finally:
+        await c.close()
+    assert all(k.closed for k in launched)

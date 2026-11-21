@@ -3,8 +3,9 @@
 import json
 from pathlib import Path
 
-from bioquorum.agent.prompts import worker_system
+from bioquorum.agent.prompts import kernel_instructions, worker_system
 from bioquorum.application.controls import ResearchControls
+from bioquorum.application.environment import package_inventory
 from bioquorum.application.workspace import init_project
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification
@@ -55,10 +56,13 @@ def reference_controls(directory: str) -> ResearchControls:
         "这个数是怎么算的\uff1f\n\nSelected records:\n"
         + fence_untrusted(json.dumps(expected, ensure_ascii=False))
     )
+    context = kernel_instructions(
+        r_available=False, inventory=package_inventory(ws.root, use_pixi=False)
+    )
     key = request_key(
         model,
-        [Message.system(worker_system(binding=True)), answer, question],
-        default_registry().definitions(),
+        [Message.system("\n\n".join([worker_system(binding=True), *context])), answer, question],
+        default_registry(r_available=False).definitions(),
     )
     cassette.store(
         key,

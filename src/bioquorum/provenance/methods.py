@@ -78,6 +78,15 @@ def methods_draft(
         if record.inputs:
             lines.extend(("", "Recorded inputs and SHA-256 hashes", ""))
             lines.extend(f"- {_code(path)} · {_code(sha)}" for path, sha in record.inputs.items())
+        if record.written_files:
+            lines.extend(("", "Declared output files and SHA-256 hashes", ""))
+            lines.extend(
+                f"- {_code(path)} · {_code(sha)}" for path, sha in record.written_files.items()
+            )
+        if record.preceding_runs:
+            lines.append(
+                "Earlier calculations: " + ", ".join(_code(rid) for rid in record.preceding_runs)
+            )
         if run.values:
             lines.extend(("", "Named run outputs", ""))
             for value in run.values:

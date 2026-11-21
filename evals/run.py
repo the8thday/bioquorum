@@ -295,7 +295,7 @@ async def run_case(case, profile, directory, args, metered, http, public):
                 assert ctx.kernels is not None
                 await ctx.kernels.shutdown_all()
         else:
-            registry = default_registry()
+            registry = default_registry(r_available=False)
             if case.scenario != "B":
                 registry = ToolRegistry([*registry, *literature_tools(public)])
             turn = await research.execute(

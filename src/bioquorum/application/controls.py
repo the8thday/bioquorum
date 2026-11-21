@@ -16,7 +16,7 @@ from bioquorum.core.ids import new_id
 from bioquorum.models import Router
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
 from bioquorum.policy.secrets import redact
-from bioquorum.runtime.manager import KernelFactory
+from bioquorum.runtime.manager import KernelFactory, SessionKernels
 from bioquorum.storage.events import EventStore
 from bioquorum.tools import ToolContext, ToolRegistry, default_registry
 from bioquorum.tools.invoke import invoke_by_name
@@ -51,6 +51,7 @@ class ResearchControls:
         self.store = EventStore(workspace.database())
         self.make_client = make_client
         self.kernel_factory = kernel_factory
+        self.session_kernels = SessionKernels()
         self.registry_factory = registry_factory
         self.demo = demo
         self.tasks: dict[str, LiveTurn] = {}
@@ -338,6 +339,7 @@ class ResearchControls:
                     ask=ask,
                 ),
                 kernel_factory=self.kernel_factory,
+                session_kernels=self.session_kernels,
                 registry_factory=self.registry_factory,
             )
             try:
@@ -417,6 +419,8 @@ class ResearchControls:
         for sid in list(self.tasks):
             if sid in self.tasks and not self.tasks[sid].stopping:
                 await self.stop(sid)
+
+        await self.session_kernels.close()
 
     async def recover(self) -> None:
         """Close incomplete turns left by an earlier process, without re-executing anything."""

@@ -7,8 +7,8 @@ from bioquorum.tools.registry import ToolRegistry
 from bioquorum.tools.spec import ToolResult, ToolSpec
 
 
-def default_registry() -> ToolRegistry:
-    return ToolRegistry(BUILTIN_TOOLS)
+def default_registry(*, r_available: bool = True) -> ToolRegistry:
+    return ToolRegistry(tool for tool in BUILTIN_TOOLS if r_available or tool.name != "r_execute")
 
 
 __all__ = [

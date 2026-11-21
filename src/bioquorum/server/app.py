@@ -224,6 +224,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def archive(request: Request) -> Response:
         controls.archive(_sid(request))
+        await controls.session_kernels.release(_sid(request))
         return Response(status_code=204)
 
     async def read(request: Request) -> Response:
@@ -381,7 +382,26 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
     async def export_notebook(request: Request) -> Response:
-        data = artifacts.notebook(controls, _sid(request))
+        from io import BytesIO
+        from zipfile import ZIP_DEFLATED, ZipFile
+
+        sid = _sid(request)
+        python = artifacts.notebook(controls, sid)
+        r = artifacts.notebook(controls, sid, "r")
+        if python["cells"] and r["cells"]:
+            output = BytesIO()
+            with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+                for name, data in (("python", python), ("r", r)):
+                    archive.writestr(f"research-{name}.ipynb", json.dumps(data, ensure_ascii=False))
+            return Response(
+                output.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": 'attachment; filename="research-notebooks.zip"',
+                    "Cache-Control": "no-store",
+                },
+            )
+        data = r if r["cells"] else python
         return JSONResponse(
             data,
             headers={

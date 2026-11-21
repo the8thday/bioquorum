@@ -84,10 +84,12 @@ def recorded_args(tool: str, args: dict[str, Any], root: Path | None = None) -> 
         recorded["url"] = public_url(url)
     if tool in ("read_file", "list_files") and isinstance(path := recorded.get("path"), str):
         recorded["path"] = display_path(path, root)
-    if tool == "python_execute" and isinstance(paths := recorded.get("input_files"), list):
-        recorded["input_files"] = [
-            display_path(path, root) for path in paths if isinstance(path, str)
-        ]
+    if tool in ("python_execute", "r_execute"):
+        for field in ("input_files", "output_files"):
+            if isinstance(paths := recorded.get(field), list):
+                recorded[field] = [
+                    display_path(path, root) for path in paths if isinstance(path, str)
+                ]
     return recorded
 
 

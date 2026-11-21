@@ -1,14 +1,14 @@
 {
  "format": 1,
  "entries": {
-  "19e75a613d9a75e2e693256418cd4f6a602f6473051f78bed4cf4c47cf7cff7c": {
+  "bb482cfecfa2e2fe4c0cdba35c64414be8d07b5b4c1171b74694c99475b41d61": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6BPBPBC718NBQZQ12H6",
+      "call_id": "01M7Z33F4SXWNC2HW82V2D5WC1",
       "name": "read_demo_excerpts",
       "args": {}
      }
@@ -21,14 +21,14 @@
     "cache_write_tokens": 0
    }
   },
-  "aea9ad5d82671a537d47233de6c3d18265ec6218e2edf86e96baba44d22026d1": {
+  "c5d88373cc101e1fe4ad8ccefc447da1e6866a64befddc5bac221936ca7089c8": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6BT91FG8EXC80F59S8K",
+      "call_id": "01M7Z33F4YSEZ22K1BTX4DTE4V",
       "name": "python_execute",
       "args": {
        "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
@@ -46,7 +46,7 @@
     "cache_write_tokens": 0
    }
   },
-  "7331839035c1e09c416b57d48161d88a82bfc7edcad5cefa059e591ba9eda799": {
+  "4bbc100f3a9f408177c264da88d4db8bac5a8acafe8ca72eec36acfec7307170": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
@@ -100,14 +100,14 @@
     "cache_write_tokens": 0
    }
   },
-  "351f921e729b9c431ba7e29d4733030084402b2a5693c971c9c2ef4ceb5053c0": {
+  "37955d0cf9d32ad8f9c5c8630062e7992e704cd639d9056b26cbd107d7ef32b9": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6CVA66F43SNGF1YB7WQ",
+      "call_id": "01M7Z33FAGA53N3QBYXWXB3GVD",
       "name": "read_demo_excerpts",
       "args": {}
      }
@@ -120,14 +120,14 @@
     "cache_write_tokens": 0
    }
   },
-  "4371c7e4dbc26461b048889be810e897c1e11b3217dfa4b0784105a33fb9173a": {
+  "b5b619c8b95fda13cb2641a7f1288eec37383940d0ae1bb9eac919236e905db2": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6D1KRT8DGENQQKGCSJV",
+      "call_id": "01M7Z33FB2R71VE29D0ZDXHABA",
       "name": "record_plan_step",
       "args": {
        "step": 1
@@ -142,14 +142,14 @@
     "cache_write_tokens": 0
    }
   },
-  "4e9ac3120058036ab549af1120a8af28e357c6fa33413de2984be4ccfdb1e74e": {
+  "cb4f03af973c4f6556cb86d49782db5948f0759626cfeb590aeb4b884a7c7bf8": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6D7X7N8TKT5R2H0PX26",
+      "call_id": "01M7Z33FBGZYRZRG7AMPX7ES23",
       "name": "python_execute",
       "args": {
        "code": "\"\"\"Reproduce the offline example's recorded count and plot from the input file.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom collections import Counter\nfrom html import escape\nfrom pathlib import Path\n\nLABELS = {\n    \"Human clinical study\": \"Clinical study\",\n    \"Primary human hepatocyte experiment\": \"Hepatocyte experiment\",\n    \"Randomized delayed-release trials\": \"Randomized trials\",\n}\n\n\ndef chart(rows: list[dict[str, str]]) -> str:\n    counts = Counter(row[\"setting\"] for row in rows)\n    height = 68 + 32 * len(counts)\n    parts = [\n        f'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 {height}\">',\n        f'<rect width=\"600\" height=\"{height}\" fill=\"#f8f7f0\"/>',\n        '<text x=\"28\" y=\"35\" font-family=\"sans-serif\" font-size=\"19\" fill=\"#182f29\">'\n        \"Evidence excerpts by source type</text>\",\n        '<g font-family=\"sans-serif\" font-size=\"15\" fill=\"#182f29\">',\n    ]\n    for index, (setting, count) in enumerate(counts.items()):\n        y = 72 + index * 32\n        width = round(200 * count / max(counts.values()))\n        label = escape(LABELS.get(setting, setting))\n        parts.extend(\n            [\n                f'<text x=\"28\" y=\"{y}\">{label}</text>',\n                f'<rect x=\"208\" y=\"{y - 16}\" width=\"{width}\" height=\"18\" fill=\"#32765a\"/>',\n                f'<text x=\"{225 + width}\" y=\"{y}\">{count}</text>',\n            ]\n        )\n    return \"\".join(parts) + \"</g></svg>\"\n\n\ndef summarize(rows: list[dict[str, str]]) -> str:\n    return \"\\n\".join(f\"PMID {row['pmid']}: {row['setting']}\" for row in rows)\n\n\nif __name__ == \"__main__\":\n    from IPython.display import SVG, display\n\n    rows = json.loads(Path(\"metformin-evidence.json\").read_text())\n    print(summarize(rows))\n    globals()[\"bq\"].value(\"excerpts\", len(rows), unit=\"excerpts\")\n    display(SVG(data=chart(rows)))\n",
@@ -167,14 +167,14 @@
     "cache_write_tokens": 0
    }
   },
-  "5e45d58285bb5a2275492ec81dce91cdffe39061662e5871c0cf9b5b68f52fdc": {
+  "d23ed1401b93783a240204e39d88f6eb2f44e141d8468f3e3f6ebc4dd7449e31": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",
     "parts": [
      {
       "type": "tool_call",
-      "call_id": "01M7T1A6DHFVP1Q9B7P2DZF66K",
+      "call_id": "01M7Z33FBZE4WAPPF9R3SH97VR",
       "name": "record_plan_step",
       "args": {
        "step": 2
@@ -189,7 +189,7 @@
     "cache_write_tokens": 0
    }
   },
-  "0583958c48737f0786b84cbcc9dceaedd255f9bfdf8992b8bf4e2d3e9a5f43b4": {
+  "63e3addc1bc071a28a95155b1068ef65d5b7ddd0fa94e1fbc95e01330a791ac7": {
    "spec": "deepseek:offline-example",
    "message": {
     "role": "assistant",

@@ -2,7 +2,14 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
-## Unreleased · Coverage
+## Unreleased · Bilingual (v0.9)
+
+- Add project-local IRkernel support alongside Python, per-session workbench kernels and R named-value declarations.
+- Record declared file handoffs between languages and verify their hashes during replay. Export language-specific notebooks and portable bilingual research bundles.
+- Show Python and R package inventories, environment lock hashes and provisioning instructions in project settings.
+- Add a donor-paired DESeq2 scenario and two R development questions. See the [acceptance record](docs/release/v0.9-acceptance.md) for the live model, sandbox, cross-platform and independent replay results. The author accepted the scenario B scientific conclusions on 2026-11-21.
+
+## v0.8 · Coverage
 
 - New projects start with the evaluated Recommended profile. Evidence binding is enabled with zero retries. Project settings can switch profiles or customize individual mechanisms.
 

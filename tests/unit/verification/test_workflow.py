@@ -468,3 +468,87 @@ async def test_coverage_bundle_scopes_paths_and_download_urls(tmp_path):
         assert len(queries) == 2
         assert queries[0]["scope"]["input_files"] == ["cells.csv"]
         assert queries[1]["scope"]["url"] == "https://example.org/data"
+
+
+async def test_r_run_is_exported_with_its_language_and_prelude(tmp_path):
+    controls, sid, _ = seed(tmp_path)
+    code = 'bq_value("r_count", 2L)'
+    for event in (
+        ev.RunStarted(
+            run_id="r-cell", kernel_id="ir", language="r", code=code, code_hash=code_hash(code)
+        ),
+        ev.RunFinished(
+            run_id="r-cell", values=[NamedValue(name="r_count", value=2)], run_key="key"
+        ),
+    ):
+        controls.store.append(event, session_id=sid, actor=Actor.TOOL)
+    result = await verify.export_bundle(controls, sid)
+    with ZipFile(verify.bundle_file(controls, sid, result["id"])) as archive:
+        meta = json.loads(archive.read("manifest.json"))
+        r = next(run for run in meta["runs"] if run["language"] == "r")
+        assert archive.read(r["code_path"]).decode() == code
+        assert "values.R" in meta["files"]
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+async def test_mixed_replay_recreates_handoff_before_r_reads_it(ctx, tamper):
+    from bioquorum.runtime import KernelManager
+    from bioquorum.tools import invoke
+    from bioquorum.tools.replay import replay_spec
+
+    cas = ctx.require_cas()
+    original = cas.put_bytes(b"2")
+    expected = cas.put_bytes(b"4")
+    python = ev.RunStarted(
+        run_id="one",
+        kernel_id="py",
+        language="python",
+        code="double",
+        code_hash=code_hash("double"),
+        isolation="bwrap",
+        environment="test-environment",
+        inputs=[original],
+        input_paths=["raw.txt"],
+    )
+    r = ev.RunStarted(
+        run_id="two",
+        kernel_id="ir",
+        language="r",
+        code="report",
+        code_hash=code_hash("report"),
+        isolation="bwrap",
+        environment="test-environment",
+        inputs=[expected],
+        input_paths=["twice.csv"],
+    )
+    called = []
+
+    def produce(_):
+        assert not (ctx.workdir / "twice.csv").exists()
+        number = int((ctx.workdir / "raw.txt").read_text())
+        (ctx.workdir / "twice.csv").write_text(str(number * 2 + int(tamper)))
+        called.append("python")
+        return True
+
+    def consume(_):
+        assert (ctx.workdir / "twice.csv").read_text() == "4"
+        called.append("r")
+        return True
+
+    async def factory(language):
+        return IsolatedFixture(language=language).on(
+            produce if language == "python" else consume, Script()
+        )
+
+    ctx.kernels = KernelManager(factory)
+    tool = replay_spec([python, r], {"one": {"twice.csv": expected.content_hash}})
+    result = await invoke(tool, {}, ctx)
+    assert result.is_error == tamper
+    assert called == (["python"] if tamper else ["python", "r"])
+    if not tamper:
+        from bioquorum.tools.replay import recorded_writes
+
+        producer, _ = json.loads(result.text())
+        assert recorded_writes(ctx.store.read(ctx.session_id))[producer] == {
+            "twice.csv": expected.content_hash
+        }

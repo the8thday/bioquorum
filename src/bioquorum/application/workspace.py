@@ -339,7 +339,9 @@ class Workspace:
         """Project dir read-write; data dirs read-only. The kernel must not touch BioQuorum's
         own state (event log, CAS) or the files that decide what runs outside the sandbox
         next time (MCP server commands in the config, git hooks)."""
-        protected = [self.root / CONFIG_FILE, self.root / ".git"]
+        protected = [
+            self.root / name for name in (CONFIG_FILE, ".git", ".pixi", "pixi.toml", "pixi.lock")
+        ]
         macos = self.config.get("kernel", {}).get("macos_sandbox", False)
         if type(macos) is not bool:
             raise WorkspaceError("[kernel] macos_sandbox must be true or false")
@@ -510,6 +512,8 @@ def default_permissions(
     for d in ws.readable_roots():
         policy.grant(PermissionClass.READ_FS, str(d), scope, project_id=pid)
     policy.grant(PermissionClass.EXECUTE, "python", scope, project_id=pid)
+    if ws.config.get("kernel", {}).get("pixi"):
+        policy.grant(PermissionClass.EXECUTE, "r", scope, project_id=pid)
     for s in servers:
         policy.grant(PermissionClass.EXTERNAL_MCP, f"mcp:{s.name}", scope, project_id=pid)
     for perm in allow:

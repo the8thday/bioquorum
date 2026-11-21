@@ -1,0 +1,18 @@
+# Run after the Python scenario-B QC and gene prefilter.
+suppressPackageStartupMessages(library(DESeq2))
+counts <- as.matrix(read.csv("outputs/v09/paired-counts.csv", row.names = 1, check.names = FALSE))
+samples <- read.csv("outputs/v09/paired-samples.csv", row.names = 1, colClasses = "character")
+stopifnot(identical(colnames(counts), rownames(samples)), all(is.finite(counts)),
+          all(counts >= 0), all(counts == trunc(counts)), !anyDuplicated(rownames(counts)))
+samples$donor <- factor(samples$donor)
+samples$condition <- factor(samples$condition, levels = c("ctrl", "stim"))
+stopifnot(!anyNA(samples), nlevels(samples$donor) >= 3, all(table(samples$donor, samples$condition) == 1))
+dds <- DESeqDataSetFromMatrix(counts, samples, design = ~ donor + condition)
+dds <- DESeq(dds, quiet = TRUE, parallel = FALSE)
+res <- results(dds, contrast = c("condition", "stim", "ctrl"), alpha = 0.05)
+table_out <- data.frame(gene = rownames(res), as.data.frame(res))
+write.csv(table_out[order(table_out$padj, table_out$gene), ], "outputs/v09/deseq2-results.csv", row.names = FALSE)
+bq_value("r_pairs", nlevels(samples$donor), "donors")
+bq_value("r_prefiltered", nrow(res), "genes")
+bq_value("r_adjusted", sum(!is.na(res$padj)), "genes")
+bq_value("r_fdr05", sum(res$padj <= 0.05, na.rm = TRUE), "genes")

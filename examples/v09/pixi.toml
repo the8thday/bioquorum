@@ -1,0 +1,15 @@
+[workspace]
+name = "bioquorum-bilingual"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[dependencies]
+python = "3.12.*"
+jupyter_client = ">=8.6,<9"
+ipykernel = ">=6.29,<8"
+pandas = "*"
+scipy = "*"
+r-base = "*"
+r-irkernel = "*"
+r-jsonlite = "*"
+bioconductor-deseq2 = "*"

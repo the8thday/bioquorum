@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 
 from v02_demo import DemoClient
-from v05_geo_analysis import MIN_GENES
 
 from bioquorum.application import record, research, verify, workspace
 from bioquorum.application.controls import ResearchControls
@@ -33,6 +32,8 @@ QUERY = "Analyse GEO GSE96583 batch 2 with author singlet QC, exploratory cluste
 
 
 async def run(root: Path, threshold: float, min_genes: int) -> None:
+    from v05_geo_analysis import MIN_GENES
+
     if not 0 < threshold <= 100:
         raise ValueError("Provide a mitochondrial percentage greater than 0 and at most 100")
     if not 1 <= min_genes <= 35000:
@@ -123,6 +124,8 @@ async def run(root: Path, threshold: float, min_genes: int) -> None:
 
 
 def main() -> None:
+    from v05_geo_analysis import MIN_GENES
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--max-mt", type=float, default=10)

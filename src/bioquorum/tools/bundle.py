@@ -24,7 +24,13 @@ from bioquorum.provenance.manifest import build_manifest
 from bioquorum.provenance.methods import methods_draft
 from bioquorum.runtime.values import PRELUDE
 from bioquorum.tools.context import ToolContext
-from bioquorum.tools.replay import NoArguments, recorded_inputs, run_chain
+from bioquorum.tools.replay import (
+    NoArguments,
+    dependency_chain,
+    external_inputs,
+    recorded_inputs,
+    recorded_writes,
+)
 from bioquorum.tools.spec import ToolResult, ToolSpec
 
 SHELL = """#!/bin/sh
@@ -188,20 +194,21 @@ def export_spec(
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(content)
 
+            writes = recorded_writes(event_log)
             accepted: set[str] = set()
             for run in manifest.runs:
                 start = starts[run.run_id]
                 end = ends.get(run.run_id)
-                if not end or run.language != "python":
+                if not end or run.language not in ("python", "r"):
                     limitations.append(
                         {"run_id": run.run_id, "reason": "Run unavailable for portable replay"}
                     )
                     continue
                 try:
-                    chain = run_chain(event_log, start)
+                    chain = dependency_chain(event_log, start)
                     if not {p.run_id for p in chain[:-1]}.issubset(accepted):
                         raise ValueError("Incomplete replay dependency")
-                    inputs = recorded_inputs(chain)
+                    inputs = external_inputs(chain, writes)
                 except ValueError:
                     limitations.append(
                         {"run_id": run.run_id, "reason": "Incomplete replay chain or inputs"}
@@ -225,14 +232,27 @@ def export_spec(
                 write(run.code_path, start.code.encode())
                 for ref in [
                     *inputs.values(),
+                    *start.inputs,
                     *run.outputs,
                     *([end.stdout_ref] if end.stdout_ref else []),
                 ]:
                     blobs[ref.content_hash] = ref
+                for digest in writes.get(start.run_id, {}).values():
+                    if digest not in blobs:
+                        blobs[digest] = DataRef(
+                            uri=cas.uri(digest),
+                            content_hash=digest,
+                            size=cas.path(digest).stat().st_size,
+                        )
                 records.append(
                     PortableRun(
                         run_id=start.run_id,
                         inputs={path: ref.content_hash for path, ref in inputs.items()},
+                        kernel_group=start.kernel_id,
+                        cell_inputs={
+                            name: ref.content_hash for name, ref in recorded_inputs([start]).items()
+                        },
+                        written_files=writes.get(start.run_id, {}),
                         stdout_sha256=end.stdout_ref.content_hash if end.stdout_ref else None,
                         environment=start.environment,
                         synthetic=start.synthetic,
@@ -298,6 +318,11 @@ def export_spec(
                 b"".join(canonical_json(row) + b"\n" for row in rows if row is not None),
             )
             write("values.py", PRELUDE.encode())
+            if any(run.language == "r" for run in selected):
+                from bioquorum.runtime.r_environment import R_INVENTORY
+
+                write("values.R", files("bioquorum.runtime").joinpath("r_prelude.R").read_bytes())
+                write("inventory.R", R_INVENTORY.encode())
             runner = files("bioquorum.runtime").joinpath("portable_runner.py").read_bytes()
             write("run.py", runner)
             write("rerun.sh", SHELL.encode())

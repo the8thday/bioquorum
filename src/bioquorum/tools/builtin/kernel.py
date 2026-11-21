@@ -21,9 +21,14 @@ from bioquorum.tools.source_stage import SOURCE_DIRECTORY, SOURCE_MARKER, SOURCE
 from bioquorum.tools.spec import ToolResult, ToolSpec
 
 
-class PythonExecuteArgs(BaseModel):
-    code: str = Field(description="Python code to run in the session's persistent kernel.")
+class ExecuteArgs(BaseModel):
+    code: str = Field(description="Code to run in the session's persistent kernel.")
     timeout_s: float = Field(default=600, gt=0, le=24 * 3600, description="Wall-clock limit.")
+    output_files: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Project files this cell creates or updates for downstream runs. Declare every handoff.",
+    )
     input_files: list[str] = Field(
         default_factory=list,
         max_length=20,
@@ -31,7 +36,7 @@ class PythonExecuteArgs(BaseModel):
     )
 
 
-def _file_inputs(args: PythonExecuteArgs, ctx: ToolContext) -> tuple[list[DataRef], list[str]]:
+def _file_inputs(args: ExecuteArgs, ctx: ToolContext) -> tuple[list[DataRef], list[str]]:
     if not args.input_files:
         return [], []
     staged = {}
@@ -105,26 +110,33 @@ def _file_inputs(args: PythonExecuteArgs, ctx: ToolContext) -> tuple[list[DataRe
     return refs, paths
 
 
-async def _python_execute(args: PythonExecuteArgs, ctx: ToolContext) -> ToolResult:
-    inputs, paths = _file_inputs(args, ctx)
-    record = await execute_run(
-        ctx, args.code, language="python", timeout=args.timeout_s, inputs=inputs, input_paths=paths
+def _execute_tool(language: str, title: str) -> ToolSpec:
+    async def execute(args: ExecuteArgs, ctx: ToolContext) -> ToolResult:
+        inputs, paths = _file_inputs(args, ctx)
+        record = await execute_run(
+            ctx,
+            args.code,
+            language=language,
+            timeout=args.timeout_s,
+            inputs=inputs,
+            input_paths=paths,
+            output_paths=args.output_files,
+        )
+        return ToolResult(content=record.content, is_error=record.status is not EndStatus.OK)
+
+    return ToolSpec(
+        name=language + "_execute",
+        description=(
+            f"Execute {title} code in its persistent session kernel. Declare files read in input_files. "
+            "Keep large data in the kernel and print bounded summaries. Returns a citable run_id."
+        ),
+        handler=execute,
+        args_model=ExecuteArgs,
+        permission=PermissionClass.EXECUTE,
+        output_trust=Trust.UNTRUSTED,
+        target=lambda _args, _ctx: language,
     )
-    return ToolResult(content=record.content, is_error=record.status is not EndStatus.OK)
 
 
-PYTHON_EXECUTE = ToolSpec(
-    name="python_execute",
-    description=(
-        "Execute Python code in a persistent Jupyter kernel for this session. Variables persist "
-        "between calls. Large data stays in the kernel: print summaries (shape, head, describe), "
-        "not whole tables. Figures are saved automatically. Returns a run_id you can cite."
-    ),
-    handler=_python_execute,
-    args_model=PythonExecuteArgs,
-    permission=PermissionClass.EXECUTE,
-    # Kernel output can echo file contents, so it is not trusted (ADR-007).
-    output_trust=Trust.UNTRUSTED,
-    classification_floor=None,
-    target=lambda _args, _ctx: "python",
-)
+PYTHON_EXECUTE = _execute_tool("python", "Python")
+R_EXECUTE = _execute_tool("r", "R")

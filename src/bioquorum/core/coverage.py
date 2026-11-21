@@ -95,7 +95,7 @@ def coverage_view(events: Sequence[ev.Event]) -> dict[str, Any] | None:
         elif isinstance(p, ev.CoverageClosed):
             closed, gaps, decisive = True, p.gaps, p.decisive
         elif isinstance(p, ev.ToolCallRequested) and (
-            p.permission in RETRIEVAL or p.tool in ("read_file", "python_execute")
+            p.permission in RETRIEVAL or p.tool in ("read_file", "python_execute", "r_execute")
         ):
             queries[p.call_id] = {
                 "id": f"q{len(queries) + 1}",
@@ -117,7 +117,7 @@ def coverage_view(events: Sequence[ev.Event]) -> dict[str, Any] | None:
             else:
                 count = (
                     returned_count(p.result)
-                    if entry["tool"] not in ("python_execute", "read_file")
+                    if entry["tool"] not in ("python_execute", "r_execute", "read_file")
                     else None
                 )
                 entry.update(count=count, status="empty" if count == 0 else "returned")

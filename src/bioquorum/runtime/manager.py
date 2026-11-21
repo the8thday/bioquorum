@@ -37,12 +37,16 @@ def jupyter_factory(
         )
         from bioquorum.runtime.jupyter import JupyterKernel  # lazy: jupyter_client is heavy
 
+        if language == "r" and python_executable is None:
+            raise ValueError(
+                "R requires a provisioned project pixi environment with r-base and r-irkernel"
+            )
         kernel_name = {"python": "python3", "r": "ir"}.get(language, language)
         kernel = JupyterKernel(
             kernel_name=kernel_name,
             language=language,
             cwd=cwd,
-            python_executable=python_executable if language == "python" else None,
+            python_executable=python_executable,
             observe_lineage=observe_lineage,
             sandbox=sandbox if mode is not sb.Isolation.NONE else None,
             isolation=mode,
@@ -85,3 +89,28 @@ class KernelManager:
         for kernel in self._kernels.values():
             await kernel.shutdown()
         self._kernels.clear()
+
+
+class SessionKernels:
+    """Own the per-session managers between workbench turns in this process."""
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, tuple[object, KernelManager]] = {}
+
+    async def acquire(
+        self, sid: str, configuration: object, candidate: KernelManager
+    ) -> KernelManager:
+        prior = self._sessions.get(sid)
+        if prior and prior[0] == configuration:
+            return prior[1]
+        await self.release(sid)
+        self._sessions[sid] = (configuration, candidate)
+        return candidate
+
+    async def release(self, sid: str) -> None:
+        if prior := self._sessions.pop(sid, None):
+            await prior[1].shutdown_all()
+
+    async def close(self) -> None:
+        for sid in list(self._sessions):
+            await self.release(sid)

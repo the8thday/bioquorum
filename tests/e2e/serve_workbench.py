@@ -126,7 +126,56 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         from bioquorum.application import project_library
 
         project_library.library_root = lambda: Path(directory) / ".bioquorum" / "test-library"
-    if os.environ.get("BQ_TEST_FIRST_RUN"):
+    if os.environ.get("BQ_TEST_BILINGUAL"):
+        from bioquorum.core import events as ev
+        from bioquorum.core.enums import Actor
+        from bioquorum.core.hashing import code_hash
+        from bioquorum.core.messages import Message
+        from bioquorum.core.refs import NamedValue
+
+        root = Path(directory)
+        ws = init_project(root, classification=Classification.PUBLIC)
+        ws.config["kernel"] = {"pixi": True}
+        (root / "pixi.lock").write_text("fixture")
+        prefix = root / ".pixi/envs/default"
+        for name in ("bin/R", "bin/python", "share/jupyter/kernels/ir/kernel.json"):
+            path = prefix / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        package = prefix / "lib/R/library/DESeq2/DESCRIPTION"
+        package.parent.mkdir(parents=True)
+        package.write_text("Package: DESeq2\nVersion: 1.0.0\n")
+        controls = ResearchControls(ws)
+        sid = controls.new_session("Bilingual fixture")
+        for language, name, code, value in (
+            ("python", "rows", "bq.value('rows', 3)", 3),
+            ("r", "total", "bq_value('total', 7L)", 7),
+        ):
+            controls.store.append(
+                ev.RunStarted(
+                    run_id=name,
+                    kernel_id=language,
+                    language=language,
+                    code=code,
+                    code_hash=code_hash(code),
+                    synthetic=True,
+                ),
+                session_id=sid,
+                actor=Actor.TOOL,
+            )
+            controls.store.append(
+                ev.RunFinished(
+                    run_id=name, run_key="fixture", values=[NamedValue(name=name, value=value)]
+                ),
+                session_id=sid,
+                actor=Actor.TOOL,
+            )
+        controls.store.append(
+            ev.AssistantMessage(message=Message.assistant("{{rows}} rows, total {{total}}.")),
+            session_id=sid,
+            actor=Actor.AGENT,
+        )
+    elif os.environ.get("BQ_TEST_FIRST_RUN"):
         from unittest.mock import patch
 
         from bioquorum.application.workspace import Workspace

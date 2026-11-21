@@ -18,6 +18,7 @@ from bioquorum.core.hashing import code_hash, run_key, sha256_file
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import ImageRefPart, ResultContent, TextPart
 from bioquorum.core.refs import DataRef, NamedValue
+from bioquorum.core.verification import input_path
 from bioquorum.runtime import summarize
 from bioquorum.runtime.kernel import EndStatus, ExecutionEnd, KernelError, KernelOutput
 from bioquorum.runtime.lineage import LINEAGE_MIME
@@ -52,6 +53,7 @@ async def execute_run(
     timeout: float | None = None,
     inputs: Sequence[DataRef] = (),
     input_paths: Sequence[str] = (),
+    output_paths: Sequence[str] = (),
 ) -> RunRecord:
     kernels, cas = ctx.require_kernels(), ctx.require_cas()
     store, sid = ctx.store, ctx.session_id
@@ -59,6 +61,14 @@ async def execute_run(
     chash = code_hash(code)
 
     async with kernels.lock(sid):
+        root = ctx.workdir.resolve()
+        output_stamps = {}
+        for name in output_paths:
+            path = root / input_path(name)
+            if path.resolve() != path or not path.resolve().is_relative_to(root):
+                raise ValueError("Declared output must be an ordinary project path")
+            stat = path.stat() if path.is_file() else None
+            output_stamps[name] = (stat.st_ino, stat.st_size, stat.st_mtime_ns) if stat else None
         kernel = await kernels.get(sid, language)
         started = store.append(
             ev.RunStarted(
@@ -105,6 +115,7 @@ async def execute_run(
                             isinstance(path, str)
                             and len(path) <= 1024
                             and isinstance(fn, str)
+                            and fn != "declared_write"
                             and len(fn) <= 60
                             and direction in ("input", "output")
                         ):
@@ -164,11 +175,41 @@ async def execute_run(
             )
             raise
 
+    if end.status is EndStatus.OK:
+        try:
+            for name, before in output_stamps.items():
+                path = root / name
+                if path.resolve() != path or not path.is_file():
+                    raise ValueError(f"Declared output was not written: {name}")
+                after = path.stat()
+                if before == (after.st_ino, after.st_size, after.st_mtime_ns):
+                    raise ValueError(f"Declared output was not updated: {name}")
+                ref = cas.put_file(path)
+                store.append(
+                    ev.LineageObserved(
+                        run_id=run_id,
+                        path=name,
+                        direction="output",
+                        function="declared_write",
+                        post_run_hash=ref.content_hash,
+                    ),
+                    session_id=sid,
+                    actor=Actor.TOOL,
+                    causation_id=started.id,
+                )
+        except (ValueError, OSError, RuntimeError) as exc:
+            end = ExecutionEnd(
+                status=EndStatus.ERROR,
+                error=KernelError(ename="OutputRecordingError", evalue=str(exc)),
+            )
+
     # A library-specific observation names the same write more precisely.
     library_outputs = {
         path for path, direction, fn in observed_io if direction == "output" and fn != "file_write"
     }
     for path, direction, fn in sorted(observed_io):
+        if direction == "output" and path in output_stamps:
+            continue
         if fn == "file_write" and path in library_outputs:
             continue
         # The kernel reports observations, not proof of what bytes a call used.
@@ -201,7 +242,9 @@ async def execute_run(
     record = RunRecord(run_id=run_id, status=end.status, outputs=figures, stdout_ref=stdout_ref)
     end_payload: ev.EventPayload
     if end.status is EndStatus.OK:
-        key = run_key(chash, ctx.env_lock_hash, (ref.content_hash for ref in inputs))
+        key = run_key(
+            chash, ctx.env_lock_hash, (ref.content_hash for ref in inputs), language=language
+        )
         record.values = list(values.values())
         end_payload = ev.RunFinished(
             run_id=run_id,

@@ -67,3 +67,11 @@ async def test_manager_reuses_kernel_per_session_and_language():
     assert sorted(m.active()) == [("S2", "python")]
     await m.shutdown_all()
     assert all(k.closed for k in made)
+
+
+@pytest.mark.anyio
+async def test_r_kernel_never_falls_back_to_user_kernelspec(tmp_path):
+    from bioquorum.runtime.manager import jupyter_factory
+
+    with pytest.raises(ValueError, match="pixi"):
+        await jupyter_factory(tmp_path)("r")

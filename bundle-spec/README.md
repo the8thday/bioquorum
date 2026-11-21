@@ -19,3 +19,10 @@ to check integrity. `Methods.md` is an editable draft listed in the file hashes 
 unrelated event streams. See [the verification walkthrough](../docs/demo-v0.4.md)
 for instructions and environment constraints. The schema files are generated
 with `uv run python scripts/gen_bundle_schema.py`.
+
+Bilingual archives may also carry `cell_inputs`, `written_files`, and
+`kernel_group` in each run record. The runner starts one kernel per recorded
+group, executes the preceding Python and R cells in dependency order, and checks
+each declared handoff before the consumer reads it. Declared output files are
+included as content-addressed objects. Archives with R cells include the R value
+helper and the R inventory command.

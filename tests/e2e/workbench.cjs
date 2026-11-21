@@ -179,6 +179,26 @@ async function verifyConversation(page) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
+    if (process.env.BQ_TEST_BILINGUAL) {
+      await page.getByRole("button", {name:"7",exact:true}).click();
+      const evidence = page.getByRole("dialog", {name:"total",exact:true});
+      await evidence.getByRole("heading", {name:"R code"}).waitFor();
+      assert.match(await evidence.innerText(), /bq_value\('total', 7L\)/);
+      await evidence.getByRole("button", {name:"Close evidence"}).click();
+      await page.getByRole("button", {name:"Project settings",exact:true}).click();
+      const settings = page.getByRole("dialog",{name:"Project settings"});
+      await settings.getByText("Runtime and project",{exact:true}).click();
+      await settings.getByText("R packages (1)",{exact:true}).click();
+      await settings.getByText("DESeq2 1.0.0",{exact:true}).waitFor();
+      const sid = new URL(page.url()).searchParams.get("session");
+      const response = await page.request.get(new URL("/api/sessions/"+sid+"/notebook",page.url()).href);
+      assert.match(response.headers()["content-disposition"], /research-notebooks.zip/);
+      const archive = await response.body();
+      for (const name of ["research-python.ipynb","research-r.ipynb"]) assert.ok(archive.includes(Buffer.from(name)));
+      assert.deepEqual(errors, []);
+      console.log("R evidence, project package inventory and mixed notebook download passed");
+      return;
+    }
     if (process.env.BQ_TEST_COVERAGE) {
       await page.getByRole("heading", {name:"Conversation fixture"}).waitFor();
       const question = page.getByLabel("Research question");
@@ -455,6 +475,9 @@ async function verifyConversation(page) {
     if (process.env.BQ_TEST_CONVERSATION) {
       await page.getByRole("button", {name: "Project settings", exact: true}).click();
       const settings = page.getByRole("dialog", {name: "Project settings"});
+      await settings.getByText("Runtime and project", {exact:true}).click();
+      await settings.getByText(/R packages \(/).waitFor();
+      await settings.getByText(/pixi add r-base r-irkernel/).waitFor();
       const skills = settings.getByRole("checkbox", {name: "Research skills", exact: true});
       await skills.check();
       await settings.getByRole("button", {name: "Save settings"}).click();

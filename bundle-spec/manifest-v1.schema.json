@@ -347,6 +347,32 @@
           "title": "Synthetic",
           "type": "boolean"
         },
+        "cell_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Cell Inputs",
+          "type": "object"
+        },
+        "written_files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Written Files",
+          "type": "object"
+        },
+        "kernel_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kernel Group"
+        },
         "preceding_runs": {
           "items": {
             "type": "string"

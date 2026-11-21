@@ -196,6 +196,7 @@ forbidden_modules = ["fastapi", "starlette", "uvicorn"]
 [tool.hatch.build.targets.sdist]
 include = [
   "/src/bioquorum/**/*.py",
+  "/src/bioquorum/runtime/*.R",
   "/src/bioquorum/skills/builtin/*/SKILL.md",
   "/src/bioquorum/application/examples/*.json",
   "/src/bioquorum/server/web/*.html",

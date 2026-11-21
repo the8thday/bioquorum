@@ -57,7 +57,13 @@ def env_lock_hash(lock_content: str | bytes) -> str:
     return sha256_bytes(lock_content)
 
 
-def run_key(code_hash_: str, env_lock_hash_: str | None, input_hashes: Iterable[str]) -> str:
+def run_key(
+    code_hash_: str,
+    env_lock_hash_: str | None,
+    input_hashes: Iterable[str],
+    *,
+    language: str = "python",
+) -> str:
     """Identity of a Run: code + environment + sorted inputs.
 
     Two runs with the same key must produce the same outputs; otherwise reproduction failed.
@@ -66,7 +72,7 @@ def run_key(code_hash_: str, env_lock_hash_: str | None, input_hashes: Iterable[
     """
     inputs = "\n".join(sorted(set(input_hashes)))
     material = f"{code_hash_}\n{env_lock_hash_ or 'none'}\n{inputs}"
-    return sha256_text(material)
+    return sha256_text(material if language == "python" else f"{language}\n{material}")
 
 
 # ----------------------------------------------------------------- objects

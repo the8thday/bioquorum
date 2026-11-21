@@ -24,13 +24,15 @@ from bioquorum.core.status import StatusTrigger, VerificationStatus, transition
 from bioquorum.core.verification import Tolerance, VerificationOutcome, compare_values
 from bioquorum.policy.permissions import PermissionPolicy
 from bioquorum.policy.secrets import redact
+from bioquorum.review.evidence import Evidence
 from bioquorum.runtime.manager import KernelManager, jupyter_factory
+from bioquorum.runtime.r_environment import r_spec_path
 from bioquorum.runtime.sandbox import SandboxSpec, bwrap_available
 from bioquorum.tools import ToolContext, ToolRegistry
 from bioquorum.tools.builtin.files import LIST_FILES, READ_FILE
-from bioquorum.tools.builtin.kernel import PYTHON_EXECUTE
+from bioquorum.tools.builtin.kernel import PYTHON_EXECUTE, R_EXECUTE
 from bioquorum.tools.invoke import invoke
-from bioquorum.tools.replay import recorded_inputs, replay_spec, run_chain
+from bioquorum.tools.replay import dependency_chain, external_inputs, recorded_writes, replay_spec
 
 if TYPE_CHECKING:
     from bioquorum.application.controls import ResearchControls
@@ -140,8 +142,8 @@ def _validate_run(
         raise ValueError(
             "This calculation was replayed from a fixture. Run it in a real kernel first."
         )
-    if start.language != "python" or start.code_hash != code_hash(start.code):
-        raise ValueError("The recorded Python code could not be verified")
+    if start.language not in ("python", "r") or start.code_hash != code_hash(start.code):
+        raise ValueError("The recorded kernel code could not be verified")
     if not start.environment or start.env_lock_hash != lock:
         raise ValueError("The original environment is unknown or its lock has changed")
     if target and not (end.values or end.outputs or end.stdout_ref):
@@ -186,14 +188,17 @@ async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
             ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi"))
         )
         policy = PermissionPolicy()
-        policy.grant(PermissionClass.EXECUTE, "python", PermissionScope.SESSION, session_id=sid)
+        policy.grant(
+            PermissionClass.EXECUTE, "recorded-calculation", PermissionScope.SESSION, session_id=sid
+        )
         cas = ws.cas()
         history = controls.store.history(sid)
         recorded = _runs(history)
         for original, expected in study.runs:
             row: dict = {"original_run_id": original.run_id, "outcome": "inconclusive"}
             try:
-                chain = run_chain(history, original)
+                chain = dependency_chain(history, original)
+                writes = recorded_writes(history)
                 for before in chain:
                     end = recorded[before.run_id][1]
                     _validate_run(before, end, lock=lock, target=before.run_id == original.run_id)
@@ -207,7 +212,7 @@ async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
                         workdir=root,
                         network=False,
                         hidden=(),
-                        read_only=tuple(root / name for name in recorded_inputs(chain)),
+                        read_only=tuple(root / name for name in external_inputs(chain, writes)),
                     )
                     manager = KernelManager(
                         controls.kernel_factory
@@ -233,7 +238,9 @@ async def rerun(controls: ResearchControls, sid: str, claim_id: str) -> dict:
                         actor=Actor.USER,
                     )
                     try:
-                        result = await invoke(replay_spec(chain), {}, ctx, causation_id=started.id)
+                        result = await invoke(
+                            replay_spec(chain, writes), {}, ctx, causation_id=started.id
+                        )
                     finally:
                         await manager.shutdown_all()
                 if result.is_error:
@@ -325,11 +332,17 @@ def _pricing(controls: ResearchControls, sid: str) -> dict:
 
 def _blind_inputs(controls: ResearchControls, sid: str, study: Study):
     history = controls.store.history(sid)
+    needed = {
+        cell.run_id for original, _ in study.runs for cell in dependency_chain(history, original)
+    }
+    chain = [
+        p
+        for event in history
+        if isinstance(p := event.parsed(), ev.RunStarted) and p.run_id in needed
+    ]
     return {
         "inputs/" + name: ref
-        for name, ref in recorded_inputs(
-            cell for original, _ in study.runs for cell in run_chain(history, original)
-        ).items()
+        for name, ref in external_inputs(chain, recorded_writes(history)).items()
     }
 
 
@@ -404,7 +417,7 @@ async def replicate(
         required = "\n".join(f"- {name}" for name in inputs)
         message = (
             f"{question}\n\nInput files:\n{required or '(none)'}\n\n"
-            "Declare these results with bq.value(name, value, unit=...); bq is predefined "
+            "Declare results with bq.value in Python or bq_value in R; these helpers are predefined "
             f"in the kernel, so do not import or define it:\n{targets}"
         )
         with TemporaryDirectory(prefix="bq-blind-") as tmp:
@@ -444,6 +457,7 @@ async def replicate(
                 data_dirs=[],
                 config={
                     "agent": {"binding": False},
+                    "kernel": {"pixi": python is not None},
                 },
             )
             await research.execute(
@@ -468,21 +482,32 @@ async def replicate(
                     python_executable=python,
                 ),
                 env_lock_hash=lock,
-                registry_factory=lambda: ToolRegistry([PYTHON_EXECUTE, LIST_FILES, READ_FILE]),
+                registry_factory=lambda: ToolRegistry(
+                    [
+                        PYTHON_EXECUTE,
+                        *([R_EXECUTE] if python and r_spec_path(python.parent.parent) else []),
+                        LIST_FILES,
+                        READ_FILE,
+                    ]
+                ),
             )
             expected_inputs = {ref.content_hash for ref in inputs.values()}
             produced: dict[str, NamedValue] = {}
             blind_history = controls.store.read(blind_sid)
+            declarations = Evidence.from_events(blind_history).values
             for start, end in _runs(blind_history).values():
                 if start.synthetic or start.isolation != "bwrap":
                     continue
                 try:
-                    chain = run_chain(blind_history, start)
+                    chain = dependency_chain(blind_history, start)
                 except ValueError:
                     continue
                 seen_inputs = {ref.content_hash for cell in chain for ref in cell.inputs}
                 if expected_inputs.issubset(seen_inputs):
-                    produced.update({v.name: v for v in end.values})
+                    for value in end.values:
+                        declaration = declarations.get(value.name)
+                        if declaration and declaration.run_id == start.run_id:
+                            produced[value.name] = value
         comparisons = compare_values(study.targets, list(produced.values()), request.tolerance)
         if any(row.matched is False for row in comparisons):
             outcome = "different"
@@ -513,7 +538,6 @@ async def replicate(
 
 async def export_bundle(controls: ResearchControls, sid: str) -> dict:
     from bioquorum.review.binding import find_bindings
-    from bioquorum.review.evidence import Evidence
     from bioquorum.tools.bundle import export_spec
 
     controls.ensure_idle()

@@ -1,0 +1,10 @@
+[kernel]
+pixi = true
+macos_sandbox = true
+
+[providers.openai]
+api_key = "env:OPENAI_API_KEY"
+
+[roles]
+worker = "openai:gpt-6.2-sol"
+reviewer = "openai:gpt-6.2-sol"

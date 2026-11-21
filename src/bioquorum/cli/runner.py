@@ -78,11 +78,13 @@ class Printer:
     console: Console
 
     def tool_call(self, call: ToolCallPart) -> None:
-        if call.name == "python_execute":
+        if call.name in ("python_execute", "r_execute"):
             code = str(call.args.get("code", "")).strip()
             first = code.splitlines()[0] if code else ""
             more = f"  (+{len(code.splitlines()) - 1} lines)" if "\n" in code else ""
-            self.console.print(f"[cyan]> python[/] {first[:110]}{more}")
+            self.console.print(
+                f"[cyan]> {call.name.removesuffix('_execute')}[/] {first[:110]}{more}"
+            )
         else:
             self.console.print(f"[cyan]> {call.name}[/] {_short(call.args)}")
 

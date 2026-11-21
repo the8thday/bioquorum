@@ -156,3 +156,22 @@ def test_project_library_skips_corrupted_project_metadata(tmp_path, monkeypatch)
     rows = project_library.entries(current)
     names = [r["name"] for r in rows]
     assert "Current" in names and good["name"] in names
+
+
+def test_project_language_inventory_reads_only_configured_prefix(tmp_path):
+    from bioquorum.application.environment import package_inventory
+    from bioquorum.core.hashing import env_lock_hash
+
+    prefix = tmp_path / ".pixi/envs/default"
+    for name in ("bin/R", "bin/python", "share/jupyter/kernels/ir/kernel.json"):
+        path = prefix / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    description = prefix / "lib/R/library/DESeq2/DESCRIPTION"
+    description.parent.mkdir(parents=True)
+    description.write_text("Package: DESeq2\nVersion: 1.44.0\n")
+    (tmp_path / "pixi.lock").write_bytes(b"locked")
+    enabled = package_inventory(tmp_path, use_pixi=True)
+    assert enabled["lock_hash"] == env_lock_hash(b"locked")
+    assert ("DESeq2", "1.44.0") in enabled["r_packages"]
+    assert package_inventory(tmp_path, use_pixi=False)["r_packages"] == []

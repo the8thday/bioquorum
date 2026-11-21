@@ -59,3 +59,9 @@ def test_registered_serializer_takes_precedence():
 
 def test_cas_relpath():
     assert str(cas_relpath("abcdef")) == "ab/abcdef"
+
+
+def test_language_is_part_of_run_identity_without_changing_python_history():
+    ch = code_hash("1+1")
+    assert run_key(ch, None, []) == run_key(ch, None, [], language="python")
+    assert run_key(ch, None, [], language="r") != run_key(ch, None, [])

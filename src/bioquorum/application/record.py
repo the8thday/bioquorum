@@ -16,7 +16,7 @@ from bioquorum.core.review_record import AnswerReview, answer_reviews
 from bioquorum.review.binding import find_bindings, ground_claim, render
 from bioquorum.review.checks.absence import unsupported_absence
 from bioquorum.review.evidence import Evidence, result_text
-from bioquorum.tools.replay import recorded_inputs, run_chain
+from bioquorum.tools.replay import dependency_chain, recorded_inputs
 
 AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
     "model_call_started": ("provider", "model", "role", "classification"),
@@ -345,6 +345,7 @@ def run_details(events: list[ev.Event], run_id: str) -> dict:
             details.update(
                 code=p.code,
                 code_hash=p.code_hash,
+                language=p.language,
                 isolation=p.isolation,
                 environment=p.environment,
                 env_lock=p.env_lock_hash,
@@ -365,8 +366,10 @@ def run_details(events: list[ev.Event], run_id: str) -> dict:
     if start is None:
         raise LookupError("Run not found")
     try:
-        chain = run_chain(events, start)
-        details["previous_cells"] = [{"code": p.code, "run_id": p.run_id} for p in chain[:-1]]
+        chain = dependency_chain(events, start)
+        details["previous_cells"] = [
+            {"code": p.code, "run_id": p.run_id, "language": p.language} for p in chain[:-1]
+        ]
         details["inputs"] = [
             {**ref.model_dump(mode="json"), "path": path}
             for path, ref in recorded_inputs(chain).items()

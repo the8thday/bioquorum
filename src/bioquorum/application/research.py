@@ -16,8 +16,9 @@ from bioquorum.agent.budget import Budget, BudgetMeter
 from bioquorum.agent.literature import TARGET as LITERATURE_TARGET
 from bioquorum.agent.literature import LiteratureQuestion, allowed_tools, literature_tool
 from bioquorum.agent.loop import TurnResult
-from bioquorum.agent.prompts import FIRST_PASS, worker_system
+from bioquorum.agent.prompts import FIRST_PASS, kernel_instructions, worker_system
 from bioquorum.application import workspace as wsp
+from bioquorum.application.environment import package_inventory
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, PermissionClass, PermissionScope
 from bioquorum.core.messages import fence_untrusted
@@ -29,7 +30,7 @@ from bioquorum.policy.secrets import redact
 from bioquorum.provenance.cas import IntegrityError
 from bioquorum.review import ReviewResult, review_answer
 from bioquorum.review.evidence import Evidence
-from bioquorum.runtime.manager import KernelFactory
+from bioquorum.runtime.manager import KernelFactory, SessionKernels
 from bioquorum.storage.events import EventStore
 from bioquorum.tools import ToolContext, ToolRegistry, default_registry
 from bioquorum.tools.builtin.citation import DOI_HOST, PUBMED_HOST
@@ -216,6 +217,7 @@ async def execute(
     plan: ev.PlanProposed | None = None,
     kernel_factory: KernelFactory | None = None,
     env_lock_hash: str | None = None,
+    session_kernels: SessionKernels | None = None,
     registry_factory: Callable[[], ToolRegistry] = default_registry,
 ) -> TurnResult:
     options = ws.agent_options()
@@ -229,10 +231,17 @@ async def execute(
         if not options.literature_subtasks:
             raise wsp.WorkspaceError("Enable literature_subtasks before using /literature")
         question = request.question
-    registry = registry_factory()
+    inventory = package_inventory(ws.root, use_pixi=bool(ws.config.get("kernel", {}).get("pixi")))
+    registry = (
+        default_registry(r_available=inventory["r_available"] or kernel_factory is not None)
+        if registry_factory is default_registry
+        else registry_factory()
+    )
     minimal = ws.profile_name == "minimal"
     if minimal:
-        registry = ToolRegistry([registry.get("python_execute")])
+        registry = ToolRegistry(
+            tool for tool in registry if tool.name in ("python_execute", "r_execute")
+        )
     servers = [] if minimal else ws.mcp_servers()
     async with AsyncExitStack() as stack:
         if not minimal and ws.config.get("connectors", {}).get("public_sources") is True:
@@ -273,11 +282,17 @@ async def execute(
                     warnings(msg)
         policy = permissions(servers)
         system = (
-            "Answer the research question using the provided Python kernel and local files."
+            "Answer the research question using the provided computation tools and local files."
             if minimal
             else None
         )
         project_context = _project_context(ws, store, sid, registry, policy, options)
+        project_context.extend(
+            kernel_instructions(
+                r_available="r_execute" in registry,
+                inventory=inventory if registry_factory is default_registry else None,
+            )
+        )
         effective_budget = budget if budget is not None else options.budget
         meter: BudgetMeter | None = None
         prefetch = None
@@ -340,6 +355,16 @@ async def execute(
             ),
         )
 
+        if session_kernels is not None:
+            configuration = (
+                ws.kernel_sandbox(),
+                ctx.env_lock_hash,
+                ws.config.get("kernel", {}),
+                ws.classification,
+                ws.outbound_proxy(),
+            )
+            ctx.kernels = await session_kernels.acquire(sid, configuration, ctx.require_kernels())
+
         async def first_event(asked: ev.Event) -> None:
             if options.first_pass:
                 store.append(
@@ -379,9 +404,13 @@ async def execute(
                 compact_at_bytes=options.compact_at_bytes,
                 references=options.allows_references,
             )
+        except BaseException:
+            if session_kernels is not None:
+                await session_kernels.release(sid)
+            raise
         finally:
-            assert ctx.kernels is not None
-            await ctx.kernels.shutdown_all()
+            if session_kernels is None:
+                await ctx.require_kernels().shutdown_all()
 
 
 async def audit(

@@ -1,0 +1,24 @@
+- id: v09-B-01
+  split: development
+  question: >-
+    Using outputs/v09/paired-counts.csv and outputs/v09/paired-samples.csv from the
+    GSE96583 example, use R and DESeq2 to compare stimulated and control CD14+
+    monocytes. Report the number of donor pairs, the number of genes with a
+    nonmissing adjusted p-value, and the number below or equal to 5% FDR.
+  criteria:
+    design: Verify sample alignment and complete pairs, use raw integer counts and a donor-blocked design.
+    contrast: Fit stimulated versus control and distinguish prefiltered genes from genes with adjusted p-values.
+    traceability: Declare both input files and bind all reported quantities to successful R runs.
+- id: v09-B-02
+  split: development
+  question: >-
+    Start from the raw, annotated GSE96583 batch 2 files in data/. In Python,
+    select author-labelled singlet CD14+ monocytes with at least 200 detected
+    genes, and use a 10% mitochondrial UMI cutoff where observable. Keep donors
+    with at least 30 cells in both conditions. Pass donor-level raw counts to R
+    through CSV, and independently verify sample pairing and that the
+    donor-plus-condition design matrix is full rank. Report any unobservable QC.
+  criteria:
+    eligibility: Join barcodes within condition; aggregate raw counts per eligible donor and condition.
+    handoff: Declare the producer outputs and consumer inputs, with matching relative paths and hashes.
+    evidence: Bind Python and R quantities separately; state what the mitochondrial measurements allow.

@@ -63,3 +63,20 @@ def test_catalog_records_turn_number_for_turn_products():
     rows = artifacts.catalog_records(parsed)
     assert rows[0]["turn"] is None and rows[0]["turn_number"] is None
     assert rows[1]["turn"] == "t2" and rows[1]["turn_number"] == 2
+
+
+def test_notebooks_keep_r_cells_out_of_python(tmp_path):
+    c = ResearchControls(init_project(tmp_path, classification=Classification.PUBLIC))
+    sid = c.new_session("Mixed")
+    for lang in ("python", "r"):
+        c.store.append(
+            ev.RunStarted(
+                run_id=lang, language=lang, kernel_id=lang, code=lang, code_hash="f" * 64
+            ),
+            session_id=sid,
+            actor=Actor.TOOL,
+        )
+    for lang in ("python", "r"):
+        notebook = artifacts.notebook(c, sid, lang)
+        assert notebook["metadata"]["kernelspec"]["language"].lower() == lang
+        assert [cell["source"] for cell in notebook["cells"]] == [[lang]]
