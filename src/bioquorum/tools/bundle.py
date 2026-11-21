@@ -251,7 +251,9 @@ def export_spec(
                     for query in ledger["queries"]:
                         query["scope"] = recorded_args(query["tool"], query["scope"], ctx.workdir)
                         if query["reason"]:
-                            query["reason"] = download_text(query["reason"]).replace(str(ctx.workdir), ".")
+                            query["reason"] = download_text(query["reason"]).replace(
+                                str(ctx.workdir), "."
+                            )
                 write("review/coverage.json", canonical_json(ledgers))
             if not selected and not sources and not limitations and not claims and not ledgers:
                 raise ValueError("The session has no exportable runs or retrieved evidence")

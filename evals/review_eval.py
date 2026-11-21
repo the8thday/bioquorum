@@ -100,9 +100,13 @@ def main(argv: list[str] | None = None) -> None:
         positives = sum(r["unsupported"] for r in sample)
         flagged = [r for r in sample if unsupported_absence(r["text"], {"queries": []})]
         caught = sum(r["unsupported"] for r in flagged)
-        print(f"Model-written absence sample: recall {caught}/{positives}; false positives "
-              f"{len(flagged)-caught}/{len(sample)-positives} negative controls")
-        for worker, h in asyncio.run(score_heldout(args.heldout or ["ollama:qwen3:4b-instruct"])).items():
+        print(
+            f"Model-written absence sample: recall {caught}/{positives}; false positives "
+            f"{len(flagged) - caught}/{len(sample) - positives} negative controls"
+        )
+        for worker, h in asyncio.run(
+            score_heldout(args.heldout or ["ollama:qwen3:4b-instruct"])
+        ).items():
             got, tot = sum(h["caught"].values()), sum(h["total"].values())
             per = ", ".join(f"{t} {h['caught'].get(t, 0)}/{n}" for t, n in h["total"].items())
             print(
