@@ -12,14 +12,16 @@ def test_offline_guide_links_resolve_under_a_subpath(tmp_path: Path):
     logo = repo / "web/public/logo.svg"
     logo.parent.mkdir(parents=True)
     logo.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
-    (repo / "README.md").write_text("# ![](web/public/logo.svg) BioQuorum")
+    (repo / "README.md").write_text(
+        '<div align="center">\n\n# ![BioQuorum](web/public/logo.svg)\n\n</div>\n\nBody.'
+    )
     out = tmp_path / "site"
     build(repo, out)
     assert 'href="install.html#setup"' in (out / "index.html").read_text()
     assert 'id="setup"' in (out / "install.html").read_text()
     readme = (out / "project/README.html").read_text()
     assert (
-        '<h1 id="bioquorum"><img src="../assets/web/public/logo.svg" alt="" /> BioQuorum</h1>'
+        '<h1 id="bioquorum" align="center"><img src="../assets/web/public/logo.svg" alt="BioQuorum" /></h1>'
         in readme
     )
     assert "<title>BioQuorum · BioQuorum</title>" in readme

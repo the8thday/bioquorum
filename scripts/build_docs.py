@@ -19,7 +19,7 @@ h1,h2,h3{line-height:1.22;color:#173b38}h2{margin-top:2.2rem}
 a{color:#12645b;text-underline-offset:.16em}pre,code{font-family:ui-monospace,monospace}
 pre{padding:1rem;background:#eaf0ee;overflow:auto}code{overflow-wrap:anywhere}
 table{display:block;overflow:auto;border-collapse:collapse}td,th{border:1px solid #cdd6d3;padding:.4rem .7rem;text-align:left}
-img{max-width:100%}h1 img{height:1.2em;width:auto;vertical-align:-.22em}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #8db4aa}
+img{max-width:100%}h1 img{height:auto;vertical-align:middle}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #8db4aa}
 """
 
 
@@ -34,7 +34,12 @@ def build(repo: Path, output: Path) -> None:
     for src, page in pages.items():
         dest = output / page
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tokens = engine.parse(src.read_text(encoding="utf-8"))
+        source = src.read_text(encoding="utf-8")
+        # Recognize a GitHub-centered title while keeping arbitrary raw HTML escaped.
+        centered_title = re.match(r'\A<div align="center">\n\n(# [^\n]+)\n\n</div>(?=\n|$)', source)
+        if centered_title:
+            source = centered_title[1] + source[centered_title.end() :]
+        tokens = engine.parse(source)
         headings: set[str] = set()
         title = "BioQuorum"
         for i, token in enumerate(tokens):
@@ -51,6 +56,8 @@ def build(repo: Path, output: Path) -> None:
                     slug = f"{base}-{count}"
                 headings.add(slug)
                 token.attrSet("id", slug)
+                if i == 0 and centered_title:
+                    token.attrSet("align", "center")
             for child in token.children or ():
                 key = "src" if child.type == "image" else "href"
                 url = child.attrGet(key)
