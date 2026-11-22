@@ -87,6 +87,13 @@ def kernel_instructions(*, r_available: bool, inventory: dict | None) -> list[st
         )
     if inventory is None:
         return project_context
+    project_context.append(
+        "Viewer sidecars (same run): for interactive figure sample picking, save a figure file and "
+        "record normalized top-left coordinates with bq.figure_points(path, sample_ids, x, y)"
+        + (" or bq_figure_points(path, sample_ids, x, y) in R." if r_available else ".")
+        + " For sequence annotation tracks, write both the FASTA file and "
+        "<fasta_path>.annotations.tsv (tab-separated columns: record, start, end, label; 1-based inclusive)."
+    )
     scientific = {
         "pandas",
         "numpy",

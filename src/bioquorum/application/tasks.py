@@ -67,8 +67,10 @@ def task_list(controls: ResearchControls) -> list[dict]:
                     )
             elif event.type == "turn_finished" and p["turn_id"] == current["id"]:
                 current["status"] = p["outcome"]
+                waiting.clear()
             elif event.type in ("turn_started", "turn_resumed") and p["turn_id"] == current["id"]:
                 current["status"] = "running"
+                waiting.clear()
             elif event.type == "plan_proposed" and current["status"] == "queued":
                 current["status"] = "awaiting plan"
             elif current["status"] in ("running", "awaiting permission"):

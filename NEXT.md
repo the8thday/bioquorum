@@ -5,6 +5,8 @@
 
 ## 当前交接
 
+2026-11-22 完成 v0.10–v0.12 合并后的路线图与代码复核，修复了以下问题并补齐回归测试与随包前端重建：`web/src/Settings.tsx` 将 `domain_skills` 纳入 `minimal`/`custom` 配置切换规则以与 `workspace.py` 一致；`web/src/viewers/Molecule.tsx` 消除 RDKit Worker 的 `onmessage` 竞态；`web/src/viewers/Figure.tsx` 拖框选点补齐 `setPointerCapture` 与 64 点上限提示；`web/src/App.tsx` 按分页窗口过滤正文内的产物链接组；`.github/workflows/ci.yml` 补齐 `BQ_TEST_MATERIALS`、`BQ_TEST_SCENARIO_D`、`BQ_TEST_HER2`；`application/program_lineage.py` 改用含祖先历史的 `store.history` 解析分叉会话继承结论，并对未归属父会话的继承结论返回空材料列表不再 404；`provenance/program_lineage.py` 避免同运行图的重复计数；`runtime/values.py` 的 `bq.figure_points` 拒绝布尔与非有限坐标；`agent/prompts.py` 在 `kernel_instructions` 中补充图点映射与序列注释伴随文件约定；`application/tasks.py` 在轮次结束与恢复时清理陈旧权限等待；`agent/literature.py` 通用子任务改用中性文案；`server/app.py` 启动恢复先收口中断子任务再结束父轮次；`skills/specialists.py` 对齐符号链接祖先校验。
+
 本地 `main` 工作区已整合主线复核修复（`5cac00a`）与 v0.10（`9bb81f2`）、v0.11（`255bf33`）、v0.12（`d0cb490`）。v0.7–v0.12 的 46 项工程任务均已勾选。下一步为 1.0.1：按路线图 §1 逐项核对早期发布和科学验收，场景 B 以 v0.9 的作者验收为准。v0.10 的真人接手者可以查看完整材料，单靠摘要接手仍待实测。v0.10–v0.12 的本机研究项目、模型输出与历史费用账本已复制到主工作目录的 `evals/results/v10`、`v11`、`v12`，复制时已逐文件核对内容。这些目录由 Git 忽略；两个演示项目均已通过主工作区的 CLI 打开。
 
 主工作区复验：默认后端 597 项、前端 20 项通过；集成测试 18 项通过，10 项依赖 Linux bubblewrap 的用例在本机跳过。9 条分层契约、Ruff 检查和格式、Pyright 均通过。18 条浏览器流程通过，含材料更正、HER2、双语言证据、查看器、服务中断恢复和万事件会话分页。后台恢复本次按短间隔复跑；一小时场景的历史记录见下节。

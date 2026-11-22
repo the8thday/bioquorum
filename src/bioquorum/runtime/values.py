@@ -69,11 +69,20 @@ def __bq_install():
         def figure_points(self, path, sample_ids, x, y):
             """Write normalized image coordinates (origin top left) alongside a figure."""
             import csv
+            import math
             rows = list(zip(sample_ids, x, y, strict=True))
             seen = set()
             for sample, px, py in rows:
-                if not (isinstance(sample, str) and 0 < len(sample) <= 128
-                        and sample not in seen and 0 <= px <= 1 and 0 <= py <= 1):
+                if (
+                    not isinstance(sample, str)
+                    or not 0 < len(sample) <= 128
+                    or sample in seen
+                    or isinstance(px, bool)
+                    or isinstance(py, bool)
+                    or not isinstance(px, (int, float))
+                    or not isinstance(py, (int, float))
+                    or not (math.isfinite(px) and math.isfinite(py) and 0 <= px <= 1 and 0 <= py <= 1)
+                ):
                     raise ValueError("Expected unique sample IDs and normalized coordinates")
                 seen.add(sample)
             with open(str(path) + ".points.tsv", "w", encoding="utf-8", newline="") as stream:

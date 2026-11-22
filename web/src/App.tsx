@@ -250,9 +250,10 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   const resultFigures = new Map(products.filter(p=>recordedFigures.has(p.id)).map(p=>[p.id,p]));
   const sizes=layout.columns(!!active && !materials,!!id && !collapsed && !materials);
   const answerPositions = new Map(record?.answers.map(a=>[a.turn,a.seq]));
+  const firstSeq = record?.first_seq ?? -Infinity;
   const groups = new Map<string,{seq:number;items:Product[]}>();
   for (const p of products) {
-    if (!p.preview || recordedFigures.has(p.id) || (p.kind==="figure" && p.status==="recorded")) continue;
+    if (!p.preview || p.seq < firstSeq || recordedFigures.has(p.id) || (p.kind==="figure" && p.status==="recorded")) continue;
     const key=p.turn || p.id;
     const group=groups.get(key) ?? {seq:p.turn ? answerPositions.get(p.turn) ?? p.seq : p.seq,items:[]};
     group.seq=Math.max(group.seq,p.seq);

@@ -21,7 +21,7 @@ class Specialist(BaseModel):
 
 def load_specialists(directory: Path) -> dict[str, Specialist]:
     result = {}
-    if not directory.is_dir() or directory.is_symlink():
+    if not directory.is_dir() or directory.is_symlink() or directory.resolve() != directory:
         return result
     for path in sorted(directory.glob("*.md")):
         if len(result) == MAX_SKILLS:

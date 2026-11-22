@@ -187,3 +187,31 @@ async def test_invalid_or_sensitive_program_names_do_not_reach_domain_events(tmp
     assert programs.list_programs(controls) == []
     assert all(credential not in event.model_dump_json() for event in controls.store.iter_all())
     assert all(event.type != "program_created" for event in controls.store.read(None))
+
+
+@pytest.mark.anyio
+async def test_session_materials_returns_empty_for_inherited_claim_outside_program(tmp_path):
+    from bioquorum.application.program_lineage import session_materials
+    from bioquorum.core.messages import Message
+
+    controls = ResearchControls(workspace.init_project(tmp_path))
+    parent = controls.new_session("Unattached parent")
+    answer = controls.store.append(
+        ev.AssistantMessage(message=Message.assistant("Baseline finding.")),
+        session_id=parent,
+        actor=Actor.AGENT,
+    )
+    controls.store.append(
+        ev.ClaimExtracted(
+            claim_id="parent_claim",
+            source_event_id=answer.id,
+            text="Baseline finding.",
+            kind=ClaimKind.NUMERIC,
+        ),
+        session_id=parent,
+        actor=Actor.REVIEWER,
+    )
+    child = controls.fork(parent, "Attached fork")
+    pid = (await programs.create(controls, "Follow-up line"))["id"]
+    await programs.attach(controls, pid, child)
+    assert session_materials(controls, child, "parent_claim") == []

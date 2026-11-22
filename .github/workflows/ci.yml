@@ -44,6 +44,9 @@ jobs:
       - run: BQ_TEST_FIRST_RUN=1 npm test --prefix tests/e2e
       - run: BQ_TEST_UPLOAD=1 npm test --prefix tests/e2e
       - run: BQ_TEST_VIEWERS=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_MATERIALS=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_SCENARIO_D=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_HER2=1 npm test --prefix tests/e2e
       - run: BQ_TEST_COVERAGE=1 npm test --prefix tests/e2e
       - run: BQ_TEST_BILINGUAL=1 npm test --prefix tests/e2e
       - run: BQ_TEST_REFERENCES=1 npm test --prefix tests/e2e

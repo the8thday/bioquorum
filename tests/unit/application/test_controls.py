@@ -531,3 +531,31 @@ async def test_task_list_shows_each_child_and_its_own_usage(tmp_path):
     assert (b["question"], b["specialist"], b["status"]) == ("Read B", "archive", "inconclusive")
     assert b["input_tokens"] + b["output_tokens"] == 12
     assert b["model_calls"] == 1 and b["priced_calls"] == 0
+
+
+async def test_task_list_clears_stale_permission_wait_on_resume(tmp_path):
+    from bioquorum.application.tasks import task_list
+    from bioquorum.core.enums import PermissionClass
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Resume permission")
+    store = controls.store
+    turn = store.append(ev.TurnRequested(question="Fetch data"), session_id=sid, actor=Actor.USER)
+    store.append_chain(
+        [
+            ev.TurnStarted(turn_id=turn.id),
+            ev.PermissionRequested(
+                request_id="req1",
+                permission=PermissionClass.NETWORK,
+                target="example.org",
+                reason="download_file",
+            ),
+            ev.TurnFinished(turn_id=turn.id, outcome="interrupted"),
+            ev.TurnResumed(turn_id=turn.id),
+            ev.SubtaskStarted(task_id="child1", parent_call_id="c1", question="Check"),
+        ],
+        session_id=sid,
+        actor=Actor.SYSTEM,
+    )
+    (row,) = task_list(controls)
+    assert row["status"] == "running"

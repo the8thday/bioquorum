@@ -91,11 +91,17 @@ def upstream(controls: ResearchControls, pid: str, cid: str) -> list[dict]:
 
 
 def session_materials(controls: ResearchControls, sid: str, cid: str) -> list[dict]:
-    history = controls.require_session(sid)
+    controls.require_session(sid)
+    history = controls.store.history(sid)
     if not any(e.type == "claim_extracted" and e.payload["claim_id"] == cid for e in history):
         raise LookupError("Claim not found in this session")
     program = programs.for_session(controls.store.db, controls.ws.project_id, sid)
-    return upstream(controls, program, cid) if program else []
+    if not program:
+        return []
+    try:
+        return upstream(controls, program, cid)
+    except LookupError:
+        return []
 
 
 def review_state(

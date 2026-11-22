@@ -133,6 +133,7 @@ async def _lookup(
     start_id: str,
     question: str,
     *,
+    general: bool = False,
     system: str = _SYSTEM,
     budget_lock: asyncio.Lock | None = None,
     tool_lock: asyncio.Lock | None = None,
@@ -185,7 +186,9 @@ async def _lookup(
                 )
                 async with (tool_lock if not parallel_read else None) or nullcontext():
                     reason = meter.stop_reason() or (
-                        "literature tool limit" if not tools_left else None
+                        ("subtask tool limit" if general else "literature tool limit")
+                        if not tools_left
+                        else None
                     )
                     await invoke_by_name(
                         registry,
@@ -212,7 +215,7 @@ async def _lookup(
                         ctx,
                         call_id=call.call_id,
                         causation_id=said.id,
-                        skip_reason="Literature lookup stopped",
+                        skip_reason="Subtask stopped" if general else "Literature lookup stopped",
                     )
             raise
         cause = said.id
@@ -286,6 +289,7 @@ async def run_child(
                 meter,
                 start.id,
                 args.question,
+                general=general,
                 system=system,
                 budget_lock=budget_lock,
                 tool_lock=tool_lock,
@@ -295,7 +299,7 @@ async def run_child(
         else:
             reason = "No verifiable excerpt was returned."
     except TimeoutError:
-        reason = "Literature lookup timed out."
+        reason = "Subtask timed out." if general else "Literature lookup timed out."
     except asyncio.CancelledError:
         outcome, reason = "cancelled", "Research stopped."
         raise
@@ -318,10 +322,12 @@ async def run_child(
             actor=Actor.SYSTEM,
             causation_id=start.id,
         )
+    label = "Subtask" if general else "Literature subtask"
     if outcome != "completed":
-        return ToolResult.text(f"Literature subtask inconclusive: {reason}", is_error=True)
+        return ToolResult.text(f"{label} inconclusive: {reason}", is_error=True)
+    completed_prefix = "Subtask completed." if general else "Literature lookup completed."
     return ToolResult.text(
-        "Literature lookup completed. Helper synthesis is unverified. "
+        f"{completed_prefix} Helper synthesis is unverified. "
         "Use the separately labelled excerpts to check claims.\n" + summary
     )
 

@@ -48,7 +48,7 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
   function update(section: string, key: string, value: unknown) {
     setPatch(old => {
       const preset = String(old.profile?.name ?? data?.profile.name);
-      if (section === "agent" && preset !== "custom" && (key in (data?.profile.presets.minimal ?? {}) || ["subtasks","specialists"].includes(key))) {
+      if (section === "agent" && preset !== "custom" && (key in (data?.profile.presets.minimal ?? {}) || ["domain_skills","subtasks","specialists"].includes(key))) {
         return {...old,profile:{name:"custom"},agent:{...data?.profile.presets[preset],...old.agent,[key]:value}};
       }
       return {...old, [section]: {...old[section], [key]: value}};
@@ -56,7 +56,7 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
     setMessage("");
   }
   function agentValue(key: string) {
-    if (patch.profile?.name && patch.profile.name !== "custom" && ["subtasks","specialists"].includes(key)) return false;
+    if (patch.profile?.name && patch.profile.name !== "custom" && ["domain_skills","subtasks","specialists"].includes(key)) return false;
     return Object.hasOwn(patch.agent ?? {}, key) ? patch.agent[key] : (data?.profile.presets[String(patch.profile?.name)]?.[key] ?? data?.agent[key]);
   }
   function numeric(key: string, label: string) {

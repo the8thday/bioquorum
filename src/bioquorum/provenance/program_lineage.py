@@ -145,6 +145,10 @@ def trace(
             refs = graph.origins["runs"].get(p.run_id or "", set())
             graph.origins["artifacts"][p.version_id] = refs
             if p.kind.value == "figure":
+                if p.run_id:
+                    raw_id = f"{p.run_id}/{p.content_hash}"
+                    graph.rows["figures"].pop(raw_id, None)
+                    graph.origins["figures"].pop(raw_id, None)
                 graph.add(
                     "figures",
                     {

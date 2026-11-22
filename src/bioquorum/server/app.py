@@ -613,9 +613,9 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
     async def lifespan(app):
         nonlocal example_app
         with workspace.project_lock(controls.ws.root):
+            await controls.recover_literature()
             await controls.recover()
             await controls.recover_verification()
-            await controls.recover_literature()
             try:
                 yield
             finally:

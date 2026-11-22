@@ -25,6 +25,7 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
   useEffect(()=>{if(comparedFigure)setCompare(comparedFigure);},[comparedFigure]);
   const a=anchor.current;
   function finish(e:PointerEvent<SVGSVGElement>) {
+    if(e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     const b=position(e),a=anchor.current;
     if(!a) return;
     if(Math.abs(a.x-b.x)+Math.abs(a.y-b.y)<0.01) {
@@ -39,9 +40,9 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
   return <>{error && <p role="alert">{error}</p>}<div className="figure-pair"><figure className="figure-frame"><div className="figure-layer">
     <img className="reader-figure" alt={file.name} src={path+"/preview/image"} onError={()=>setError("The recorded image could not be displayed.")}/>
     {points.length>0 && <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Select plotted samples"
-      onPointerDown={e=>{anchor.current=position(e);setExtent(anchor.current);}}
+      onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);anchor.current=position(e);setExtent(anchor.current);}}
       onPointerMove={e=>{if(anchor.current)setExtent(position(e));}} onPointerUp={finish}
-      onPointerCancel={()=>{anchor.current=null;setExtent(null);}}>
+      onPointerCancel={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);anchor.current=null;setExtent(null);}}>
       {points.map((p,i)=><circle key={i} data-point={i} cx={p.x*1000} cy={p.y*1000} r="9" className={chosen.includes(i)?"chosen":""}><title>{p.sample_id}</title></circle>)}
       {a && extent && <rect x={1000*Math.min(a.x,extent.x)} y={1000*Math.min(a.y,extent.y)} width={1000*Math.abs(a.x-extent.x)} height={1000*Math.abs(a.y-extent.y)}/>}</svg>}</div>
     {compare && <figcaption>{file.name} · v{file.version}</figcaption>}</figure>
@@ -50,7 +51,8 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
     {!!points.length && <div className="viewer-controls"><label>Sample <select value={chosen.length===1?chosen[0]:""} onChange={e=>setChosen(e.target.value===""?[]:[+e.target.value])}>
       <option value="">Select a point or drag a region</option>{points.map((p,i)=><option key={i} value={i}>{p.sample_id}</option>)}</select></label>
       {quote && <button className="quiet" disabled={!chosen.length || chosen.length>64} onClick={()=>quote({kind:"artifact",id:file.id,
-        selection:{type:"figure",points:chosen}},file.name+" · "+chosen.map(i=>points[i].sample_id).join(", "))}>Quote selected samples ({chosen.length})</button>}</div>}
+        selection:{type:"figure",points:chosen}},file.name+" · "+chosen.map(i=>points[i].sample_id).join(", "))}>Quote selected samples ({chosen.length})</button>}
+      {chosen.length>64 && <span className="muted" role="status">Select at most 64 points to quote.</span>}</div>}
     {!!alternatives.length && <label>Compare with <select aria-label="Compare with" value={compare} onChange={e=>setCompare(e.target.value)}><option value="">Choose figure</option>
       {alternatives.map(p=><option key={p.id} value={p.id}>{p.name} · v{p.version}</option>)}</select></label>}</>;
 }

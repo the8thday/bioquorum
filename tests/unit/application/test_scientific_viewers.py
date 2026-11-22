@@ -36,3 +36,25 @@ def test_structure_keeps_author_label_and_insertion_code():
         label_residue=50,
     )
     assert selected.model_dump()["insertion"] == "A"
+
+
+def test_python_figure_points_rejects_booleans_and_nonfinite_coords(tmp_path):
+    from bioquorum.runtime.values import PRELUDE
+
+    ns: dict = {}
+    exec(PRELUDE, ns)
+    bq = ns["bq"]
+    for bad_x, bad_y in [([True], [0.5]), ([0.5], [False]), ([float("nan")], [0.5])]:
+        with pytest.raises(ValueError):
+            bq.figure_points(tmp_path / "plot.png", ["s1"], bad_x, bad_y)
+
+
+def test_kernel_instructions_document_viewer_sidecar_helpers():
+    from bioquorum.agent.prompts import kernel_instructions
+
+    text = "\n".join(
+        kernel_instructions(r_available=True, inventory={"packages": [], "r_packages": []})
+    )
+    assert "bq.figure_points" in text
+    assert "bq_figure_points" in text
+    assert ".annotations.tsv" in text

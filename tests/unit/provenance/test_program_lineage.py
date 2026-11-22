@@ -119,3 +119,31 @@ def test_private_replay_does_not_replace_shared_file_producer():
     assert [r["id"] for r in linked["runs"]] == ["producer", "consumer"]
     assert [r["id"] for r in linked["claims"]] == ["real"]
     assert linked["figures"][0]["hash"] == digest
+
+
+def test_artifact_figure_supersedes_raw_run_figure_without_duplication():
+    from bioquorum.core.enums import ArtifactKind
+
+    digest = sha256_bytes(b"figure bytes")
+    fig = DataRef(uri="cas://" + digest, content_hash=digest, size=12, kind=DataKind.FIGURE)
+    versions = [{"id": "v1", "hash": DIGEST, "upload_path": "uploaded.csv"}]
+    events = [
+        event(start("r1", "uploaded.csv"), "A"),
+        event(ev.RunFinished(run_id="r1", run_key="k1", outputs=[fig]), "A"),
+        event(
+            ev.ArtifactVersionCreated(
+                artifact_id="art1",
+                version_id="ver1",
+                project_id="P",
+                name="plot.png",
+                kind=ArtifactKind.FIGURE,
+                version=1,
+                content_hash=digest,
+                run_id="r1",
+                event_range=(0, 2),
+            ),
+            "A",
+        ),
+    ]
+    linked = trace(events, versions, {}).downstream("v1")
+    assert [f["id"] for f in linked["figures"]] == ["ver1"]
