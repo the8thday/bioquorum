@@ -76,7 +76,7 @@ async def test_arm_runs_tool_and_reviews_against_the_matching_events(tmp_path, m
     }
 
     class ScriptedClient(ModelClient):
-        async def _call(self, route, messages, tools, on_delta=None):
+        async def _call(self, route, messages, tools, on_delta=None, effort=None):
             if route.role is ModelRole.REVIEWER:
                 assert claim in messages[-1].text()
                 data = {"claims": [{"text": claim, "kind": "citation"}]}

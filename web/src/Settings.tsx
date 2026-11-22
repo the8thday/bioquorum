@@ -149,6 +149,8 @@ export function SettingsDialog({initialSection, quick = false, modelsFirst = fal
       </details></>}
       {modelsFirst && data.roles.worker?.length>0 && <p>Current research model · {Array.isArray(data.roles.worker) ? data.roles.worker[0] : data.roles.worker}</p>}
       <details><summary>{modelsFirst ? "Project models and fallbacks" : "Models and roles"}</summary>
+        {!modelsFirst && !data.example && <ModelConnection providers={data.providers} classification={data.project.classification} disabled={busy || data.example}
+          apply={connection=>act("/api/settings",{revision:data.revision,patch:{connection}})}/>}
 {Object.entries(data.roles).map(([role, value]) => {
         const chosen = patch.roles?.[role] ?? value;
         const label = modelsFirst && role==="worker" ? "Research model" : role;

@@ -11,7 +11,7 @@ from bioquorum.agent import Hooks
 from bioquorum.application import recovery, research
 from bioquorum.application import workspace as wsp
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, Classification, PermissionScope
+from bioquorum.core.enums import Actor, Classification, ModelRole, PermissionClass, PermissionScope
 from bioquorum.core.ids import new_id
 from bioquorum.models import Router
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
@@ -35,6 +35,29 @@ class LiveTurn:
     stopping: bool = False
     characters: int = 0
     permissions: dict[str, asyncio.Future[Decision]] = field(default_factory=dict)
+    policy: PermissionPolicy | None = None
+
+
+def session_grants(events: list[ev.Event]) -> list[tuple[PermissionClass, str]]:
+    """Session-scoped grants still in force, derived from this session's own events.
+
+    Inherited (forked) events are excluded, and a ``session_permissions_reset`` ends every
+    grant decided before it (ADR-051).
+    """
+    grants: dict[tuple[PermissionClass, str], None] = {}
+    for event in events:
+        if event.seq < 0:
+            continue
+        payload = event.parsed()
+        if isinstance(payload, ev.SessionPermissionsReset):
+            grants.clear()
+        elif (
+            isinstance(payload, ev.PermissionDecided)
+            and payload.granted
+            and payload.scope is PermissionScope.SESSION
+        ):
+            grants[(payload.permission, payload.target)] = None
+    return list(grants)
 
 
 class ResearchControls:
@@ -182,11 +205,44 @@ class ResearchControls:
     def worker_models(self) -> list[dict]:
         if self.demo:
             return []
-        options = Router(self.ws.models_config()).worker_options(self.ws.classification)
-        return [{"spec": spec, "allowed": allowed} for spec, allowed in options.items()]
+        config = self.ws.models_config()
+        options = Router(config).worker_options(self.ws.classification)
+        return [
+            {
+                "spec": spec,
+                "allowed": allowed,
+                "reasoning": config.supports_reasoning_effort(spec),
+            }
+            for spec, allowed in options.items()
+        ]
+
+    def default_worker(self) -> str | None:
+        """The worker the project routes to when a turn names none."""
+        if self.demo:
+            return None
+        try:
+            route = Router(self.ws.models_config()).resolve(
+                ModelRole.WORKER, self.ws.classification
+            )
+        except Exception:
+            return None
+        return str(route.spec)
+
+    def project_permissions(self) -> list[dict]:
+        """Active project-level grants shown in the composer permission popover (ADR-051)."""
+        if self.demo:
+            return []
+        policy = wsp.default_permissions(self.ws, allow=[], servers=self.ws.mcp_servers())
+        return [
+            {
+                "permission": g.permission.value,
+                "target": g.target,
+                "scope": g.scope.value,
+            }
+            for g in policy.grants()
+        ]
 
     async def draft_plan(self, sid: str, question: str) -> dict:
-        from bioquorum.core.enums import ModelRole
         from bioquorum.core.messages import Message
         from bioquorum.review.modeljson import ReviewModelError, parse_json
 
@@ -243,6 +299,7 @@ class ResearchControls:
         worker_model: str | None = None,
         references: list[ev.TurnReference] | None = None,
         attachments: list[str] | None = None,
+        reasoning_effort: ev.ReasoningEffort | None = None,
     ) -> ev.Event:
         self.ensure_idle()
         events = self.require_active_session(sid)
@@ -252,6 +309,12 @@ class ResearchControls:
             if self.demo:
                 raise ValueError("The offline example uses its recorded models")
             Router(self.ws.models_config()).select_worker(worker_model, self.ws.classification)
+        if reasoning_effort is not None:
+            if self.demo:
+                raise ValueError("The offline example uses its recorded models")
+            target = worker_model or self.default_worker()
+            if target is None or not self.ws.models_config().supports_reasoning_effort(target):
+                raise ValueError("The selected research model does not accept a reasoning effort")
         if attachments:
             available = {
                 e.payload["file_id"]
@@ -304,6 +367,7 @@ class ResearchControls:
                 worker_model=worker_model,
                 references=references or [],
                 attachments=list(dict.fromkeys(attachments or [])),
+                reasoning_effort=reasoning_effort,
             ),
             Actor.USER,
             events[-1].id,
@@ -326,7 +390,7 @@ class ResearchControls:
         if plan_id and steps:
             self._append(sid, ev.PlanProposed(plan_id=plan_id, steps=steps), Actor.USER, turn.id)
         else:
-            self._start(sid, turn.id, question, None, worker_model)
+            self._start(sid, turn.id, question, None, worker_model, reasoning_effort)
         return turn
 
     async def decide_plan(self, sid: str, turn_id: str, *, approve: bool, reason: str = "") -> None:
@@ -339,7 +403,9 @@ class ResearchControls:
         assert isinstance(payload, ev.TurnRequested)
         if approve:
             self._append(sid, ev.PlanApproved(plan_id=plan.plan_id), Actor.USER, turn_id)
-            self._start(sid, turn_id, payload.question, plan, payload.worker_model)
+            self._start(
+                sid, turn_id, payload.question, plan, payload.worker_model, payload.reasoning_effort
+            )
         else:
             self._append(
                 sid, ev.PlanAbandoned(plan_id=plan.plan_id, reason=reason), Actor.USER, turn_id
@@ -362,7 +428,15 @@ class ResearchControls:
             turn_id,
         )
         task = asyncio.create_task(
-            self._run(sid, turn_id, request.question, point.plan, request.worker_model, point)
+            self._run(
+                sid,
+                turn_id,
+                request.question,
+                point.plan,
+                request.worker_model,
+                point,
+                effort=request.reasoning_effort,
+            )
         )
         self.tasks[sid] = LiveTurn(task, turn_id)
 
@@ -373,9 +447,12 @@ class ResearchControls:
         question: str,
         plan: ev.PlanProposed | None,
         worker_model: str | None,
+        effort: str | None = None,
     ) -> None:
         self._append(sid, ev.TurnStarted(turn_id=turn_id), Actor.SYSTEM, turn_id)
-        task = asyncio.create_task(self._run(sid, turn_id, question, plan, worker_model))
+        task = asyncio.create_task(
+            self._run(sid, turn_id, question, plan, worker_model, effort=effort)
+        )
         self.tasks[sid] = LiveTurn(task, turn_id)
 
     async def _run(
@@ -386,6 +463,8 @@ class ResearchControls:
         plan: ev.PlanProposed | None,
         worker_model: str | None,
         point: recovery.Checkpoint | None = None,
+        *,
+        effort: str | None = None,
     ) -> None:
         live = self.tasks[sid]
 
@@ -405,6 +484,17 @@ class ResearchControls:
             client = self.make_client(self.ws, self.store)
             if worker_model is not None:
                 client = client.with_worker(worker_model, self.ws.classification)
+            if effort is not None:
+                client = client.with_reasoning(effort)
+            remembered = session_grants(self.store.history(sid))
+
+            def policy(servers: list) -> PermissionPolicy:
+                rules = wsp.default_permissions(self.ws, allow=[], servers=servers, ask=ask)
+                for permission, target in remembered:
+                    rules.grant(permission, target, PermissionScope.SESSION, session_id=sid)
+                live.policy = rules
+                return rules
+
             answer_id = point.answer_id if point else None
             if answer_id is None:
                 turn = await research.execute(
@@ -418,12 +508,7 @@ class ResearchControls:
                     hooks=Hooks(
                         on_model_delta=on_delta if self.ws.agent_options().stream else None
                     ),
-                    permissions=lambda servers: wsp.default_permissions(
-                        self.ws,
-                        allow=[],
-                        servers=servers,
-                        ask=ask,
-                    ),
+                    permissions=policy,
                     kernel_factory=self.kernel_factory,
                     session_kernels=self.session_kernels,
                     registry_factory=self.registry_factory,
@@ -485,13 +570,29 @@ class ResearchControls:
         finally:
             self.reviewing = False
 
-    def decide_permission(self, sid: str, request_id: str, grant: bool) -> None:
+    def decide_permission(
+        self, sid: str, request_id: str, grant: bool, *, remember: bool = False
+    ) -> None:
+        """``remember`` grants the same permission and target for the rest of the session."""
         self.require_session(sid)
         live = self.tasks.get(sid)
         future = live.permissions.get(request_id) if live else None
         if future is None or future.done():
             raise ConflictError("That permission is no longer pending")
-        future.set_result(Decision(granted=grant, scope=PermissionScope.ONCE if grant else None))
+        if remember and not grant:
+            raise ValueError("Only an allowed permission can be remembered")
+        scope = (PermissionScope.SESSION if remember else PermissionScope.ONCE) if grant else None
+        future.set_result(Decision(granted=grant, scope=scope))
+
+    def reset_session_permissions(self, sid: str) -> None:
+        """End this session's remembered grants, including those of a running turn."""
+        events = self.require_active_session(sid)
+        if not session_grants(events):
+            raise ConflictError("This session has no remembered permissions")
+        self._append(sid, ev.SessionPermissionsReset(), Actor.USER, events[-1].id)
+        live = self.tasks.get(sid)
+        if live is not None and live.policy is not None:
+            live.policy.revoke_scope(PermissionScope.SESSION)
 
     async def stop(self, sid: str) -> None:
         self.require_session(sid)

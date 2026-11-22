@@ -14,13 +14,13 @@ from collections.abc import Callable, Sequence
 from contextlib import AsyncExitStack
 from copy import copy
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, cast
 
 import httpx2
 from pydantic_ai import messages as pa
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.models.openai import OpenAIResponsesModel
-from pydantic_ai.settings import ModelSettings
+from pydantic_ai.settings import ModelSettings, ThinkingEffort
 
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, ModelRole
@@ -85,6 +85,20 @@ class ModelClient:
         self.image_loader = image_loader
         self.outbound_proxy = outbound_proxy
         self.max_output_tokens = max_output_tokens
+        self.reasoning_effort: str | None = None
+
+    def with_reasoning(self, effort: str | None) -> ModelClient:
+        """Send ``effort`` on worker calls to models that accept one (ADR-051)."""
+        client = copy(self)
+        client.reasoning_effort = effort
+        return client
+
+    def effort_for(self, role: ModelRole, route: Route) -> str | None:
+        if role is not ModelRole.WORKER or self.reasoning_effort is None:
+            return None
+        if not self.router.config.supports_reasoning_effort(str(route.spec)):
+            return None
+        return self.reasoning_effort
 
     def with_worker(self, name: str, classification: Classification) -> ModelClient:
         client = copy(self)
@@ -122,12 +136,15 @@ class ModelClient:
         messages: Sequence[Message],
         tools: Sequence[dict[str, Any]],
         on_delta: OnDelta | None = None,
+        effort: str | None = None,
     ) -> tuple[Message, dict[str, int]]:
         spec = str(route.spec)
         image_loader = self._images_for(route)
         variant = spec + "#vision" if image_loader is not None else spec
         if self.max_output_tokens is not None:
             variant += f"#max_output_tokens={self.max_output_tokens}"
+        if effort is not None:
+            variant += f"#thinking={effort}"
         key = request_key(variant, messages, tools)
         if self.cassette is not None and self.cassette.mode is CassetteMode.REPLAY:
             message, usage = self.cassette.lookup(key)
@@ -138,9 +155,11 @@ class ModelClient:
             function_tools=tool_definitions(tools), allow_text_output=True
         )
         history = to_provider(messages, family=route.family, image_loader=image_loader)
-        settings: ModelSettings | None = (
-            {"max_tokens": self.max_output_tokens} if self.max_output_tokens is not None else None
-        )
+        settings: ModelSettings = {}
+        if self.max_output_tokens is not None:
+            settings["max_tokens"] = self.max_output_tokens
+        if effort is not None:
+            settings["thinking"] = cast(ThinkingEffort, effort)
         async with AsyncExitStack() as stack:
             if route.provider.kind == "chatgpt" and self.factory is build_model:
                 provider, _ = await stack.enter_async_context(
@@ -155,9 +174,9 @@ class ModelClient:
             else:
                 model = self.factory(route)
             if on_delta is None:
-                response = await model.request(history, settings, params)
+                response = await model.request(history, settings or None, params)
             else:
-                async with model.request_stream(history, settings, params) as stream:
+                async with model.request_stream(history, settings or None, params) as stream:
                     async for event in stream:
                         if isinstance(event, pa.PartStartEvent) and isinstance(
                             event.part, pa.TextPart
@@ -210,6 +229,7 @@ class ModelClient:
                     causation_id=failed_id,
                 ).id
             call_id = new_id()
+            effort = self.effort_for(role, route)
             started = self.store.append(
                 ev.ModelCallStarted(
                     call_id=call_id,
@@ -217,6 +237,7 @@ class ModelClient:
                     model=route.spec.model,
                     role=role,
                     classification=classification,
+                    reasoning_effort=cast(ev.ReasoningEffort | None, effort),
                 ),
                 session_id=session_id,
                 actor=actor,
@@ -224,10 +245,12 @@ class ModelClient:
             )
             t0 = time.monotonic()
             try:
-                if on_delta is None:
-                    message, usage = await self._call(route, messages, tools)
-                else:
-                    message, usage = await self._call(route, messages, tools, on_delta=on_delta)
+                extra: dict[str, Any] = {}
+                if on_delta is not None:
+                    extra["on_delta"] = on_delta
+                if effort is not None:
+                    extra["effort"] = effort
+                message, usage = await self._call(route, messages, tools, **extra)
             except asyncio.CancelledError:
                 self.store.append(
                     ev.ModelCallFailed(

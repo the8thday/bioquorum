@@ -407,8 +407,10 @@ async function verifyConversation(page) {
       await page.keyboard.press("Escape");
       await page.getByRole("region",{name:"Model setup"}).getByText("openai:gpt-test-from-account").waitFor();
       await page.getByRole("button", {name:"New session", exact:true}).click();
-      await page.getByLabel("Session title").fill("Local session");
-      await page.getByRole("button", {name:"Continue"}).click();
+      await page.waitForFunction(() => document.activeElement === document.getElementById("question"));
+      const createdLocal = await page.request.post(new URL(path+"api/sessions",page.url()).href, {data:{title:"Local session"},headers:{Origin:new URL(page.url()).origin}});
+      assert.ok(createdLocal.ok());
+      await page.goto(new URL(path, page.url()).href);
       await page.getByRole("heading", {name:"Local session"}).waitFor();
       await page.getByLabel("Project", {exact:true}).selectOption("/");
       await page.waitForURL(url);
@@ -617,12 +619,11 @@ async function verifyConversation(page) {
     if (process.env.BQ_TEST_UPLOAD) {
       const button=name=>page.getByRole("button",{name,exact:true});
       await button("New session").click();
-      await page.getByLabel("Session title").fill("Acceptance walk-through");
-      await button("Continue").click();
-      await page.getByRole("heading",{name:"Acceptance walk-through"}).waitFor();
+      await page.waitForFunction(() => document.activeElement === document.getElementById("question"));
       await page.getByRole("combobox",{name:"Worker model"}).selectOption("openai:fixture");
       const send=async q=>{await page.getByLabel("Research question").fill(q);await button("Run research").click();};
       await send("Calculate the initial count.");
+      await page.getByRole("heading",{name:"Calculate the initial count."}).waitFor();
       await button("5").first().waitFor();
       await send("Describe the groups.");
       await page.getByText("The initial calculation used two groups.",{exact:true}).first().waitFor();

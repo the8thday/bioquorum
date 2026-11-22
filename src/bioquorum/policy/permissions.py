@@ -92,6 +92,12 @@ class PermissionPolicy:
         ]
         return before - len(self._grants)
 
+    def revoke_scope(self, scope: PermissionScope) -> int:
+        """Drop every remembered grant of one scope (e.g. ending a session's grants)."""
+        before = len(self._grants)
+        self._grants = [g for g in self._grants if g.scope is not scope]
+        return before - len(self._grants)
+
     def grants(self) -> list[Grant]:
         return list(self._grants)
 

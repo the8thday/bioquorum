@@ -19,7 +19,7 @@ import { ResearchTools, type ToolDestination } from "./ResearchTools";
 import { SettingsDialog, type SettingsSection } from "./Settings";
 import { UsageDialog } from "./Usage";
 import { useRecord } from "./useRecord";
-import type { DraftReference, EvidenceRef, Project, Snapshot, TurnRef } from "./types";
+import type { DraftReference, EvidenceRef, Project, ReasoningEffort, Snapshot, TurnRef } from "./types";
 import { Icon } from "./Icon";
 import { BrandMark } from "./BrandMark";
 import { InboxNotifications } from "./InboxNotifications";
@@ -34,6 +34,29 @@ type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "archive" | "usage" | "
   | {kind: "replication"; path: string; estimate: Estimate};
 
 const emptyRecord: Snapshot = {last_seq:0,questions:[],turns:[],figures:[],answers:[],pending_plan:null,permissions:[],activity:[],verification:[]};
+
+const scientificStarters = [
+  {
+    title: "Target evaluation",
+    summary: "Genetic validation, clinical precedent, and safety liabilities",
+    prompt: "Evaluate [target] as a therapeutic target for [indication]: summarize human genetics, clinical trial precedent, and key safety risks.",
+  },
+  {
+    title: "Literature & trials",
+    summary: "PubMed & ClinicalTrials.gov synthesis with verbatim citations",
+    prompt: "Search PubMed and ClinicalTrials.gov for [drug / target] in [indication], reporting primary endpoints and status with verbatim quotes.",
+  },
+  {
+    title: "Dataset & omics analysis",
+    summary: "Reproducible Python or R analysis with bound calculations",
+    prompt: "Analyze the attached dataset, run quality control and group comparisons in Python or R, and report key statistics with figures.",
+  },
+  {
+    title: "Sequence & structure",
+    summary: "Candidate liabilities, binding-site residues, and comparators",
+    prompt: "Review the attached sequence or PDB structure for binding-site features, developability risks, and structural comparators.",
+  },
+];
 
 function Intro({start}: {start: () => void}) {
   return <article className="example-entry"><img src={plate} alt="" width="64" height="64"/><div>
@@ -155,6 +178,16 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   }
   const quote = project.references ? add : undefined;
   const [worker, setWorker] = useState("");
+  const [effort, setEffort] = useState<ReasoningEffort | "">("");
+  const [quickDraft, setQuickDraft] = useState(draft);
+  useEffect(() => setQuickDraft(draft), [draft]);
+  const inheritedTurnChoice = useRef(false);
+  useEffect(() => {
+    if (!record || inheritedTurnChoice.current) return;
+    inheritedTurnChoice.current = true;
+    if (record.last_worker_model) setWorker(record.last_worker_model);
+    if (record.last_reasoning_effort) setEffort(record.last_reasoning_effort);
+  }, [record]);
   const [preset, setPreset] = useState(Number(fill));
   const title = project.sessions.find(s => s.id === id)?.title ?? "Start a research session";
   const running = record?.turns.some(t => t.seq >= 0 && t.status === "running");
@@ -167,10 +200,20 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     setAttachments(old => old.some(a => a.id===p.id) ? old : [...old,p]);
   }
   const homeSession = useRef("");
+  const placeholderTitle = useRef(false);
+  function autoTitle(text: string) {
+    const line = text.trim().split(/\r?\n/)[0]?.replace(/\s+/g, " ").trim() ?? "";
+    return line.slice(0, 80) || "Research session";
+  }
   async function prepareSession(title: string) {
     if (!homeSession.current) {
-      const created = await request<{id:string}>("/api/sessions",{title:title.trim().slice(0,100) || "Research session"});
+      const next = autoTitle(title);
+      const created = await request<{id:string}>("/api/sessions",{title:next});
       homeSession.current = created.id;
+      placeholderTitle.current = !title.trim();
+    } else if (placeholderTitle.current && title.trim()) {
+      await request(sessionPath(homeSession.current) + "/title", {title: autoTitle(title)});
+      placeholderTitle.current = false;
     }
     return homeSession.current;
   }
@@ -189,8 +232,19 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     showMaterials(false);
     await select(row.id, fill);
   }
+  function startNewSession() {
+    setNavOpen(false);
+    showMaterials(false);
+    if (project.example) {
+      void create("Metformin evidence", false, true).catch(report);
+      return;
+    }
+    void select("", false, true).then(() => {
+      requestAnimationFrame(() => document.getElementById("question")?.focus());
+    }).catch(report);
+  }
   async function start() {
-    if (!project.example) return setModal({kind: "new"});
+    if (!project.example) return startNewSession();
     if (!id) await create("Metformin evidence", false, true);
     else setPreset(n => n + 1);
   }
@@ -304,26 +358,28 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     <button className="icon-button workbench-settings" title="Workbench settings" aria-label="Workbench settings" onClick={() => preferences("General")}><Icon name="gear"/></button>
   </header>
     <aside id="project-nav" className={"sidebar"+(navOpen ? " mobile-open" : "")} aria-label="Project and sessions">
+      <button className="primary sidebar-new-session" title="New session" onClick={startNewSession}><Icon name="add"/><span>New session</span></button>
       <nav className="workspace-nav" aria-label="Workspace"><button className="rail-action" title="Home" aria-current={home && !materials ? "page":undefined} onClick={()=>{showMaterials(false);select("",false,true).catch(report);}}><Icon name="home"/><span>Home</span></button>
         {!project.example && <button className="rail-action" title="Research lines" aria-current={lineView==="program" ? "page":undefined}
           onClick={()=>{showMaterials(true,true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Evidence"/><span>Research lines</span></button>}
         {!project.example && <button className="rail-action" title="Materials" aria-current={lineView==="materials" ? "page":undefined}
           onClick={()=>{showMaterials(true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Artifacts"/><span>Materials</span></button>}
-        <button className="rail-action" title="Inbox" onClick={()=>setModal({kind:"inbox"})}><Icon name="Evidence"/><span>Inbox</span></button>
-        <button className="rail-action" title="Research tasks" onClick={()=>setModal({kind:"tasks"})}><Icon name="Activity"/><span>Research tasks</span></button>
-        <button className="rail-action" title="Skills" onClick={()=>preferences("Skills")}><Icon name="skills"/><span>Skills</span></button>
-        <button className="rail-action" title="MCP connectors" onClick={()=>preferences("MCP connectors")}><Icon name="plug"/><span>MCP connectors</span></button></nav>
-      <button className="rail-action" title="Research tools" onClick={()=>{setNavOpen(false);setModal({kind:"research-tools"});}}><Icon name="Context"/><span>Research tools</span></button>
+        <button className="rail-action" title="Inbox" onClick={()=>{setNavOpen(false);setModal({kind:"inbox"});}}><Icon name="Evidence"/><span>Inbox</span></button>
+        <button className="rail-action" title="Research tasks" onClick={()=>{setNavOpen(false);setModal({kind:"tasks"});}}><Icon name="Activity"/><span>Research tasks</span></button></nav>
       <Projects actions={projectActions} name={project.project} settings={()=>setModal({kind:"settings"})}/>
-      <div className="session-header"><h2 id="sessions-heading" tabIndex={-1}>Sessions</h2>
-        <button className="icon-button" aria-label="New session" title="New session" onClick={() => setModal({kind: "new"})}><Icon name="add"/></button></div>
+      <div className="session-header"><h2 id="sessions-heading" tabIndex={-1}>Sessions</h2></div>
       <SessionSearch project={project} selected={materials ? "" : id} rename={(sid,name)=>setModal({kind:"rename",id:sid,title:name})} open={sid => {
         showMaterials(false);select(sid).then(()=>{if(sid===id) return refresh();}).catch(report);
       }}/>
-      <button className="rail-action" title="Models & accounts" onClick={()=>setModal({kind:"model-settings"})}><Icon name="settings"/><span>Models &amp; accounts</span></button>
-      <button className="rail-action settings-link" title="Project settings" onClick={() => setModal({kind:"settings"})}><Icon name="settings"/><span>Project settings</span></button></aside>
+      <div className="sidebar-footer">
+        <button className="rail-action" title="Skills" onClick={()=>preferences("Skills")}><Icon name="skills"/><span>Skills</span></button>
+        <button className="rail-action" title="MCP connectors" onClick={()=>preferences("MCP connectors")}><Icon name="plug"/><span>MCP connectors</span></button>
+        <button className="rail-action" title="Research tools" onClick={()=>{setNavOpen(false);setModal({kind:"research-tools"});}}><Icon name="Context"/><span>Research tools</span></button>
+        <button className="rail-action" title="Models & accounts" onClick={()=>{setNavOpen(false);setModal({kind:"model-settings"});}}><Icon name="sparkles"/><span>Models &amp; accounts</span></button>
+        <button className="rail-action settings-link" title="Project settings" onClick={() => {setNavOpen(false);setModal({kind:"settings"});}}><Icon name="settings"/><span>Project settings</span></button>
+      </div></aside>
     {!layout.compact && <Splitter side="left" value={sizes.leftWidth} min={180} max={sizes.leftMax} change={layout.setLeft}/>}
-    {materials && <Materials currentSession={id} project={project} newSession={()=>setModal({kind:"new"})} overview={lineView==="program"}
+    {materials && <Materials currentSession={id} project={project} newSession={()=>{void create("Research session").catch(report);}} overview={lineView==="program"}
       openSession={(sid,prompt)=>{select(sid,false,false,prompt,true).then(()=>setLineView(null)).catch(report);}}/>}
     <main hidden={materials} id={materials ? undefined : "workspace"} className={home ? "home-workspace" : record ? "has-session" : undefined} tabIndex={-1}><header className="record-header">
     <p className="crumb">{project.project}{!home && <> <span aria-hidden="true">/</span> Session</>}</p>
@@ -361,10 +417,24 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     {(record || home && !project.example) && <Composer draftPlan={async q=>{
       const session=id || await prepareSession(q);
       return request(sessionPath(session)+"/plan-draft",{question:q});
-    }} initialDraft={draft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
+    }} initialDraft={quickDraft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
-      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} literatureEnabled={project.literature_subtasks} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
-    <p id="message" role="status" aria-live="polite">{message || error}</p></div>{home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project} home={home} models={()=>setModal({kind:"model-settings"})}/></>}</main>
+      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} openProjectSettings={() => setModal({kind:"settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} literatureEnabled={project.literature_subtasks} planDefault={project.plan_default} worker={worker} setWorker={setWorker} effort={effort} setEffort={setEffort} defaultWorker={project.default_worker} projectPermissions={project.project_permissions} hasSession={!!id} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
+    <p id="message" role="status" aria-live="polite">{message || error}</p></div>
+    {home && !project.example && <section className="home-launchpad" aria-label="Research starters">
+      <div className="starter-grid">
+        {scientificStarters.map(s => <button key={s.title} type="button" className="starter-card" onClick={() => setQuickDraft(s.prompt)}>
+          <strong>{s.title}</strong><span>{s.summary}</span></button>)}
+      </div>
+      {project.sessions.length > 0 && <div className="recent-sessions">
+        <h2>Recent sessions</h2>
+        <div className="recent-grid">{project.sessions.slice(0, 4).map(s =>
+          <button key={s.id} type="button" className="recent-card" onClick={() => select(s.id).catch(report)}>
+            <Icon name="chat"/><span>{s.title}</span></button>)}
+        </div>
+      </div>}
+    </section>}
+    {home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project} home={home} models={()=>setModal({kind:"model-settings"})}/></>}</main>
 
     {id && !collapsed && !materials && <Splitter side="right" value={sizes.rightWidth} min={280} max={sizes.rightMax} change={sizes.setRight}/>}
     <div className="margin-column" id="research-panels" hidden={collapsed || !id || materials}>{!active && <div className="inspector-title">Research inspector</div>}
@@ -387,7 +457,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       }}/>}
     {modal?.kind === "context" && <ContextDialog base={base} worker={worker} seq={record?.last_seq ?? 0}
       active={!!running || !!record?.pending_plan} example={!!project.example} close={close} fork={() => setModal({kind: "fork"})}/>}
-    {modal?.kind === "preferences" && <WorkbenchSettings initial={modal.section} base={base} newProject={()=>{close();requestAnimationFrame(()=>document.getElementById("new-project")?.click());}} value={prefs} saved={setPrefs} close={close}/>}
+    {modal?.kind === "preferences" && <WorkbenchSettings initial={modal.section} base={base} newProject={()=>{close();requestAnimationFrame(()=>document.getElementById("new-project")?.click());}} openModels={()=>setModal({kind:"model-settings"})} openProjectSettings={()=>setModal({kind:"settings"})} value={prefs} saved={setPrefs} close={close}/>}
     {modal?.kind === "research-tools" && <ResearchTools session={!!id} close={close} open={openTool}/>}
     {(modal?.kind === "settings" || modal?.kind === "model-settings" || modal?.kind === "chat-settings") && <SettingsDialog initialSection={modal.kind==="settings" ? modal.section : undefined} removeProject={()=>{close();projectActions.current?.remove();}} modelsFirst={modal.kind==="model-settings"} quick={modal.kind === "chat-settings"} base={base} close={close} saved={async () => {await select(id,false,!id); if (id) await refresh();}}/>}
     <InboxNotifications enabled={!!prefs.inbox_notifications} show={()=>setModal({kind:"inbox"})}/>

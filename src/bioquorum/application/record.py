@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from bioquorum.application.artifacts import catalog_records
-from bioquorum.application.controls import ResearchControls
+from bioquorum.application.controls import ResearchControls, session_grants
 from bioquorum.application.first_pass import HEADINGS, sections
 from bioquorum.application.onboarding import disconnected
 from bioquorum.application.program_lineage import review_state
@@ -26,7 +26,7 @@ AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
     "model_route_fallback": ("role", "previous", "next_model"),
     "subtask_started": ("task_id", "specialist"),
     "subtask_finished": ("task_id", "outcome"),
-    "model_call_started": ("provider", "model", "role", "classification"),
+    "model_call_started": ("provider", "model", "role", "classification", "reasoning_effort"),
     "model_call_finished": (
         "provider",
         "model",
@@ -41,6 +41,7 @@ AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
     "tool_call_failed": ("tool",),
     "permission_requested": ("permission",),
     "permission_decided": ("permission", "granted", "scope"),
+    "session_permissions_reset": (),
     "run_started": ("run_id", "isolation", "language"),
     "run_finished": ("run_id",),
     "run_failed": ("run_id",),
@@ -210,11 +211,18 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
         for _, p in parsed
         if isinstance(p, ev.ModelCallFinished)
     }
+    efforts = {
+        p.call_id: p.reasoning_effort
+        for _, p in parsed
+        if isinstance(p, ev.ModelCallStarted) and p.reasoning_effort
+    }
     reviews = answer_reviews(events)
     permission_requests: dict[str, dict] = {}
     turns: dict[str, dict] = {}
     plans: dict[str, dict] = {}
     latest_draft = None
+    last_worker_model: str | None = None
+    last_reasoning_effort: str | None = None
     pending = controls.pending(local)
     for e, p in parsed:
         if isinstance(p, ev.ClaimStatusChanged):
@@ -227,6 +235,9 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
             latest_draft = p.model_dump()
         elif isinstance(p, ev.TurnRequested):
             latest_draft = None
+            if e.seq >= 0:
+                last_worker_model = p.worker_model
+                last_reasoning_effort = p.reasoning_effort
             turns[e.id] = {
                 "id": e.id,
                 "seq": e.seq,
@@ -236,6 +247,8 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
                 ],
                 "status": "queued",
                 "plan_id": p.plan_id,
+                "worker_model": p.worker_model,
+                "reasoning_effort": p.reasoning_effort,
             }
         elif isinstance(p, ev.TurnStarted | ev.TurnResumed) and p.turn_id in turns:
             turns[p.turn_id].update(status="running", error="")
@@ -311,6 +324,7 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
                     ),
                     "turn": answer_turns.get(e.id),
                     "model": models.get(p.model_call_id) if p.model_call_id else None,
+                    "reasoning_effort": efforts.get(p.model_call_id) if p.model_call_id else None,
                 }
             )
         builder.observe(e, p)
@@ -340,6 +354,11 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
         "permissions": [
             p for key, p in permission_requests.items() if live and key in live.permissions
         ],
+        "session_grants": [
+            {"permission": perm.value, "target": target} for perm, target in session_grants(local)
+        ],
+        "last_worker_model": last_worker_model,
+        "last_reasoning_effort": last_reasoning_effort,
         "answers": answers,
         "disconnected": disconnected(controls),
         "activity": [

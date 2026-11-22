@@ -92,11 +92,17 @@ it("labels past tool requests as entries in the activity history", () => {
 
 it("renders emphasis and inline code while keeping model text escaped", () => {
   const answer: Answer = {id:"a",seq:1,inherited:false,review_limitations:[],claims:[],
-    paragraphs:[{segments:[{text:"The **verified** column is `<count>`."}],unbound:[]}]};
+    paragraphs:[{segments:[
+      {text:"The **verified** *italic* column is `<count>`. "},
+      {text:'[@s1 "raw json quote"]', problem:"Quote not found verbatim"},
+    ],unbound:[]}]};
   const html = renderToStaticMarkup(<AnswerCard answer={answer} example verification={[]}
     onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
   expect(html).toContain("<strong>verified</strong>");
+  expect(html).toContain("<em>italic</em>");
   expect(html).toContain("<code>&lt;count&gt;</code>");
+  expect(html).toContain("[s1 · unverified]");
+  expect(html).toContain("binding-problem");
 });
 
 it("offers a side view for answer tables and keeps bound values actionable", () => {
@@ -138,10 +144,21 @@ describe("brand mark", () => {
 
   it("uses the vector mark on answer headers", () => {
     const answer: Answer = {id:"a", seq:1, inherited:false, review_limitations:[], claims:[],
+      model:"openai:gpt-6.2-sol", reasoning_effort:"high",
       paragraphs:[{segments:[{text:"Observation."}],unbound:[]}]};
     const html = renderToStaticMarkup(<AnswerCard answer={answer} example verification={[]}
       onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
     expect(html).toContain('class="answer-mark"');
     expect(html).toContain("<svg");
+    expect(html).toContain("high reasoning");
+  });
+
+  it("formats reasoning effort and session permission activity entries", () => {
+    expect(activityLabel({type:"model_call_started", role:"worker", model:"gpt-6.2-sol", reasoning_effort:"high"}))
+      .toBe("worker · gpt-6.2-sol · high reasoning");
+    expect(activityLabel({type:"permission_decided", permission:"connector", granted:true, scope:"session"}))
+      .toBe("Allowed connector (for session)");
+    expect(activityLabel({type:"session_permissions_reset"}))
+      .toBe("Session permissions reset");
   });
 });

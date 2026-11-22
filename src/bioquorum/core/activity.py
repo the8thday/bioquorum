@@ -2,7 +2,7 @@
 
 ACTIVITY: dict[str, tuple[str, ...]] = {
     "model_route_fallback": ("role", "previous", "next_model"),
-    "model_call_started": ("provider", "model", "role"),
+    "model_call_started": ("provider", "model", "role", "reasoning_effort"),
     "model_call_finished": (
         "model",
         "role",
@@ -20,7 +20,8 @@ ACTIVITY: dict[str, tuple[str, ...]] = {
     "run_failed": ("run_id", "error"),
     "run_cancelled": ("run_id",),
     "run_timed_out": ("run_id", "timeout_s"),
-    "permission_decided": ("permission", "target", "granted"),
+    "permission_decided": ("permission", "target", "granted", "scope"),
+    "session_permissions_reset": (),
     "plan_step_done": ("plan_id", "step_index"),
     "plan_deviation": ("plan_id", "change", "reason"),
     "review_started": ("review_id", "target_event_id"),

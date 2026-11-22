@@ -312,9 +312,25 @@ class TurnRequestedV3(TurnRequestedV2):
 
 
 @register
-class TurnRequested(TurnRequestedV3):
+class TurnRequestedV4(TurnRequestedV3):
     schema_version: ClassVar[int] = 4
     attachments: list[str] = Field(default_factory=list, max_length=8)
+
+
+ReasoningEffort = Literal["low", "medium", "high"]
+
+
+@register
+class TurnRequested(TurnRequestedV4):
+    """v5 (ADR-051): the researcher's reasoning effort for the worker; None = provider default."""
+
+    schema_version: ClassVar[int] = 5
+    reasoning_effort: ReasoningEffort | None = None
+
+
+@upgrader("turn_requested", 4)
+def _turn_effort_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "reasoning_effort": None}
 
 
 @upgrader("turn_requested", 3)
@@ -393,13 +409,26 @@ class ModelEvaluated(EventPayload):
 
 
 @register
-class ModelCallStarted(EventPayload):
+class ModelCallStartedV1(EventPayload):
     event_type: ClassVar[str] = "model_call_started"
     call_id: str
     provider: str
     model: str
     role: ModelRole
     classification: Classification
+
+
+@register
+class ModelCallStarted(ModelCallStartedV1):
+    """v2 (ADR-051): the reasoning effort actually sent; None = provider default."""
+
+    schema_version: ClassVar[int] = 2
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
+
+
+@upgrader("model_call_started", 1)
+def _model_call_effort_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "reasoning_effort": None}
 
 
 @register
@@ -522,6 +551,13 @@ class PermissionDecided(EventPayload):
     target: str
     granted: bool
     scope: PermissionScope | None = None
+
+
+@register
+class SessionPermissionsReset(EventPayload):
+    """Ends every session-scoped grant decided earlier in this session (ADR-051)."""
+
+    event_type: ClassVar[str] = "session_permissions_reset"
 
 
 # ----------------------------------------------------------------- runs

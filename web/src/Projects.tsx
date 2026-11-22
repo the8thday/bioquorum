@@ -73,8 +73,10 @@ export function Projects({name, settings, actions}: {name: string; settings: () 
       onChange={e => location.assign(e.target.value)}>{!current && <option value="">{name}</option>}
       {list.map(p => <option key={p.href} value={p.href}>{p.name}{list.some(other=>other.href!==p.href && other.name===p.name) && " · " + (p.key?.slice(-8) ?? "Startup")}</option>)}</select><Icon name="chevron"/></div>
     </div>
-    <button className="rail-action" onClick={()=>manage("manage")}>Manage projects</button>
-    <button id="new-project" className="rail-action" onClick={() => {setError(""); setView("create");}}><Icon name="add"/>New project</button>
+    <div className="project-actions">
+      <button className="rail-action" onClick={()=>manage("manage")}>Manage projects</button>
+      <button id="new-project" className="rail-action" onClick={() => {setError(""); setView("create");}}><Icon name="add"/>New project</button>
+    </div>
     {error && !view && <p className="error" role="alert">{error}</p>}
     {view === "create" && <Dialog id="create-project" title="New project" closeLabel="Close new project" close={close}>
       <form className="project-form" onSubmit={create}>

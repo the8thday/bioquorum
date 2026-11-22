@@ -13,8 +13,17 @@ const labels: Record<string, string> = {
   disputed: "Disputed",
 };
 
+const statusTips: Record<string, string> = {
+  unverified: "No verified evidence is linked to this statement.",
+  grounded: "Linked directly to a recorded calculation output or verbatim source quote.",
+  reviewed: "Assessed by the reviewer against its linked evidence.",
+  reproduced: "Original calculation code was rerun in an isolated environment with matching output.",
+  replicated: "An independent analysis without seeing the original answer reached a matching value.",
+  disputed: "A review check or verification found a conflict with the recorded evidence.",
+};
+
 function Badge({status}: {status: string}) {
-  return <span title={status === "unverified" ? "No verified evidence is linked to this statement." : undefined} className={"badge " + status}>{labels[status] ?? status}</span>;
+  return <span title={statusTips[status]} className={"badge " + status}>{labels[status] ?? status}</span>;
 }
 
 export function TurnCard({turn, animated, waiting, reopen}: {reopen?:(r:TurnRef)=>void; turn: Turn; animated?: boolean; waiting?: boolean}) {
@@ -67,6 +76,13 @@ function VerificationResult({entry}: {entry: Verification}) {
 type AnswerProps = Actions & {onlineReviewAvailable?:boolean; discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
 const rawText = (segments: Segment[]) => segments.map(segment => segment.raw ?? segment.text).join("").trim();
 
+function problemLabel(text: string) {
+  const quote = text.match(/^\[@([^\s\]]+)/);
+  if (quote) return `[${quote[1]} · unverified]`;
+  if (text.startsWith("[=")) return "[value · unverified]";
+  return null;
+}
+
 function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, verification, onEvidence, onVerify}:
   Omit<AnswerProps, "onReview"> & {parts: Segment[]; claim?: Claim; sharedStatus?: boolean}) {
   const status = claim?.status ?? "unverified";
@@ -74,10 +90,16 @@ function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, ve
     ["reviewed", "reproduced", "replicated"].includes(status);
   return <div className={"claim " + status} data-claim-id={claim?.id}>
     <p data-ref-kind="answer" data-ref-id={answer.id}>{parts.map(({ref, text, problem}, i) => ref
-      ? <button key={i} type="button" className="evidence-link" onClick={() => onEvidence(answer.id, ref)}
+      ? <button key={i} type="button" className={"evidence-link" + (ref.type === "quote" ? " quote-link" : "")} onClick={() => onEvidence(answer.id, ref)}
           title={ref.type === "quote" ? "Open cited source" : "Open calculation for " + ref.name}>
           {ref.type === "quote" ? <><span hidden>{text.slice(0,-("["+ref.source+"]").length)}</span>{"[" + ref.source + "]"}</> : text}</button>
-      : <span key={i} className={"segment" + (problem ? " error" : "")} title={problem}>{inlineText(text)}</span>)}</p>
+      : problem
+        ? (() => {
+            const short = problemLabel(text);
+            return <span key={i} className="segment binding-problem" title={problem + "\n" + text}>
+              {short ? <><span hidden>{text}</span>{short}</> : inlineText(text)}</span>;
+          })()
+        : <span key={i} className="segment">{inlineText(text)}</span>)}</p>
     {!sharedStatus && <Badge status={status}/>}
     {claim?.needs_review && <span className="review-notice">Needs review</span>}
     {claim?.replacement_claim_id && claim.replacement_session_id && <a className="replacement-link"
@@ -129,7 +151,7 @@ export function AnswerCard(props: AnswerProps) {
     i=end;
   }
   return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><BrandMark className="answer-mark"/><h2>Findings</h2></header>
-    <p className="muted">{answer.model ?? "Model not recorded"}</p>
+    <p className="muted answer-meta"><span>{answer.model ?? "Model not recorded"}</span>{answer.reasoning_effort && <> · <span className="effort-tag">{answer.reasoning_effort} reasoning</span></>}</p>
     {body}
     {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}
     {props.discuss && Object.entries(answer.discussion_items ?? {}).map(([label,excerpt])=>

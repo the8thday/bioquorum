@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 
 // Hidden delimiters let quoted selections recover the original recorded wording.
 export function inlineText(text: string): ReactNode[] {
-  const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))*\))/gi;
+  const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))*\))/gi;
   return text.split(tokens).map((part, i) => {
     if (i % 2 === 0) return part;
     if (part.startsWith("`")) return <span key={i}><span hidden>`</span><code>{part.slice(1,-1)}</code><span hidden>`</span></span>;
     if (part.startsWith("**")) return <span key={i}><span hidden>**</span><strong>{inlineText(part.slice(2,-2))}</strong><span hidden>**</span></span>;
+    if (part.startsWith("*")) return <span key={i}><span hidden>*</span><em>{inlineText(part.slice(1,-1))}</em><span hidden>*</span></span>;
 
     const end = part.indexOf("](");
     const label = part.slice(1, end);

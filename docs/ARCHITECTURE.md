@@ -186,7 +186,7 @@ Event(
 | 模型 | `model_call_started`, `model_call_finished`, `model_call_failed`, `model_evaluated`, `model_route_fallback` |
 | 工具 | `tool_call_requested`, `tool_call_finished`, `tool_call_failed` |
 | 计划 | `plan_drafted`, `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
-| 权限 | `permission_requested`, `permission_decided` |
+| 权限 | `permission_requested`, `permission_decided`, `session_permissions_reset` |
 | 执行 | `run_started`, `run_output`, `lineage_observed`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
 | 产物 | `file_registered`, `artifact_version_created`, `artifact_status_changed` |
 | 结论 | `claim_extracted`, `claim_status_changed` |
@@ -473,6 +473,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
 - 前端：v0.3 至 v0.6 是随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）；v0.7 起改为 `web/` 下的 React + TypeScript + Vite 工程，构建产物提交到 `src/bioquorum/server/web/`，CI 检查与源码一致（ADR-029）。每轮的选择写进 `turn_requested`，项目设置的修改写成事件；密钥不经过界面。
 - 文件查看器依据产物类型懒加载；选区附于轮次引用，可从会话历史恢复。CAS 中的表格单元格、序列片段和同次运行的样本映射由服务端解析，模型只收到有界选段（ADR-042）。
+- `turn_requested` v5 保存可选的 `reasoning_effort`（`low` / `medium` / `high`），v4 升级为空值，表示服务商默认；`model_call_started` v2 记录实际发送的强度，v1 升级为空值。会话授权从 `permission_decided`（`scope = session`）推出，`session_permissions_reset` 之前的会话授权失效（ADR-051）。
 - `turn_requested` v3 保存本轮引用及记录标识，v2 记录升级为空列表。引用只能解析到本会话或分叉继承的记录，来源和运行代码作为不可信数据传给模型。
 - `turn_requested` v2 保存可选的 `worker_model`；v1 升级时填空，按角色默认路由。回答显示的模型由 `assistant_message.model_call_id` 关联成功的 `model_call_finished` 确定。
 - 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
@@ -584,3 +585,4 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 048 | [工作台模型连接与 ChatGPT 套餐](adr/048-model-connections.md) |
 | 049 | [更改已有项目的数据分级](adr/049-project-reclassification.md) |
 | 050 | [Public 项目的内置研究数据库](adr/050-public-research-default.md) |
+| 051 | [输入区的模型、推理强度与权限控制](adr/051-composer-controls.md) |

@@ -1,3 +1,5 @@
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export interface Project {
   first_pass?:boolean;
   literature_subtasks?:boolean;
@@ -8,7 +10,9 @@ export interface Project {
   plan_default?: boolean;
   onboarding?: {worker:"ready"|"restricted"|"unconfigured"; model?:string|null; credential?:{name:string;state:"set"|"missing"|"not_required"|"unsupported"|"connected"|"sign_in"}|null; needs_local:boolean; disconnected:string[]};
   project_notes: boolean;
-  worker_models: {spec: string; allowed: boolean}[];
+  worker_models: {spec: string; allowed: boolean; reasoning?: boolean}[];
+  default_worker?: string | null;
+  project_permissions?: {permission: string; target: string; scope: string}[];
   kernel_notice: string;
   sessions: {id: string; title: string}[];
   example: {question: string; steps: string[]} | null;
@@ -46,6 +50,7 @@ export interface Answer {
   coverage?: CoverageLedger|null;
   turn?:string|null;
   model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
   id: string;
   seq: number;
   inherited: boolean;
@@ -62,6 +67,8 @@ export interface Turn {
   id?:string;
   resume_checks?: Record<string,string>;
   selections?:TurnRef[];
+  worker_model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
   question: string; plan?: Plan | null; status?: string; error?: string;
 }
 export interface Comparison {
@@ -87,6 +94,9 @@ export interface Snapshot {
   pending_plan: string | null;
   verification: Verification[];
   permissions: {request_id: string; reason: string; permission: string; target: string}[];
+  session_grants?: {permission: string; target: string}[];
+  last_worker_model?: string | null;
+  last_reasoning_effort?: ReasoningEffort | null;
   activity: (Activity & {id: string; time: string; seq: number})[];
 }
 
@@ -95,8 +105,8 @@ export interface Activity {
   run_id?: string;
   type: string;
   tool?: string; replay_miss?: boolean; empty_result?: boolean; is_error?: boolean; error?: string;
-  role?: string; model?: string; input_tokens?: number; output_tokens?: number;
-  cost_known?: boolean; cost_usd?: number; granted?: boolean; permission?: string;
+  role?: string; model?: string; reasoning_effort?: string | null; input_tokens?: number; output_tokens?: number;
+  cost_known?: boolean; cost_usd?: number; granted?: boolean; permission?: string; scope?: string | null;
   step_index?: number; outcome?: string; question?: string; reason?: string;
   limitations?: string[]; finding_count?: number; where?: string;
 }

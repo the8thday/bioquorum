@@ -128,6 +128,22 @@ class ModelsConfig:
     reviewer_auto: bool = False
     prices: dict[str, tuple[float, float]] = field(default_factory=dict)
     vision_models: frozenset[str] = field(default_factory=frozenset)
+    reasoning_overrides: dict[str, bool] = field(default_factory=dict)
+    """``[models."spec"] reasoning = true|false`` (ADR-051)."""
+
+    def supports_reasoning_effort(self, spec: str) -> bool:
+        """Whether a researcher-chosen reasoning effort is sent to this model (ADR-051).
+
+        OpenAI's Responses models and the ChatGPT plan accept one by default; any other
+        provider must be declared with ``reasoning = true``.
+        """
+        if spec in self.reasoning_overrides:
+            return self.reasoning_overrides[spec]
+        try:
+            provider = self.providers.get(ModelSpec.parse(spec).provider)
+        except ConfigError:
+            return False
+        return provider is not None and provider.kind in ("openai", "chatgpt")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelsConfig:
@@ -157,9 +173,14 @@ class ModelsConfig:
         prices: dict[str, tuple[float, float]] = {}
         vision_models: set[str] = set()
         windows: dict[str, int] = {}
+        reasoning: dict[str, bool] = {}
         for spec, values in data.get("models", {}).items():
             if not isinstance(values, dict):
                 continue
+            if "reasoning" in values:
+                if type(values["reasoning"]) is not bool:
+                    raise ConfigError(f"{spec}: reasoning must be true or false")
+                reasoning[spec] = values["reasoning"]
             if "context_window" in values:
                 window = values["context_window"]
                 if type(window) is not int or window <= 0:
@@ -197,4 +218,5 @@ class ModelsConfig:
             reviewer_auto=reviewer_auto,
             prices=prices,
             vision_models=frozenset(vision_models),
+            reasoning_overrides=reasoning,
         )

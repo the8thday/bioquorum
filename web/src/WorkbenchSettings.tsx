@@ -9,8 +9,8 @@ export const panels = ["Evidence","Artifacts","Activity","Usage","Context"] as c
 export type Preferences = {inbox_notifications?:boolean; reading_size: "standard" | "large"; initial_panel: typeof panels[number]};
 export const defaults: Preferences = {reading_size: "standard", initial_panel: "Activity"};
 
-export function WorkbenchSettings({value, saved, close, initial, base, newProject}: {
-  initial:Section; base:string; newProject:()=>void; value: Preferences; saved: (value: Preferences) => void; close: () => void;
+export function WorkbenchSettings({value, saved, close, initial, base, newProject, openModels, openProjectSettings}: {
+  initial:Section; base:string; newProject:()=>void; openModels?:()=>void; openProjectSettings?:()=>void; value: Preferences; saved: (value: Preferences) => void; close: () => void;
 }) {
   const [section,setSection] = useState<Section>(initial);
   const [draft,setDraft] = useState(value);
@@ -24,6 +24,9 @@ export function WorkbenchSettings({value, saved, close, initial, base, newProjec
   return <Dialog id="workbench-settings" title="Workbench settings" closeLabel="Close workbench settings" close={close}>
     <div className="settings-layout"><nav aria-label="Settings sections">
       <span>Preferences</span><button aria-current={section==="General"?"page":undefined} onClick={()=>setSection("General")}><Icon name="gear"/>General</button>
+      {(openModels || openProjectSettings) && <><span>Setup</span>
+        {openModels && <button type="button" onClick={openModels}><Icon name="sparkles"/>Models &amp; accounts</button>}
+        {openProjectSettings && <button type="button" onClick={openProjectSettings}><Icon name="settings"/>Project settings</button>}</>}
       <span>Customize project</span>{(["Skills","MCP connectors"] as const).map(s=><button key={s} aria-current={section===s?"page":undefined} onClick={()=>setSection(s)}><Icon name={s==="Skills"?"skills":"plug"}/>{s}</button>)}
     </nav><div className="settings-content">{section!=="General" ? <Extensions close={close} key={section} section={section} base={base} newProject={newProject}/> : <><h3>Appearance</h3>
     <p className="muted">Applies to all projects on this machine.</p>

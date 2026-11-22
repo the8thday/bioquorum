@@ -7,11 +7,12 @@ export function activityLabel(item: Activity) {
       if (item.replay_miss) return item.tool + " · No matching recorded response";
       return item.empty_result ? item.tool + " · No items returned" : (item.is_error ? "Failed " : "Completed ") + item.tool;
     case "tool_call_failed": return item.tool + " · " + item.error;
-    case "model_call_started": return item.role + " · " + item.model;
+    case "model_call_started": return item.role + " · " + item.model + (item.reasoning_effort ? " · " + item.reasoning_effort + " reasoning" : "");
     case "model_call_finished": return `${item.role} · ${(item.input_tokens ?? 0) + (item.output_tokens ?? 0)} tokens` +
       (item.cost_known && item.cost_usd != null ? ` · est. $${item.cost_usd.toFixed(6)}` : " · Price unavailable");
     case "model_call_failed": return item.model + " · " + item.error;
-    case "permission_decided": return (item.granted ? "Allowed " : "Denied ") + item.permission;
+    case "permission_decided": return (item.granted ? "Allowed " : "Denied ") + item.permission + (item.scope === "session" ? " (for session)" : "");
+    case "session_permissions_reset": return "Session permissions reset";
     case "plan_step_done": return "Completed plan step " + ((item.step_index ?? 0) + 1);
     case "plan_deviation": return "Approved plan deviation";
     case "run_finished": return "Calculation recorded";

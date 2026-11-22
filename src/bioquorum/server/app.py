@@ -115,6 +115,7 @@ class Question(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     steps: list[str] | None = Field(default=None, max_length=12)
     worker_model: str | None = Field(default=None, min_length=1, max_length=256)
+    reasoning_effort: ev.ReasoningEffort | None = None
 
 
 class ResumeTurn(BaseModel):
@@ -132,6 +133,7 @@ class PlanDecision(BaseModel):
 
 class PermissionDecision(BaseModel):
     grant: bool
+    remember: bool = False
 
 
 def _sid(request: Request) -> str:
@@ -282,6 +284,8 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 "project_notes": agent.project_notes,
                 "literature_subtasks": agent.literature_subtasks,
                 "worker_models": controls.worker_models(),
+                "default_worker": controls.default_worker(),
+                "project_permissions": controls.project_permissions(),
                 "onboarding": onboarding.overview(controls),
                 "kernel_notice": kernel_notice(),
                 "classification": controls.ws.classification.value,
@@ -348,6 +352,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             worker_model=body.worker_model,
             references=body.references,
             attachments=body.attachments,
+            reasoning_effort=body.reasoning_effort,
         )
         return JSONResponse({"turn_id": turn.id}, status_code=202)
 
@@ -364,7 +369,17 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def permission(request: Request) -> Response:
         body = await _body(request, PermissionDecision)
-        controls.decide_permission(_sid(request), request.path_params["request_id"], body.grant)
+        controls.decide_permission(
+            _sid(request),
+            request.path_params["request_id"],
+            body.grant,
+            remember=body.remember,
+        )
+        return Response(status_code=204)
+
+    async def reset_permissions(request: Request) -> Response:
+        await _body(request, Empty)
+        controls.reset_session_permissions(_sid(request))
         return Response(status_code=204)
 
     async def resume(request: Request) -> Response:
@@ -769,6 +784,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/turns", ask, methods=["POST"]),
             Route(session + "/turns/{turn_id}/resume", resume, methods=["POST"]),
             Route(session + "/turns/{turn_id}/plan", plan, methods=["POST"]),
+            Route(session + "/permissions/reset", reset_permissions, methods=["POST"]),
             Route(session + "/permissions/{request_id}", permission, methods=["POST"]),
             Route(session + "/stop", stop, methods=["POST"]),
             Route(session + "/fork", fork, methods=["POST"]),
