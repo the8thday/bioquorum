@@ -106,7 +106,7 @@ wheels = [
 
 [[package]]
 name = "bioquorum"
-version = "0.7.0.dev0"
+version = "1.0.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -141,6 +141,7 @@ hashing = [
 dev = [
     { name = "hypothesis" },
     { name = "import-linter" },
+    { name = "markdown-it-py" },
     { name = "pandas" },
     { name = "pre-commit" },
     { name = "pyarrow" },
@@ -180,6 +181,7 @@ provides-extras = ["hashing", "eval"]
 dev = [
     { name = "hypothesis", specifier = ">=6" },
     { name = "import-linter", specifier = ">=2.0" },
+    { name = "markdown-it-py", specifier = ">=4,<5" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pre-commit", specifier = ">=3.8" },
     { name = "pyarrow", specifier = ">=16" },

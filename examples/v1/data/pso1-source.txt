@@ -1,0 +1,5 @@
+PMID:35820547
+POETYK PSO-1. Primary report, Journal of the American Academy of Dermatology.
+https://pubmed.ncbi.nlm.nih.gov/35820547/
+"response rates were significantly higher with deucravacitinib versus placebo or apremilast"
+The companion CSV transcribes the published rounded week-16 PASI 75 percentages.

@@ -1,0 +1,32 @@
+name: handbook
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Deploy the handbook to GitHub Pages
+        type: boolean
+        default: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --locked --all-groups
+      - run: uv run pytest tests/unit/test_docs_site.py
+      - run: uv run python scripts/build_docs.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/docs
+  deploy:
+    if: inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment: github-pages
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/deploy-pages@v4

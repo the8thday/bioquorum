@@ -27,6 +27,8 @@ from bioquorum.application import research, workspace
 from bioquorum.application.controls import ResearchControls
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Classification
+from bioquorum.core.hashing import sha256_file
+from bioquorum.policy.secrets import redact
 
 FINAL = re.compile(r"FINAL ANSWER:\s*(.+)", re.I)
 
@@ -45,6 +47,8 @@ def stage(task: dict, data: Path, root: Path, pixi_env: Path | None) -> list[str
             target = root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
+            if "image_sha256" in task and sha256_file(target) != task["image_sha256"]:
+                raise ValueError(f"Staged table differs from the frozen image: {name}")
             staged.append(name)
     if pixi_env is not None and task["benchmark"].startswith("bix"):
         for name in ("pixi.toml", "pixi.lock"):
@@ -83,7 +87,9 @@ def prompt(task: dict, staged: list[str]) -> str:
     )
 
 
-async def run_task(task: dict, args: argparse.Namespace) -> dict:
+async def run_task(
+    task: dict, args: argparse.Namespace, *, make_client=research.model_client, isolated=False
+) -> dict:
     root = args.output.resolve() / task["id"]
     reset(root)
     staged = stage(task, args.data, root, args.pixi_env)
@@ -96,9 +102,13 @@ async def run_task(task: dict, args: argparse.Namespace) -> dict:
         "agent": {"vision": True, "budget_tokens": args.budget_tokens},
         "kernel": {"pixi": args.pixi_env is not None and task["benchmark"].startswith("bix")},
     }
+    if isolated:
+        ws.config["kernel"].update(macos_sandbox=True, network=False)
+        if ws.kernel_isolation().value not in {"bwrap", "seatbelt"}:
+            raise RuntimeError("Evaluation requires an isolated, offline kernel")
     controls = ResearchControls(ws)
     sid = controls.new_session(task["id"])
-    client = research.model_client(ws, controls.store)
+    client = make_client(ws, controls.store)
     started = time.monotonic()
     answer, error = None, None
     try:
@@ -120,7 +130,7 @@ async def run_task(task: dict, args: argparse.Namespace) -> dict:
         if answer is None:
             error = "no FINAL ANSWER line"
     except Exception as exc:  # recorded as a failure, never as a wrong answer
-        error = f"{type(exc).__name__}: {exc}"[:500]
+        error = redact(f"{type(exc).__name__}: {exc}")[:500]
     events = [e.parsed() for e in controls.store.read(sid)]
     calls = [p for p in events if isinstance(p, ev.ModelCallFinished)]
     runs = [p for p in events if isinstance(p, ev.ToolCallFinished)]

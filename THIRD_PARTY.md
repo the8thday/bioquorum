@@ -94,3 +94,6 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+The v1 source examples include the reported week-16 PASI 75 response rates and a short attributed excerpt from [POETYK PSO-1](https://pubmed.ncbi.nlm.nih.gov/35820547/). The omics example uses sample annotations and prefiltered donor-level counts derived from [GSE96583](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE96583). The [example guide](docs/demo-v1.0.md) identifies the inputs and calculations for both projects.

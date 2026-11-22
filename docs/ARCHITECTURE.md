@@ -485,11 +485,11 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 扩展 | 方式 | 难度 |
 |---|---|---|
 | Skill | 一个 SKILL.md 文件夹（Agent Skills 标准） | 最低 |
-| Connector | 继承 `connectors.base.Connector` 并注册 entry point；或直接接任意 MCP Server | 低 |
-| Review check | 实现 `Check` 接口并注册 entry point | 中 |
+| Connector | 配置 MCP Server；内置连接器通过 ToolSpec 注册 | 低 |
+| Review check | 实现 `Check` 协议并在 review 的 checks 中组装 | 中 |
 | Model provider | 任何 OpenAI 兼容接口直接配置；特殊协议走 Pydantic AI provider | 中 |
 
-扩展接口在 v1.0 前允许变动，但变动必须记入 CHANGELOG。
+查看器随前端注册表编译。v1.x 的扩展边界和迁移规则见[兼容规范](compatibility.md)与 ADR-046。
 
 ---
 
@@ -579,3 +579,4 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 043 | [从事件记录恢复中断的研究轮次](adr/043-turn-recovery.md) |
 | 044 | [有权限上限的并行子任务](adr/044-scoped-subtasks.md) |
 | 045 | [按角色评测和记录模型回退](adr/045-role-evaluation-and-routing.md) |
+| 046 | [v1.x 的兼容边界](adr/046-v1-compatibility.md) |

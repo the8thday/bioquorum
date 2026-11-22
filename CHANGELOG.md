@@ -1,6 +1,13 @@
 # Changelog
 
-## v0.12 · 开发中
+## 1.0.0rc1 · 2026-11-22 · 试用候选版
+
+- v1.x 兼容规范及七个历史项目的升级回归。事件解析会拒绝更高的未知版本。[兼容规范](docs/compatibility.md)
+- 四个可离线读取的研究项目、TYK2 工作台实录、可本机构建的文档站及候选发布流程。[案例](docs/demo-v1.0.md) · [安装](docs/release/install.md)
+- 公开 TableQA 扩样实测 28/32，纳入多模型评测报告。保留两天对照和独立重复的样本限制。[报告](docs/research/v1-evaluation.md)
+- 同平台重跑双语言研究包通过。Linux 与 macOS 生成的 DESeq2 表在严格字节校验时有差异，两端 5,140 个基因在预定显著性阈值上的判定一致。[验收记录](docs/release/v1.0-acceptance.md) · [抽样与评分协议](docs/research/v1-tableqa.md)
+
+## v0.12 · 后台研究与长会话
 
 - 0.12.1 项目任务列表、服务重启检测、原轮次恢复和未确认工具结果的人工核对。
 - 0.12.2 项目待办入口和可选浏览器通知。
@@ -10,7 +17,7 @@
 - 主线整合保留 v0.8／v0.9 的证据审查与双语言修复。发行检查识别 RDKit 浏览器虚拟目录，继续检查 wheel 和源码包中的主机路径。
 
 
-Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
+The v1.x compatibility commitments for extensions, events and research bundles are documented in the [compatibility guide](docs/compatibility.md).
 
 ## Unreleased · Artifact viewers and domain Skills (v0.11 development branch)
 

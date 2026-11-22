@@ -23,7 +23,22 @@ jobs:
       - run: python scripts/check_distributions.py dist
       - run: |
           wheels=(dist/*.whl)
-          uvx --from "${wheels[0]}" bioquorum --help
+          python scripts/smoke_workbench.py uvx --from "$PWD/${wheels[0]}" bioquorum
+      - name: Verify the requested publication tag
+        if: inputs.publish
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check_distributions.py dist --tag "$RELEASE_TAG"
+      - name: Build and smoke-test the local Docker image
+        run: |
+          docker build -t bioquorum:candidate .
+          docker run --rm bioquorum:candidate --help
+          set -o pipefail
+          docker save bioquorum:candidate | gzip > "$RUNNER_TEMP/bioquorum-image.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bioquorum-docker-image
+          path: ${{ runner.temp }}/bioquorum-image.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: bioquorum-distributions

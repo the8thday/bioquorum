@@ -8,9 +8,9 @@
 
 BioQuorum is an open, model-neutral workbench for biomedical research. Ask a question, inspect the source passage or calculation behind a claim, and export the record so another researcher can check your work.
 
-**v0.7 workbench development preview (`0.7.0.dev0`).** Choose a model for each turn, inspect usage and context, quote a recorded result, or upload a file and follow an answer back to the kernel code and input hash. The React workbench ships inside the Python package. [Workbench walkthrough](docs/demo-v0.7.md) · [Acceptance record](docs/release/v0.7-acceptance.md)
+**v1.0 release candidate (`1.0.0rc1`) is ready for a research trial from the source checkout.** Explore four offline projects covering a TYK2 trial, donor-paired gene expression, a metformin evidence review and a sample-label correction. [Offline projects](docs/demo-v1.0.md) · [Handbook](docs/index.md) · [Release and acceptance status](docs/release/v1.0-acceptance.md)
 
-**v0.9 in the source checkout.** Use Python and R in one research session, inspect the calculation behind each reported value, and replay their file handoffs from an exported bundle. The donor-paired DESeq2 example has been run with both kernels and independently replayed in a clean Linux container. [Bilingual walkthrough](docs/demo-v0.9.md) · [Acceptance record](docs/release/v0.9-acceptance.md)
+[![Recorded TYK2 trial calculation and evidence in the workbench](docs/media/tyk2-workbench.png)](docs/media/tyk2-workbench.mp4)
 
 ## Quick start
 
@@ -24,6 +24,8 @@ uv run bioquorum
 ```
 
 Open the metformin example, submit its plan and approve the run. Click a number to see its recorded output or a citation to read the highlighted passage. Open **Audit log** to inspect the session's tools, permissions and isolation settings. The example uses recorded model replies and a simulated kernel, so it runs without an API key. [Workbench walkthrough](docs/demo-v0.3.md)
+
+To try the TYK2 project, extract `examples/v1/projects/target.zip` into a new directory and run `uv run bq workbench -C <directory>`. Open the reported response-rate difference to see its source data and calculation. [Recorded walkthrough and other projects](docs/demo-v1.0.md)
 
 ### Use your own project
 
@@ -48,11 +50,17 @@ uv run bq workbench -C ~/bq-demo
 | Revisit an analysis | Inspect named values, code and input hashes. The GSE96583 example reran single-cell QC with alternative thresholds and compared donor-paired results. Its bundle includes an editable Methods draft. [Analysis record](docs/research/v05-scenarios.md) |
 | Continue a long investigation | Close the browser while research runs, return to the project inbox, or resume an interrupted turn after checking any uncertain tool calls. Optional parallel tasks return source excerpts and record their own usage. [Background research walkthrough](docs/demo-v0.12.md) · [Engineering acceptance](docs/release/v0.12-acceptance.md) |
 | Reuse a project's methods | Enable project Skills, researcher-approved notes or a dedicated literature search independently. Skills load on demand. The session records which sources a literature search retrieved. [Research workflow guide](docs/demo-v0.5.md) |
-| Check a calculation independently | Replay the recorded code or request a blind calculation in a fresh session. Eligible claims advance through verification as checks succeed. End-to-end blind replication on locked Linux and bundle replay on a second machine remain pending. [Verification walkthrough](docs/demo-v0.4.md) · [Acceptance record](docs/release/v0.4-acceptance.md) |
+| Check a calculation independently | Replay the recorded code or request a blind calculation in a fresh session. Eligible claims advance through verification as checks succeed. Locked Linux blind counts matched in two documented examples. Cross-platform replay of the full-precision DESeq2 output differed; a successful replay on separately identified physical hosts is still pending. [Verification walkthrough](docs/demo-v0.4.md) · [Acceptance record](docs/release/v0.4-acceptance.md) |
 
 The CLI exposes the same research operations through `bq run`, `bq review`, `bq rerun`, `bq replicate` and `bq export`. Use `bq mcp serve` to expose tools to an MCP client. [CLI walkthrough](docs/demo-v0.2.md) · [Command and configuration guides](docs/index.md)
 
 BioQuorum selects the reviewer by measured review quality. In our comparison, switching model families showed no recall advantage for errors that could be checked against recorded evidence. [Reviewer experiment](docs/research/reviewer-experiment.md) · [Reviewer selection decision](docs/adr/013-reviewer-by-capability.md)
+
+## Evaluation and release status
+
+The candidate answered 28 of 32 questions (87.5%) in a frozen sample of public single-table questions using `gpt-6.2-sol`. Each question used a different source and table image. [Protocol and per-question results](docs/research/v1-tableqa.md) · [Multi-model evaluation](docs/research/v1-evaluation.md)
+
+Projects generated by v0.6 through v0.12 passed the open, rebuild and continued-writing checks. The one-week research trial, clean installation and Docker checks, and independent-host replay remain open. The workbench trial can run entirely in BioQuorum. The Claude Code acceptance item checks whether an external MCP client can use BioQuorum tools and have its answer reviewed against the same session. [Compatibility](docs/compatibility.md) · [Trial record](docs/release/v1.0-author-trial.md) · [Acceptance checklist](docs/release/v1.0-acceptance.md)
 
 ## Security
 

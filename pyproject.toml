@@ -1,6 +1,6 @@
 [project]
 name = "bioquorum"
-version = "0.7.0.dev0"
+version = "1.0.0rc1"
 description = "Open, model-neutral AI workbench for biomedical research: cross-verified, reproducible, private by design."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -45,6 +45,7 @@ dev = [
   "pytest>=8",
   "pytest-cov>=5",
   "hypothesis>=6",
+  "markdown-it-py>=4,<5",  # offline handbook renderer
   "ruff>=0.6",
   "pyright>=1.1.380",
   "import-linter>=2.0",
@@ -200,6 +201,7 @@ include = [
   "/src/bioquorum/skills/builtin/*/SKILL.md",
   "/src/bioquorum/application/examples/*.json",
   "/src/bioquorum/server/web/*.html",
+  "/src/bioquorum/server/web/logo.svg",
   "/src/bioquorum/server/web/*.js",
   "/src/bioquorum/server/web/*.css",
   "/src/bioquorum/server/web/viewer-licenses.md",

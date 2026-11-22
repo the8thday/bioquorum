@@ -86,6 +86,10 @@ def upgrade_payload(
 ) -> dict[str, Any]:
     """Bring a stored payload dict up to the latest schema version."""
     latest = latest_version(event_type)
+    if schema_version > latest:
+        raise ValueError(
+            f"Unsupported {event_type} schema version {schema_version} (latest {latest})"
+        )
     while schema_version < latest:
         fn = _UPGRADERS.get((event_type, schema_version))
         if fn is None:

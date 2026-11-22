@@ -15,3 +15,11 @@ def test_chem_worker_virtual_home_and_private_paths(wheel):
             check_member(worker, virtual + suffix, wheel=wheel, private_paths=private)
     with pytest.raises(ValueError):
         check_member(root + "bioquorum/other.js", virtual, wheel=wheel, private_paths=private)
+
+
+def test_publication_tag_must_identify_the_built_version():
+    from scripts.check_distributions import check_release_tag
+
+    check_release_tag("v1.0.0rc1", "1.0.0rc1")
+    with pytest.raises(ValueError, match="tag"):
+        check_release_tag("v1.0.0", "1.0.0rc1")

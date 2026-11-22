@@ -3,6 +3,7 @@
 import argparse
 import tarfile
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 
 FORBIDDEN = {".hypothesis", ".import_linter_cache", ".git", ".venv", "__pycache__", ".env"}
@@ -37,12 +38,20 @@ def check_member(name: str, content: bytes, *, wheel: bool, private_paths: list[
         raise ValueError(f"Unexpected file or build-machine path in {name}")
 
 
-def main(directory: Path) -> None:
+def check_release_tag(tag: str, version: str) -> None:
+    if tag != "v" + version:
+        raise ValueError("Publication tag must match the wheel metadata version")
+
+
+def main(directory: Path, tag: str | None = None) -> None:
     (wheel,) = directory.glob("*.whl")
     (sdist,) = directory.glob("*.tar.gz")
     private = [str(path).encode() for path in (Path.home(), Path.cwd()) if path != Path("/")]
     private.extend([b"/Users/", b"/home/", b"C:\\Users\\"])
     with zipfile.ZipFile(wheel) as archive:
+        if tag is not None:
+            (metadata,) = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
+            check_release_tag(tag, str(BytesParser().parsebytes(archive.read(metadata))["Version"]))
         for name in archive.namelist():
             check_member(name, archive.read(name), wheel=True, private_paths=private)
     with tarfile.open(sdist) as archive:
@@ -58,4 +67,6 @@ def main(directory: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
-    main(parser.parse_args().directory)
+    parser.add_argument("--tag", help="Require this publication tag to match the wheel")
+    args = parser.parse_args()
+    main(args.directory, args.tag)
