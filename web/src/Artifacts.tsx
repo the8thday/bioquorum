@@ -4,7 +4,7 @@ import { Dialog } from "./Dialog";
 
 import { Icon } from "./Icon";
 
-export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string | null; turn_number?: number | null; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|null}
+export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string | null; turn_number?: number | null; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|"sequence"|"structure"|"genome"|"molecule"|null}
 
 export function Artifacts({base, rows, attach, open}: {base: string; rows: Product[]|undefined; attach:(a:Product)=>void;open:(a:Product)=>void}) {
   return <aside className="ledger" aria-label="Session artifacts"><h2>Artifacts</h2>
@@ -15,7 +15,7 @@ export function Artifacts({base, rows, attach, open}: {base: string; rows: Produ
       <p>{row.kind} · v{row.version} · {row.status}{row.turn_number != null ? ` · Turn ${row.turn_number}` : row.turn ? ` · Turn ${row.turn}` : ""}</p>
       <a href={base+"/artifacts/"+row.id+"/file"} download>Download</a>{" "}
       {row.preview && <button className="quiet" onClick={()=>open(row)}>
-        {row.preview==="table"?"Preview table":row.preview==="figure"?"Enlarge figure":"Read report"}</button>}
+        {row.preview==="table"?"Preview table":row.preview==="figure"?"Enlarge figure":row.preview==="report"?"Read report":"View "+row.preview}</button>}
       {row.source === "user_upload" && <button className="quiet" onClick={() => attach(row)}>Attach to question</button>}
     </article>)}</aside>;
 }

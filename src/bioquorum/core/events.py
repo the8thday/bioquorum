@@ -32,6 +32,7 @@ from bioquorum.core.enums import (
 from bioquorum.core.ids import id_time, new_id, utc_now
 from bioquorum.core.messages import Message, OpaqueBytes, ToolResultPart
 from bioquorum.core.refs import ClaimRef, DataRef, NamedValue
+from bioquorum.core.selections import ArtifactSelection
 from bioquorum.core.status import StatusTrigger, VerificationStatus
 from bioquorum.core.verification import Tolerance, ValueComparison, VerificationOutcome
 
@@ -282,17 +283,21 @@ class TurnRequestedV2(TurnRequestedV1):
 
 class TurnReference(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    kind: Literal["answer", "claim", "value", "figure", "source", "run", "activity"]
+    kind: Literal["answer", "claim", "value", "figure", "source", "run", "activity", "artifact"]
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(default="", max_length=128)
     excerpt: str = Field(default="", max_length=2000)
 
+    selection: ArtifactSelection | None = None
+
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
+        if (self.selection is not None) != (self.kind == "artifact"):
+            raise ValueError("An artifact reference requires a selection")
         if bool(self.name) != (self.kind in {"value", "figure"}):
             raise ValueError("Only values and figures require a record name")
-        if self.excerpt and self.kind not in {"answer", "source"}:
-            raise ValueError("Only answers and sources accept an excerpt")
+        if self.excerpt and self.kind not in {"answer", "source", "artifact"}:
+            raise ValueError("Only answers, sources and artifact selections accept an excerpt")
         return self
 
 

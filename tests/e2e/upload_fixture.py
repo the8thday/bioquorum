@@ -47,6 +47,38 @@ def upload_controls(directory: str) -> ResearchControls:
         user = parts[last_user]
         assert isinstance(user, pa.UserPromptPart) and isinstance(user.content, str)
         prompt = user.content
+        returned = any(isinstance(p, pa.ToolReturnPart) for p in parts[last_user + 1 :])
+        if prompt.startswith("Recalculate after excluding"):
+            if returned:
+                return pa.ModelResponse(
+                    parts=[pa.TextPart(content="Remaining count: {{remaining}}.")]
+                )
+            selected = json.loads(
+                prompt.split("<untrusted-tool-output>\n")[-1].split("\n</untrusted-tool-output>")[0]
+            )
+            samples = json.loads(selected["selected_content"])["samples"]
+            assert samples == ["b"] and selected["run"]
+            code = (
+                f"retained = [r for r in rows if r['sample'] not in {samples!r}]\n"
+                "remaining = sum(int(r['count']) for r in retained)\n"
+                "with open('recomputed.svg', 'w') as f: "
+                'f.write(f\'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="5" y="25">{remaining}</text></svg>\')\n'
+                "bq.value('remaining', remaining)"
+            )
+            return pa.ModelResponse(
+                parts=[
+                    pa.ToolCallPart(
+                        "python_execute", {"code": code, "output_files": ["recomputed.svg"]}
+                    )
+                ]
+            )
+        if prompt.startswith("Identify my structure selection"):
+            selected = json.loads(
+                prompt.split("<untrusted-tool-output>\n")[-1].split("\n</untrusted-tool-output>")[0]
+            )
+            pick = selected["selection"]
+            assert pick["residue"] == 52 and pick["insertion"] == "A" and pick["chain"] == "H"
+            return pa.ModelResponse(parts=[pa.TextPart(content="Selected author residue H 52A.")])
         if any(isinstance(p, pa.ToolReturnPart) for p in parts[last_user + 1 :]):
             name = "total" if "Attached project files" in prompt else "initial_count"
             return pa.ModelResponse(parts=[pa.TextPart(content="Total samples: {{" + name + "}}.")])
@@ -81,6 +113,9 @@ def upload_controls(directory: str) -> ResearchControls:
             ' f\'<text x="{52+int(r["count"])*60}" y="{47+i*42}">{int(r["count"])}</text>\' for i,r in enumerate(rows))\n'
             "with open('counts.svg', 'w') as f: f.write('<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 360 125\">' + bars + '</svg>')\n"
             "with open('report.md', 'w') as f: f.write(f'# Count report\\n\\n## Total samples\\n| count |\\n| --- |\\n| {total} |\\n\\n## Counts by sample\\n![Counts by sample](counts.svg)')\n"
+            "with open('marked.faa','w') as f: f.write('>fixture\\nMLPK\\n')\n"
+            "with open('marked.faa.annotations.tsv','w') as f: f.write('record\\tstart\\tend\\tlabel\\n1\\t2\\t3\\tmapped segment\\n')\n"
+            "bq.figure_points('counts.svg', [r['sample'] for r in rows], [.3, .7], [.35, .7])\n"
             "bq.value('total', total)"
         )
         return pa.ModelResponse(

@@ -205,7 +205,7 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         ).start()
         controls = ResearchControls(ws)
         controls.new_session("Initial session")
-    elif os.environ.get("BQ_TEST_UPLOAD"):
+    elif os.environ.get("BQ_TEST_UPLOAD") or os.environ.get("BQ_TEST_VIEWERS"):
         from upload_fixture import upload_controls
 
         controls = upload_controls(directory)
@@ -215,7 +215,12 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         controls = reference_controls(directory)
     elif any(
         os.environ.get(k)
-        for k in ("BQ_TEST_CONVERSATION", "BQ_TEST_EXTENSIONS", "BQ_TEST_COVERAGE", "BQ_TEST_MATERIALS")
+        for k in (
+            "BQ_TEST_CONVERSATION",
+            "BQ_TEST_EXTENSIONS",
+            "BQ_TEST_COVERAGE",
+            "BQ_TEST_MATERIALS",
+        )
     ):
         controls = conversation_controls(directory)
     elif os.environ.get("BQ_TEST_PROJECT_NOTE"):

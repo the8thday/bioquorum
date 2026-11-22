@@ -14,6 +14,7 @@ from bioquorum.core import events as ev
 from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor, Trust
 from bioquorum.core.messages import Message, TextPart, ToolResultPart, fence_untrusted
+from bioquorum.provenance.catalog import catalog_records
 from bioquorum.review.binding import quote_matches, render
 from bioquorum.review.evidence import Evidence, result_text, source_aliases
 
@@ -181,6 +182,38 @@ def reference_text(
     data: dict = {"kind": kind, "id": ident}
     source_text = ""
     verified_excerpt = False
+    if kind == "artifact" and reference.selection is not None:
+        catalog = catalog_records((event, event.parsed()) for event in events)
+        product = next((row for row in catalog if row["id"] == ident), None)
+        if not product or product["preview"] != reference.selection.type:
+            raise ValueError("Referenced artifact is unavailable")
+        data.update(
+            file=product["name"],
+            sha256=product["hash"],
+            run=product.get("run"),
+            version=product["version"],
+            selection=reference.selection.model_dump(),
+            path=product.get("path"),
+            selected_content=reference.excerpt,
+        )
+        if run_id := product.get("run"):
+            run = next(
+                (
+                    p
+                    for event in events
+                    if event.type == "run_started"
+                    and isinstance(p := event.parsed(), ev.RunStarted)
+                    and p.run_id == run_id
+                ),
+                None,
+            )
+            if run:
+                data.update(
+                    code=run.code[:12000],
+                    code_hash=run.code_hash,
+                    input_hashes=[item.content_hash for item in run.inputs],
+                )
+        return fence_untrusted(json.dumps(data, ensure_ascii=False))
     if kind == "source":
         source = next((s for s in Evidence.from_events(events).sources if s.call_id == ident), None)
         if source is None:
@@ -244,7 +277,7 @@ def reference_text(
                 ),
                 None,
             )
-            if output is None:
+            if not isinstance(output, ev.RunOutput):
                 raise ValueError("Referenced figure is unavailable")
             run_id = output.run_id
         start = next(

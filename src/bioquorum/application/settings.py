@@ -37,6 +37,7 @@ FLAGS = (
     "source_to_kernel",
     "vision",
     "evidence_skills",
+    "domain_skills",
     "first_pass",
     "coverage",
     "references",

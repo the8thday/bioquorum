@@ -225,6 +225,9 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
                 "id": e.id,
                 "seq": e.seq,
                 "question": p.question,
+                "selections": [
+                    r.model_dump(exclude_none=True) for r in p.references if r.kind == "artifact"
+                ],
                 "status": "queued",
                 "plan_id": p.plan_id,
             }

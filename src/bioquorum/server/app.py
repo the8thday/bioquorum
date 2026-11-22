@@ -42,11 +42,13 @@ from bioquorum.server.request_body import Empty
 from bioquorum.server.request_body import read_body as _body
 
 CSP = (
-    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'sha256-ITHmamcImsZ/Je1xrdtDLZVvRSpj1Zokb6uHXORB824=' 'sha256-NTwDUA6nIvRRpI2lIBtHJqkV0TlTj4HVmI6vI81fIfM='; img-src 'self' data:; "
     "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 )
 WEB = files("bioquorum.server").joinpath("web")
 ASSETS = {
+    "viewer-licenses.md": "text/plain",
+    "RDKit_minimal.wasm": "application/wasm",
     "index.html": "text/html",
     "app.css": "text/css",
     "app.js": "text/javascript",
@@ -144,16 +146,23 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
     async def asset(request: Request) -> Response:
         name = request.path_params.get("asset", "index.html")
         if (
-            name not in ASSETS
+            (
+                name not in ASSETS
+                and not re.fullmatch(r"(?:viewer|chem-worker)-[A-Za-z0-9_-]+\.js", name)
+            )
             or (name == "index.html" and "asset" in request.path_params)
             or not WEB.joinpath(name).is_file()
         ):
             raise LookupError("Asset not found")
         return Response(
             WEB.joinpath(name).read_bytes(),
-            media_type=ASSETS[name],
+            media_type=ASSETS.get(name, "text/javascript"),
             headers={
-                "Content-Security-Policy": CSP,
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'unsafe-eval'; connect-src 'none'"
+                    if name.startswith("chem-worker-")
+                    else CSP
+                ),
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "no-referrer",
                 "Cache-Control": "no-cache",
@@ -336,6 +345,12 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def product_preview(request: Request) -> Response:
         sid, ident = _sid(request), request.path_params["id"]
+        if request.path_params["format"] == "chrom-sizes":
+            return Response(
+                artifacts.chromosome_extents(controls, sid, ident),
+                media_type="text/plain",
+                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+            )
         path, _ = artifacts.download(controls, sid, ident)
         if request.path_params["format"] == "image":
             if path.stat().st_size > 20_000_000:
@@ -352,22 +367,27 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             )
         if request.path_params["format"] != "text":
             raise LookupError("Unknown preview format")
-        if path.stat().st_size > 512 * 1024:
-            raise ValueError("Report exceeds 512 KiB. Download the full file.")
-        try:
-            text = path.read_text(encoding="utf-8-sig")
-        except UnicodeError:
-            raise ValueError(
-                "Text preview requires a UTF-8 report. Download the original file."
-            ) from None
+        text = artifacts.read_report(path)
         return JSONResponse({"text": text}, headers={"Cache-Control": "no-store"})
 
+    async def scientific_data(request: Request) -> Response:
+        data = artifacts.scientific_data(controls, _sid(request), request.path_params["id"])
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
     async def product_table(request: Request) -> Response:
-        data = artifacts.table(
+        from starlette.concurrency import run_in_threadpool
+
+        params = request.query_params
+        data = await run_in_threadpool(
+            artifacts.table,
             controls,
             _sid(request),
             request.path_params["id"],
-            int(request.query_params.get("page", "1")),
+            int(params.get("page", "1")),
+            query=params.get("q", ""),
+            sort=int(params["sort"]) if "sort" in params else None,
+            descending=params.get("order") == "desc",
+            stats=int(params["stats"]) if "stats" in params else None,
         )
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
@@ -615,6 +635,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/artifacts", products, methods=["GET", "POST"]),
             Route(session + "/artifacts/{id}/file", product_file),
             Route(session + "/artifacts/{id}/preview/{format}", product_preview),
+            Route(session + "/artifacts/{id}/annotations", scientific_data),
             Route(session + "/artifacts/{id}/table", product_table),
             Route(session + "/notebook", export_notebook),
             Route(session + "/bundles", bundles, methods=["POST"]),

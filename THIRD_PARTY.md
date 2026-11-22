@@ -58,3 +58,39 @@ SOFTWARE.
 ## Public research sources
 
 The opt-in public evidence tools query Europe PMC, NCBI BioC, ClinicalTrials.gov, GWAS Catalog, openFDA and the Human Protein Atlas. Tests include small, dated metadata projections. Source-specific terms and credits are in the [fixture catalogue](tests/fixtures/public/README.md).
+
+## Scientific artifact viewers
+
+Mol* 5.11.0 (MIT) renders local PDB/mmCIF coordinates. igv.js 3.8.10 (MIT) renders local BED intervals. RDKit.js 2026.9.2 (BSD-3-Clause) depicts MOL/SDF records using its packaged WebAssembly runtime. The dependency versions are pinned in the workbench lockfile. Vite emits the bundled package notices in [viewer-licenses.md](src/bioquorum/server/web/viewer-licenses.md).
+
+### RDKit license
+
+BSD 3-Clause License
+
+Copyright (c) 2006-2015, Rational Discovery LLC, Greg Landrum, and Julie Penzotti and others
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

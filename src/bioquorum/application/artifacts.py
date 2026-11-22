@@ -1,17 +1,26 @@
 """Session-scoped files, recorded products and portable kernel cells."""
 
 import csv
-from collections import Counter
-from collections.abc import AsyncIterable, Iterable
-from itertools import islice
+import json
+from collections.abc import AsyncIterable
 from pathlib import Path
 
 from bioquorum.application.controls import ResearchControls
+from bioquorum.application.scientific_viewers import (
+    bed_features,
+    fasta_records,
+    mol_records,
+    point_map,
+    sequence_tracks,
+)
+from bioquorum.application.table_view import read_page
 from bioquorum.application.verify import bundle_file
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, PermissionClass, PermissionScope
-from bioquorum.core.messages import DataRefPart
+from bioquorum.core.selections import RecordSelection
 from bioquorum.policy.permissions import PermissionPolicy
+from bioquorum.policy.secrets import redact
+from bioquorum.provenance.catalog import catalog_records
 from bioquorum.tools.builtin.files import upload_tool
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.invoke import invoke
@@ -20,123 +29,6 @@ from bioquorum.tools.invoke import invoke
 def catalog(controls: ResearchControls, sid: str) -> list[dict]:
     controls.require_session(sid)
     return catalog_records((event, event.parsed()) for event in controls.store.history(sid))
-
-
-def catalog_records(parsed: Iterable[tuple[ev.Event, ev.EventPayload]]) -> list[dict]:
-    rows: list[dict] = []
-    versions: Counter = Counter()
-    statuses = {}
-    turns = {}
-    turn_numbers: dict[str, int] = {}
-    turn = None
-    turn_count = 0
-    for event, p in parsed:
-        row: dict | None = None
-        if isinstance(p, ev.TurnStarted):
-            turn_count += 1
-            turn = p.turn_id
-            turn_numbers[turn] = turn_count
-        elif isinstance(p, ev.TurnFinished):
-            turn = None
-        elif isinstance(p, ev.RunStarted):
-            turns[p.run_id] = turn
-        elif isinstance(p, ev.FileRegistered):
-            versions[p.filename] += 1
-            row = dict(
-                id=p.file_id,
-                name=p.filename,
-                path=p.path,
-                hash=p.ref.content_hash,
-                kind="table" if Path(p.filename).suffix.lower() in {".csv", ".tsv"} else "file",
-                version=versions[p.filename],
-                status="registered",
-                source=p.source,
-                classification=p.classification.value,
-            )
-        elif (
-            isinstance(p, ev.LineageObserved)
-            and p.direction == "output"
-            and p.post_run_hash
-            and p.path != "bioquorum.toml"
-        ):
-            versions[p.path] += 1
-            row = dict(
-                id=event.id,
-                name=p.path,
-                hash=p.post_run_hash,
-                kind="table" if p.path.lower().endswith((".csv", ".tsv")) else "file",
-                version=versions[p.path],
-                status="observed",
-                run=p.run_id,
-            )
-        elif (
-            isinstance(p, ev.ToolCallFinished)
-            and p.tool == "download_file"
-            and not p.result.is_error
-        ):
-            part = next((part for part in p.result.content if isinstance(part, DataRefPart)), None)
-            if part:
-                name = part.summary.partition(", downloaded from ")[0]
-                versions[name] += 1
-                row = dict(
-                    id=event.id,
-                    name=name,
-                    hash=part.ref.content_hash,
-                    version=versions[name],
-                    status="downloaded",
-                    kind="table" if name.lower().endswith((".csv", ".tsv")) else "file",
-                )
-        elif isinstance(p, ev.RunOutput) and p.ref:
-            row = dict(
-                id=event.id,
-                name="Figure " + p.run_id,
-                hash=p.ref.content_hash,
-                kind="figure",
-                version=1,
-                status="recorded",
-                run=p.run_id,
-            )
-        elif isinstance(p, ev.ArtifactVersionCreated):
-            row = dict(
-                id=p.version_id,
-                name=p.name,
-                hash=p.content_hash,
-                kind=p.kind.value,
-                version=p.version,
-                status="unverified",
-                run=p.run_id,
-            )
-        elif isinstance(p, ev.ArtifactStatusChanged):
-            statuses[p.version_id] = p.to_status.value
-        elif isinstance(p, ev.BundleExported):
-            row = dict(
-                id=p.bundle_id,
-                name=p.bundle_id + ".zip",
-                kind="bundle",
-                version=1,
-                status="exported",
-                session=event.session_id,
-            )
-        if row is not None:
-            suffix = Path(row["name"]).suffix.lower()
-            if row["kind"] in {"figure", "table", "report"}:
-                preview = row["kind"]
-            elif suffix in {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}:
-                preview = "figure"
-            elif suffix in {".md", ".markdown", ".txt"}:
-                preview = "report"
-            elif suffix in {".csv", ".tsv"}:
-                preview = "table"
-            else:
-                preview = None
-            row.update(seq=event.seq, preview=preview)
-            row_turn = turns.get(row.get("run"), turn)
-            row["turn"] = row_turn
-            row["turn_number"] = turn_numbers.get(row_turn) if row_turn else None
-            rows.append(row)
-    for row in rows:
-        row["status"] = statuses.get(row["id"], row["status"])
-    return rows
 
 
 async def upload(
@@ -186,22 +78,165 @@ def download(controls: ResearchControls, sid: str, ident: str) -> tuple[Path, st
     return controls.ws.cas().verified_path(row["hash"]), Path(row["name"]).name
 
 
-def table(controls: ResearchControls, sid: str, ident: str, page: int, size: int = 30) -> dict:
-    if page < 1 or not 1 <= size <= 100:
-        raise ValueError("Invalid table page")
+def table(
+    controls: ResearchControls,
+    sid: str,
+    ident: str,
+    page: int,
+    size: int = 30,
+    *,
+    query: str = "",
+    sort: int | None = None,
+    descending: bool = False,
+    stats: int | None = None,
+) -> dict:
     row = _record(controls, sid, ident)
     if row["preview"] != "table":
         raise ValueError("No table preview for this artifact")
     path, name = download(controls, sid, ident)
     try:
-        with path.open(encoding="utf-8-sig", newline="") as stream:
-            reader = csv.reader(stream, delimiter="\t" if name.lower().endswith(".tsv") else ",")
-            header = next(reader, [])
-            start = (page - 1) * size
-            data = list(islice(reader, start, start + size + 1))
+        return read_page(
+            path,
+            "\t" if name.lower().endswith(".tsv") else ",",
+            page,
+            size,
+            query=query,
+            sort=sort,
+            descending=descending,
+            stats=stats,
+        )
     except (csv.Error, UnicodeError, OverflowError):
         raise ValueError("This file cannot be previewed as a UTF-8 delimited table") from None
-    return {"header": header, "rows": data[:size], "page": page, "more": len(data) > size}
+
+
+def scientific_data(controls: ResearchControls, sid: str, ident: str) -> dict:
+    row = _record(controls, sid, ident)
+    kind = row["preview"]
+    if kind in {"genome", "molecule"}:
+        path, _ = download(controls, sid, ident)
+        return {"records": bed_features(path) if kind == "genome" else mol_records(path)}
+    if kind not in {"figure", "sequence"}:
+        raise ValueError("No annotations for this artifact")
+    data: dict = {}
+    if kind == "sequence":
+        path, _ = download(controls, sid, ident)
+        data["records"] = fasta_records(path)
+    suffix = ".points.tsv" if kind == "figure" else ".annotations.tsv"
+    matches = [
+        item
+        for item in catalog(controls, sid)
+        if row.get("run") and item.get("run") == row["run"] and item["name"] == row["name"] + suffix
+    ]
+    if len({item["hash"] for item in matches}) > 1:
+        raise ValueError("Ambiguous annotation versions in the generating run")
+    data["points" if kind == "figure" else "tracks"] = []
+    if matches:
+        sidecar = matches[0]
+        path, _ = download(controls, sid, sidecar["id"])
+        if kind == "figure":
+            data["points"] = point_map(path)
+        else:
+            data["tracks"] = sequence_tracks(path, [len(r["sequence"]) for r in data["records"]])
+        data["source"] = {"id": sidecar["id"], "hash": sidecar["hash"], "run": row["run"]}
+    return data
+
+
+def chromosome_extents(controls: ResearchControls, sid: str, ident: str) -> str:
+    if _record(controls, sid, ident)["preview"] != "genome":
+        raise ValueError("Expected a BED track")
+    lengths: dict[str, int] = {}
+    for record in scientific_data(controls, sid, ident)["records"]:
+        chrom = record["chr"]
+        lengths[chrom] = max(lengths.get(chrom, 0), record["end"])
+    return "".join(f"{chrom}\t{end}\n" for chrom, end in lengths.items())
+
+
+def read_report(path: Path) -> str:
+    if path.stat().st_size > 512 * 1024:
+        raise ValueError("Report exceeds 512 KiB. Download the full file.")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeError:
+        raise ValueError(
+            "Text preview requires a UTF-8 report. Download the original file."
+        ) from None
+    return text
+
+
+def resolve_selection(
+    controls: ResearchControls, sid: str, ref: ev.TurnReference
+) -> ev.TurnReference:
+    """Read selected content from the recorded bytes before recording a turn."""
+    sel = ref.selection
+    if sel is None:
+        return ref
+    source = _record(controls, sid, ref.id)
+    if source["preview"] != sel.type:
+        raise ValueError("Unexpected selected artifact type")
+    if sel.type == "report":
+        path, _ = download(controls, sid, ref.id)
+        lines = read_report(path).split("\n")
+        if not 1 <= sel.start <= sel.end <= len(lines):
+            raise ValueError("Selection outside the report")
+        value = "\n".join(lines[sel.start - 1 : sel.end])
+    elif sel.type == "table":
+        page = table(controls, sid, ref.id, sel.row, 1)
+        if not page["rows"]:
+            raise ValueError("Row is outside the table")
+        row = page["rows"][0]
+        if sel.column is None:
+            value = row
+        elif sel.column < min(len(row), len(page["header"])):
+            value = [page["header"][sel.column], row[sel.column]]
+        else:
+            raise ValueError("Cell is outside the table")
+    elif sel.type == "sequence":
+        data = scientific_data(controls, sid, ref.id)
+        records = data.get("records", [])
+        if sel.record > len(records):
+            raise ValueError("Unknown sequence record")
+        record = records[sel.record - 1]
+        if not 1 <= sel.start <= sel.end <= len(record["sequence"]):
+            raise ValueError("Interval outside sequence")
+        value = dict(name=record["name"], sequence=record["sequence"][sel.start - 1 : sel.end])
+        if data.get("source"):
+            tracks = [
+                track
+                for track in data["tracks"]
+                if track["record"] == sel.record
+                and track["start"] <= sel.end
+                and track["end"] >= sel.start
+            ]
+            value.update(
+                annotation_source=data["source"],
+                overlapping_tracks=tracks[:8],
+                total_overlapping_tracks=len(tracks),
+            )
+    elif sel.type == "figure":
+        data = scientific_data(controls, sid, ref.id)
+        points = data.get("points", [])
+        if any(i < 0 or i >= len(points) for i in sel.points):
+            raise ValueError("Unknown figure point")
+        value = dict(samples=[points[i]["sample_id"] for i in sel.points], mapping=data["source"])
+        if len(json.dumps(value, ensure_ascii=False)) > 2000:
+            raise ValueError("Select fewer points to include every sample identifier")
+    elif isinstance(sel, RecordSelection):
+        records = scientific_data(controls, sid, ref.id)["records"]
+        if sel.record > len(records):
+            raise ValueError("Unknown record")
+        value = records[sel.record - 1]
+        if sel.type == "molecule":
+            value = {"record": sel.record, "name": value.splitlines()[0]}
+    else:
+        # The viewer supplies a user-picked coordinate, not a measured result.
+        download(controls, sid, ref.id)
+        value = "User selection in the deposited coordinate model"
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if redact(text) != text or redact(sel.model_dump_json()) != sel.model_dump_json():
+        raise ValueError("Selection contains a credential")
+    return ref.model_copy(
+        update={"excerpt": text if len(text) <= 2000 else text[:1990] + "…[clipped]"}
+    )
 
 
 def notebook(controls: ResearchControls, sid: str, language: str = "python") -> dict:

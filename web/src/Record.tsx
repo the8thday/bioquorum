@@ -14,10 +14,11 @@ function Badge({status}: {status: string}) {
   return <span title={status === "unverified" ? "No verified evidence is linked to this statement." : undefined} className={"badge " + status}>{labels[status] ?? status}</span>;
 }
 
-export function TurnCard({turn, animated, waiting}: {turn: Turn; animated?: boolean; waiting?: boolean}) {
+export function TurnCard({turn, animated, waiting, reopen}: {reopen?:(r:TurnRef)=>void; turn: Turn; animated?: boolean; waiting?: boolean}) {
   const {plan} = turn;
   return <article className="panel turn">
     <span className="kicker">You</span><p className="question">{turn.question}</p>
+    {turn.selections?.map((r,i)=><button className="result-link" key={i} onClick={()=>reopen?.(r)}>Reopen {r.selection?.type} selection</button>)}
     {turn.status === "running" && (animated || waiting)
       ? <span className={"badge running" + (animated ? " running-indicator" : "")}>{waiting ? "Awaiting permission" : "Running"}</span>
       : turn.status && <Badge status={turn.status}/>}

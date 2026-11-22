@@ -33,3 +33,14 @@ bq_summary <- function(x) {
     }
     stop("Supply a data.frame, tibble, Seurat, SummarizedExperiment or DESeqDataSet")
 }
+
+# Coordinates in the saved image, relative to the top-left corner.
+bq_figure_points <- function(path, sample_ids, x, y) {
+    stopifnot(is.character(sample_ids), !anyNA(sample_ids), !anyDuplicated(sample_ids),
+              all(nchar(sample_ids) >= 1L & nchar(sample_ids) <= 128L),
+              length(x) == length(y), length(x) == length(sample_ids),
+              all(is.finite(x) & x >= 0 & x <= 1), all(is.finite(y) & y >= 0 & y <= 1))
+    utils::write.table(data.frame(sample_id=sample_ids, x=x, y=y),
+                       paste0(path, ".points.tsv"), sep="\t", quote=TRUE,
+                       row.names=FALSE, qmethod="double", fileEncoding="UTF-8")
+}

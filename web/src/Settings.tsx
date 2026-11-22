@@ -25,6 +25,7 @@ const mechanisms = [
   ["source_to_kernel","Sources in kernel","Stage retrieved source content for computation.","v05-literature-subtasks"],
   ["references","Follow-up references","Attach the recorded source, calculation or finding to a question.","v07-references"],
   ["coverage","Evidence coverage","Record subquestions, actual searches and remaining gaps.","v08-baseline"],
+  ["domain_skills","Domain workflow skills","Load omics, literature, sequence, structure and chemistry guidance on demand.","v11-domain-skills"],
   ["evidence_skills","Evidence category skills","Suggest evidence types and sources for the three research scenarios.","v08-retrieval-diagnosis"],
   ["first_pass","First-pass judgment","Record a judgment, counterevidence, disagreement and next step.","v08-baseline"],
   ["vision","Figure inspection","Let a compatible model inspect recorded images.","v05-target-expansion"],

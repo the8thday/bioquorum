@@ -66,6 +66,21 @@ def __bq_install():
             publish_display_data({__MIME__: payload, "text/plain": text})
             return value
 
+        def figure_points(self, path, sample_ids, x, y):
+            """Write normalized image coordinates (origin top left) alongside a figure."""
+            import csv
+            rows = list(zip(sample_ids, x, y, strict=True))
+            seen = set()
+            for sample, px, py in rows:
+                if not (isinstance(sample, str) and 0 < len(sample) <= 128
+                        and sample not in seen and 0 <= px <= 1 and 0 <= py <= 1):
+                    raise ValueError("Expected unique sample IDs and normalized coordinates")
+                seen.add(sample)
+            with open(str(path) + ".points.tsv", "w", encoding="utf-8", newline="") as stream:
+                writer = csv.writer(stream, delimiter="\t")
+                writer.writerow(["sample_id", "x", "y"])
+                writer.writerows(rows)
+
         def __repr__(self):
             return "<bq: bq.value(name, value, unit=None, desc=None)>"
 

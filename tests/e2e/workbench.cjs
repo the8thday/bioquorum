@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { chromium } = require("playwright");
+process.chdir(require("node:path").resolve(__dirname,"../.."));
 
 async function serverURL(process) {
   let buffer = "";
@@ -163,6 +164,7 @@ async function verifyConversation(page) {
   try {
     const url = await serverURL(server);
     browser = await chromium.launch({
+      args: (process.env.BQ_TEST_VIEWERS || process.env.BQ_TEST_HER2) ? ["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader"] : [],
       channel: process.env.BQ_CHROME_CHANNEL || "chrome", headless: true,
       executablePath: process.env.BQ_CHROME_PATH,
     });
@@ -179,10 +181,20 @@ async function verifyConversation(page) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
+    if (process.env.BQ_TEST_HER2) {
+      await require("./her2.cjs")(page);
+      assert.deepEqual(errors, []);
+      return;
+    }
     if (process.env.BQ_TEST_SCENARIO_D) {
       try { await require("./scenario_d.cjs")(page); }
       catch (error) { console.error(await page.locator("body").innerText()); throw error; }
       assert.deepEqual(errors, []);
+      return;
+    }
+    if (process.env.BQ_TEST_VIEWERS) {
+      await require("./viewers.cjs")(page);
+      assert.deepEqual(errors,[]);
       return;
     }
     if (process.env.BQ_TEST_BILINGUAL) {

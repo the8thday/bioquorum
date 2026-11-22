@@ -103,6 +103,7 @@ class AgentOptions:
     source_to_kernel: bool = False
     references: bool = False
     evidence_skills: bool = False
+    domain_skills: bool = False
     first_pass: bool = False
     coverage: bool = False
     vision: bool = False
@@ -163,9 +164,18 @@ class Workspace:
         return ContentStore(self.state_dir / "cas")
 
     def project_skills(self, *, include_disabled: bool = False):
-        from bioquorum.skills.loader import builtin_catalog, discover
+        from bioquorum.skills.loader import (
+            DOMAIN_SKILLS,
+            EVIDENCE_SKILLS,
+            builtin_catalog,
+            discover,
+        )
 
-        catalog = builtin_catalog() if self.agent_options().evidence_skills else {}
+        opts = self.agent_options()
+        names = (EVIDENCE_SKILLS if opts.evidence_skills else set()) | (
+            DOMAIN_SKILLS if opts.domain_skills else set()
+        )
+        catalog = {k: v for k, v in builtin_catalog().items() if k in names} if names else {}
         catalog.update(discover(self.state_dir / "skills"))
         for name, entry in self.config.get("extensions", {}).get("skills", {}).items():
             if not entry:
@@ -261,6 +271,7 @@ class Workspace:
             "literature_subtasks",
             "source_to_kernel",
             "evidence_skills",
+            "domain_skills",
             "first_pass",
             "coverage",
             "references",
@@ -307,6 +318,7 @@ class Workspace:
             literature_tools=tuple(literature),
             source_to_kernel=cfg.get("source_to_kernel", False),
             evidence_skills=cfg.get("evidence_skills", False),
+            domain_skills=self.profile_name != "minimal" and cfg.get("domain_skills", False),
             first_pass=cfg.get("first_pass", False),
             coverage=cfg.get("coverage", False),
             references=cfg.get("references", False),

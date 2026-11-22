@@ -12,7 +12,8 @@ export interface Project {
   example: {question: string; steps: string[]} | null;
 }
 
-export interface TurnRef {kind: "answer" | "claim" | "figure" | "value" | "source" | "run" | "activity"; id: string; name?: string; excerpt?: string}
+export interface StructurePick {type:"structure"; model:number; chain:string; label_chain:string; residue?:number; label_residue?:number; insertion?:string}
+export interface TurnRef {kind: "answer" | "claim" | "figure" | "value" | "source" | "run" | "activity" | "artifact"; selection?:StructurePick|{type:"report";start:number;end:number}|{type:"genome"|"molecule";record:number}|{type:"figure";points:number[]}|{type:"table";row:number;column?:number}|{type:"sequence";record:number;start:number;end:number}; id: string; name?: string; excerpt?: string}
 
 export type DraftReference = {item: TurnRef; label: string; note?: string};
 
@@ -56,6 +57,7 @@ export interface Plan {
   deviations: {change: string; reason: string}[];
 }
 export interface Turn {
+  selections?:TurnRef[];
   question: string; plan?: Plan | null; status?: string; error?: string;
 }
 export interface Comparison {

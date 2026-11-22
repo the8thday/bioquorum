@@ -218,6 +218,9 @@ class ResearchControls:
                 )
             ):
                 raise ValueError("Enable references and select at most eight items")
+            from bioquorum.application.artifacts import resolve_selection
+
+            references = [resolve_selection(self, sid, item) for item in references]
             for item in references:
                 reference_text(history, item, load_event=self.store.get)
         question = question.strip()

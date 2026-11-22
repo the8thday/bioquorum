@@ -2,6 +2,13 @@
 
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
+## Unreleased · Artifact viewers and domain Skills (v0.11 development branch)
+
+- Inspect and cite a versioned table cell, figure sample, report passage, FASTA interval, structure chain or residue, molecule record, or BED interval from the local workbench.
+- Load Mol*, RDKit.js and igv.js on demand. Replay a saved selection and compare a recomputed figure with its original. Python and R can record the sample mapping alongside the figure.
+- Enable four domain Skills per project and inspect declared external Skill licenses. All 12 paired held-out questions received the correct choice with the feature on and off. See the [evaluation](docs/research/v11-domain-skills.md).
+- The [engineering acceptance record](docs/release/v0.11-acceptance.md) covers steps 0.11.1–0.11.7. A [public trastuzumab–HER2 research line](docs/research/v11-scenarios.md) now links sequence annotations, Mol* selections, primary literature and reproducible interface counts. The author accepted the scientific conclusions for 0.11.8 on 2026-11-22.
+
 ## Unreleased · Research lines (v0.10)
 
 - Group sessions under a research line and inspect the latest recorded status of its claims with `bq program list` and `bq program show`.

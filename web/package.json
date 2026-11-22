@@ -2,12 +2,17 @@
   "name": "bioquorum-workbench",
   "private": true,
   "type": "module",
-  "engines": {"node": "^22.12.0 || ^24.0.0 || >=26.0.0"},
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "test": "vitest run",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@rdkit/rdkit": "2026.9.2",
+    "igv": "3.8.10",
+    "molstar": "5.11.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

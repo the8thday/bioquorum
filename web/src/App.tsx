@@ -125,7 +125,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   const [refs, setRefs] = useState<DraftReference[]>([]);
   function add(item: TurnRef, visibleText?: string, note?: string) {
     const same = (r: DraftReference) => r.item.kind === item.kind && r.item.id === item.id &&
-      r.item.name === item.name && r.item.excerpt === item.excerpt;
+      r.item.name === item.name && r.item.excerpt === item.excerpt && JSON.stringify(r.item.selection) === JSON.stringify(item.selection);
     if (refs.length >= 8 && !refs.some(same)) {setMessage("Attach at most eight references per question.");return false;}
     const entry = {item,label:visibleText || item.excerpt || item.name || item.id,note};
     setRefs(old => old.some(same) ? old.map(r => same(r) && note && note !== r.note
@@ -209,7 +209,9 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   const [activeId,setActiveId] = useState("");
   const active = opened.find(item=>item.id===activeId);
   const returnFocus = useRef(new Map<string,HTMLElement>());
-  function openResult(item:ResultItem) {
+  const [initial,setInitial]=useState<TurnRef["selection"]>();
+  function openResult(item:ResultItem,selection?:TurnRef["selection"]) {
+    setInitial(selection);
     if (document.activeElement instanceof HTMLElement) returnFocus.current.set(item.id,document.activeElement);
     setOpened(old=>old.some(o=>o.id===item.id)?old:[...old,item]);
     setActiveId(item.id);setCollapsed(false);setNavOpen(false);
@@ -226,6 +228,8 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     returnFocus.current.delete(activeId);
   }
   const products = record?.products ?? [];
+  const comparisonTurn=record?.turns.slice().reverse().find(t=>t.selections?.some(r=>r.id===activeId && r.selection?.type==="figure"));
+  const comparisonFigures=comparisonTurn ? products.filter(p=>p.turn===comparisonTurn.id && p.preview==="figure") : [];
   const recordedFigures = new Set(record?.figures.map(f=>f.id));
   const resultFigures = new Map(products.filter(p=>recordedFigures.has(p.id)).map(p=>[p.id,p]));
   const sizes=layout.columns(!!active && !materials,!!id && !collapsed && !materials);
@@ -241,7 +245,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   }
   const cards = record ? [
     ...record.questions.map(q => ({seq: q.seq, view: <TurnCard key={"q" + q.seq} turn={{question: q.text}}/>})),
-    ...record.turns.map(t => ({seq: t.seq, view: <TurnCard key={t.id} turn={t} animated={t.seq >= 0 && executing} waiting={t.seq >= 0 && awaitingPermission}/>})),
+    ...record.turns.map(t => ({seq: t.seq, view: <TurnCard key={t.id} turn={t} reopen={r=>{const p=products.find(product=>product.id===r.id);if(p)openResult(p,r.selection);}} animated={t.seq >= 0 && executing} waiting={t.seq >= 0 && awaitingPermission}/>})),
     ...record.figures.map(f => ({seq: f.seq, view: <article key={"f" + f.seq} className="panel figure"><h2>Recorded figure</h2>
       <button className="figure-trigger" aria-label="Open recorded figure" onClick={()=>{const p=resultFigures.get(f.id);if(p)openResult(p);}}>
         <img src={figurePath(base, f.hash)} loading="lazy" alt="Figure from the recorded calculation"/><span>Open figure <Icon name="arrow"/></span></button>{quote && <button className="quiet" onClick={() => quote({kind:"figure",id:f.hash,name:f.run_id})}>Quote figure</button>}</article>})),
@@ -325,7 +329,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       {id && !active && <nav className="panel-tabs" aria-label="Research panels">{panels.map(name =>
         <button key={name} className="quiet" aria-pressed={!active && panel===name} onClick={() => {setActiveId("");setPanel(name);}}><Icon name={name}/>{name}</button>)}</nav>}
       {!active && opened.length>0 && <div className="resume-results">{opened.map(item=><button className="quiet" key={item.id} onClick={()=>setActiveId(item.id)}>{item.name}</button>)}</div>}
-      {active ? <ResultViewer items={opened} active={active} base={base} products={products} select={setActiveId} open={openResult} close={closeResult} inspector={()=>setActiveId("")}
+      {active ? <ResultViewer comparedFigure={comparisonFigures.length===1?comparisonFigures[0].id:undefined} initial={initial} quote={quote} items={opened} active={active} base={base} products={products} select={id=>{setInitial(undefined);setActiveId(id);}} open={openResult} close={closeResult} inspector={()=>setActiveId("")}
         evidence={(answer,ref)=>evidence(answer,ref).catch(report)}/> : panel==="Evidence" && id ? <EvidenceIndex answers={record?.answers ?? []} open={(a,r) => evidence(a,r).catch(report)}/> :
        panel==="Usage" && id ? <UsageDialog inline base={base} seq={record?.last_seq ?? 0} close={close}/> :
        panel==="Context" && id ? <ContextDialog inline base={base} worker={worker} seq={record?.last_seq ?? 0} example={!!project.example}

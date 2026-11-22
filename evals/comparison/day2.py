@@ -100,9 +100,12 @@ async def prepare(v08: Path, output: Path) -> None:
         state = original / ".bioquorum"
         shutil.copy2(state / "project.json", bq / ".bioquorum/project.json")
         shutil.copytree(state / "cas", bq / ".bioquorum/cas")
-        with closing(
-            sqlite3.connect((state / "bioquorum.db").resolve().as_uri() + "?mode=ro", uri=True)
-        ) as source, closing(sqlite3.connect(bq / ".bioquorum/bioquorum.db")) as dest:
+        with (
+            closing(
+                sqlite3.connect((state / "bioquorum.db").resolve().as_uri() + "?mode=ro", uri=True)
+            ) as source,
+            closing(sqlite3.connect(bq / ".bioquorum/bioquorum.db")) as dest,
+        ):
             source.backup(dest)
         (bq / "cells.csv").write_bytes(data)
         (bq / "bioquorum.toml").write_text(

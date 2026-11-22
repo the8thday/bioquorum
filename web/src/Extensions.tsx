@@ -3,7 +3,7 @@ import { errorMessage, request } from "./api";
 import { Icon } from "./Icon";
 
 export type Section = "General" | "Skills" | "MCP connectors";
-type Skill = {name:string; description:string; enabled:boolean; managed:boolean};
+type Skill = {license:string;name:string; description:string; enabled:boolean; managed:boolean};
 type Connector = {name:string; mode:string; clearance:string; enabled:boolean; managed:boolean; status:string; allowed:boolean; tools:number|null};
 type Library = {project:string; example:boolean; revision:string|null; skills_enabled:boolean; skills:Skill[]; connectors:Connector[]};
 
@@ -80,7 +80,7 @@ export function Extensions({section,base,newProject}: {section:"Skills"|"MCP con
     {library && !adding && !rows?.length && <p className="extension-empty">{skills ? "No skills installed in this project." : "No MCP connectors in this project."}</p>}
     {rows?.map(row=><article className="extension-row" key={row.name}>
       <Icon name={skills ? "skills" : "plug"}/><div className="extension-copy"><strong>{row.name}</strong>
-        {"description" in row ? <p>{row.description}</p> : <p>{row.mode} · {row.clearance} · {row.enabled ? !row.allowed ? "Blocked by project classification" :
+        {"description" in row ? <p>{row.description}<br/>License: {row.license}</p> : <p>{row.mode} · {row.clearance} · {row.enabled ? !row.allowed ? "Blocked by project classification" :
           row.status==="reachable" ? row.tools+" tools available" : row.status==="unchecked" ? "Not tested" : "Unavailable" : "Disabled"}</p>}
         {!library?.example && <div className="extension-ops">
           <button className="quiet" disabled={busy} onClick={()=>action(()=>edit({action:(row.enabled?"disable_":"enable_")+noun,name:row.name}),row.name+(row.enabled?" disabled.":" enabled."))}>{row.enabled?"Disable":"Enable"}</button>
