@@ -86,6 +86,10 @@ class LocalOrigin:
         await self.app(scope, receive, send)
 
 
+class ReviewOptions(BaseModel):
+    online_citations: bool = False
+
+
 class Title(BaseModel):
     title: str = Field(min_length=1, max_length=160)
 
@@ -267,14 +271,16 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             if not title:
                 raise ValueError("Enter a title")
             return JSONResponse({"id": controls.new_session(title)}, status_code=201)
+        agent = controls.ws.agent_options()
         return JSONResponse(
             {
                 "project": controls.ws.name,
                 "instructions": controls.ws.config.get("project", {}).get("instructions", ""),
                 "plan_default": controls.ws.config.get("agent", {}).get("plan_default", False),
-                "references": controls.ws.agent_options().references,
-                "first_pass": controls.ws.agent_options().first_pass,
-                "project_notes": controls.ws.agent_options().project_notes,
+                "references": agent.references,
+                "first_pass": agent.first_pass,
+                "project_notes": agent.project_notes,
+                "literature_subtasks": agent.literature_subtasks,
                 "worker_models": controls.worker_models(),
                 "onboarding": onboarding.overview(controls),
                 "kernel_notice": kernel_notice(),
@@ -379,8 +385,12 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         return JSONResponse({"id": controls.fork(_sid(request), title)}, status_code=201)
 
     async def audit(request: Request) -> Response:
-        await _body(request, Empty)
-        await controls.review(_sid(request), request.path_params["answer_id"])
+        options = await _body(request, ReviewOptions)
+        await controls.review(
+            _sid(request),
+            request.path_params["answer_id"],
+            online_citations=options.online_citations,
+        )
         return Response(status_code=204)
 
     async def project_note(request: Request) -> Response:

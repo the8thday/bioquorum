@@ -172,6 +172,16 @@ class Workspace:
     def cas(self) -> ContentStore:
         return ContentStore(self.state_dir / "cas")
 
+    def project_specialists(self):
+        from bioquorum.skills.specialists import load_specialists
+
+        profiles = load_specialists(self.state_dir / "agents")
+        return {
+            name: spec
+            for name, spec in profiles.items()
+            if redact(spec.model_dump_json()) == spec.model_dump_json()
+        }
+
     def project_skills(self, *, include_disabled: bool = False):
         from bioquorum.skills.loader import (
             DOMAIN_SKILLS,

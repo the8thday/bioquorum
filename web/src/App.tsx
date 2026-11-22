@@ -15,7 +15,8 @@ import { Dialog } from "./Dialog";
 import { SessionSearch } from "./SessionSearch";
 import { ContextDialog } from "./Context";
 import { defaults, panels, WorkbenchSettings, type Preferences } from "./WorkbenchSettings";
-import { SettingsDialog } from "./Settings";
+import { ResearchTools, type ToolDestination } from "./ResearchTools";
+import { SettingsDialog, type SettingsSection } from "./Settings";
 import { UsageDialog } from "./Usage";
 import { useRecord } from "./useRecord";
 import type { DraftReference, EvidenceRef, Project, Snapshot, TurnRef } from "./types";
@@ -28,7 +29,7 @@ import { Materials } from "./Materials";
 import type { Section } from "./Extensions";
 import plate from "./radiolaria.webp";
 
-type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "archive" | "usage" | "context" | "settings" | "model-settings" | "chat-settings"} | {kind:"rename"; id:string; title:string} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
+type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "archive" | "usage" | "context" | "research-tools" | "model-settings" | "chat-settings"} | {kind:"settings"; section?:SettingsSection} | {kind:"rename"; id:string; title:string} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
   | {kind: "evidence"; claimIds:string[]; item: TurnRef; data: Awaited<ReturnType<typeof readEvidence>>}
   | {kind: "replication"; path: string; estimate: Estimate};
 
@@ -270,7 +271,8 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
         <img src={figurePath(base, f.hash)} loading="lazy" alt="Figure from the recorded calculation"/><span>Open figure <Icon name="arrow"/></span></button>{quote && <button className="quiet" onClick={() => quote({kind:"figure",id:f.hash,name:f.run_id})}>Quote figure</button>}</article>})),
     ...record.answers.map(a => ({seq: a.seq, view: <AnswerCard discuss={project.first_pass ? add : undefined} openTable={openResult} addReference={quote} key={a.id} answer={a} example={!!project.example}
       verification={record.verification} onEvidence={(answer, ref) => evidence(answer, ref).catch(report)}
-      onReview={answer => mutate("/answers/" + answer + "/review", {}).catch(report)}
+      onlineReviewAvailable={!project.example && project.classification==="public"}
+      onReview={(answer,online) => mutate("/answers/" + answer + "/review", {online_citations:!!online}).catch(report)}
       onVerify={(claim, kind) => verify(claim, kind).catch(report)}/>})),
     ...Array.from(groups,([key,group])=>({seq:group.seq,view:<div className="result-links" aria-label="Research results" role="group" key={"products-"+key}>
       {group.items.map(p=><button key={p.id} className="result-link" aria-label={"Open "+p.name} title={p.preview+" · v"+p.version} onClick={()=>openResult(p)}>
@@ -279,6 +281,17 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
 
   const home = !id;
   const preferences = (section:Section) => {setNavOpen(false);setModal({kind:"preferences",section});};
+  function openTool(target: ToolDestination) {
+    switch (target) {
+      case "methods": case "runtime": setModal({kind:"settings",section:target}); break;
+      case "models": setModal({kind:"model-settings"}); break;
+      case "sources": case "skills": preferences(target === "sources" ? "MCP connectors" : "Skills"); break;
+      case "tasks": case "inbox": setModal({kind:target}); break;
+      case "program": case "materials": close(); showMaterials(true,target === "program"); break;
+      default:
+        close(); showMaterials(false); setActiveId(""); setPanel(target); setCollapsed(false);
+    }
+  }
   return <><a className="skip-link" href="#workspace">{materials ? lineView==="program" ? "Skip to research line":"Skip to materials" : "Skip to research record"}</a><div data-reading-size={prefs.reading_size} style={sizes.style} className={"shell"+(collapsed ? " panels-collapsed" : "")+(layout.compact ? " compact-nav" : "")+(active ? " viewing-result" : "")}><header className="masthead">
     <button className="desktop-nav icon-button" aria-label={layout.compact?"Expand navigation":"Collapse navigation"} title={layout.compact?"Expand navigation":"Collapse navigation"}
       aria-controls="project-nav" aria-expanded={!layout.compact} onClick={()=>layout.setCompact(!layout.compact)}><Icon name="side"/></button>
@@ -300,6 +313,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
         <button className="rail-action" title="Research tasks" onClick={()=>setModal({kind:"tasks"})}><Icon name="Activity"/><span>Research tasks</span></button>
         <button className="rail-action" title="Skills" onClick={()=>preferences("Skills")}><Icon name="skills"/><span>Skills</span></button>
         <button className="rail-action" title="MCP connectors" onClick={()=>preferences("MCP connectors")}><Icon name="plug"/><span>MCP connectors</span></button></nav>
+      <button className="rail-action" title="Research tools" onClick={()=>{setNavOpen(false);setModal({kind:"research-tools"});}}><Icon name="Context"/><span>Research tools</span></button>
       <Projects actions={projectActions} name={project.project} settings={()=>setModal({kind:"settings"})}/>
       <div className="session-header"><h2 id="sessions-heading" tabIndex={-1}>Sessions</h2>
         <button className="icon-button" aria-label="New session" title="New session" onClick={() => setModal({kind: "new"})}><Icon name="add"/></button></div>
@@ -349,7 +363,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       return request(sessionPath(session)+"/plan-draft",{question:q});
     }} initialDraft={draft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
-      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
+      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} literatureEnabled={project.literature_subtasks} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
     <p id="message" role="status" aria-live="polite">{message || error}</p></div>{home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project} home={home} models={()=>setModal({kind:"model-settings"})}/></>}</main>
 
     {id && !collapsed && !materials && <Splitter side="right" value={sizes.rightWidth} min={280} max={sizes.rightMax} change={sizes.setRight}/>}
@@ -374,7 +388,8 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     {modal?.kind === "context" && <ContextDialog base={base} worker={worker} seq={record?.last_seq ?? 0}
       active={!!running || !!record?.pending_plan} example={!!project.example} close={close} fork={() => setModal({kind: "fork"})}/>}
     {modal?.kind === "preferences" && <WorkbenchSettings initial={modal.section} base={base} newProject={()=>{close();requestAnimationFrame(()=>document.getElementById("new-project")?.click());}} value={prefs} saved={setPrefs} close={close}/>}
-    {(modal?.kind === "settings" || modal?.kind === "model-settings" || modal?.kind === "chat-settings") && <SettingsDialog removeProject={()=>{close();projectActions.current?.remove();}} modelsFirst={modal.kind==="model-settings"} quick={modal.kind === "chat-settings"} base={base} close={close} saved={async () => {await select(id,false,!id); if (id) await refresh();}}/>}
+    {modal?.kind === "research-tools" && <ResearchTools session={!!id} close={close} open={openTool}/>}
+    {(modal?.kind === "settings" || modal?.kind === "model-settings" || modal?.kind === "chat-settings") && <SettingsDialog initialSection={modal.kind==="settings" ? modal.section : undefined} removeProject={()=>{close();projectActions.current?.remove();}} modelsFirst={modal.kind==="model-settings"} quick={modal.kind === "chat-settings"} base={base} close={close} saved={async () => {await select(id,false,!id); if (id) await refresh();}}/>}
     <InboxNotifications enabled={!!prefs.inbox_notifications} show={()=>setModal({kind:"inbox"})}/>
     {(modal?.kind === "tasks" || modal?.kind === "inbox") && <Tasks inbox={modal.kind==="inbox"} close={close} open={(sid,target)=>{
       close();showMaterials(false);

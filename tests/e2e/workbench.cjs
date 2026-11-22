@@ -120,6 +120,16 @@ async function verifyConversation(page) {
       const notes = answer.locator("details").filter({has: page.locator("summary", {hasText: "Unbound values or citations"})});
       assert.equal(await notes.count(), 1);
       assert.equal(await notes.evaluate(el => el.open), false);
+      const reviewUrl = "**/api/sessions/*/answers/*/review";
+      await page.route(reviewUrl, route=>route.fulfill({status:204}));
+      await answer.getByLabel("Check recorded PMIDs and DOIs online").check();
+      const review = page.waitForRequest(request=>request.url().endsWith("/review"));
+      await answer.getByRole("button",{name:"Run review"}).click();
+      assert.deepEqual((await review).postDataJSON(),{online_citations:true});
+      await page.unroute(reviewUrl);
+      await page.getByRole("button",{name:"Research tools",exact:true}).click();
+      await page.getByRole("dialog",{name:"Research tools"}).getByRole("button",{name:"View artifacts"}).click();
+      await page.getByRole("link",{name:"Download kernel notebook"}).waitFor();
     }
   }
   await model.selectOption("deepseek:fixture");
@@ -376,6 +386,14 @@ async function verifyConversation(page) {
       await page.waitForURL(/\/projects\/[A-Z0-9]+\//);
       const path = new URL(page.url()).pathname;
       await page.getByText("OPENAI_API_KEY · Detected by workbench").waitFor();
+      const workbenchTools = page.getByRole("button",{name:"Research tools",exact:true});
+      await workbenchTools.click();
+      const guide = page.getByRole("dialog",{name:"Research tools"});
+      await guide.getByText("Blocked for internal data").waitFor();
+      assert.ok(await guide.getByRole("button",{name:"Inspect evidence"}).isDisabled());
+      await guide.getByRole("button",{name:"Inspect runtime"}).click();
+      await page.getByText(/Kernel isolation:/).waitFor();
+      await page.keyboard.press("Escape");
       let directoryAvailable = false;
       await page.route("**/api/settings/openai-models/openai", route=>route.fulfill(directoryAvailable ?
         {json:["ft:research", "gpt-test-from-account"]} : {status:400,json:{detail:"Catalog temporarily unavailable"}}));
@@ -430,6 +448,10 @@ async function verifyConversation(page) {
       await page.locator("#settings-dialog").waitFor({state:"hidden"});
       await page.getByRole("button",{name:"Models & accounts"}).click();
       await page.getByText("Current research model · deepseek:research-model").waitFor();
+      await page.getByText("Project models and fallbacks",{exact:true}).click();
+      for (const role of ["Research model", "reviewer", "planner", "summarizer"]) {
+        await page.getByRole("combobox",{name:role,exact:true}).waitFor();
+      }
       await page.keyboard.press("Escape");
       const chatSettings = page.getByRole("button",{name:"Chat settings"});
       await page.getByLabel("Research question").fill("Draft survives settings");
@@ -492,6 +514,25 @@ async function verifyConversation(page) {
       await sources.getByRole("button",{name:"Disable public search"}).click();
       await sources.getByRole("button",{name:"Enable public search"}).click();
       await sources.getByText("Enabled",{exact:true}).waitFor();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button",{name:"Chat settings"}).click();
+      const chat = page.getByRole("dialog",{name:"Chat settings"});
+      await chat.getByLabel("Literature subtasks").check();
+      await chat.getByRole("button",{name:"Use public literature tools"}).click();
+      await chat.getByRole("button",{name:"Save settings"}).click();
+      await chat.waitFor({state:"hidden"});
+      await page.getByLabel("Dedicated literature lookup").check();
+      assert.ok(await page.getByLabel("Review a plan first").isDisabled());
+      await page.getByLabel("Research question").fill("Which publications address this question?");
+      let sent;
+      await page.route("**/api/sessions/*/turns",async route=>{
+        sent=route.request().postDataJSON();
+        await route.fulfill({status:400,json:{detail:"Captured offline"}});
+      });
+      await page.getByRole("button",{name:"Run research"}).click();
+      await page.getByText("Captured offline").waitFor();
+      assert.equal(sent.question,"/literature Which publications address this question?");
+      assert.equal(sent.steps,null);
       assert.deepEqual(errors,[]);console.log("Project lifecycle, restricted search status and Public database controls passed");return;
     }
     if (process.env.BQ_TEST_LAYOUT) {

@@ -101,6 +101,16 @@ def project_state(controls: ResearchControls) -> tuple[str | None, dict]:
     return revision, checks
 
 
+def public_search_state(controls: ResearchControls) -> dict[str, bool]:
+    ws = controls.ws
+    return {
+        "enabled": ws.public_sources_enabled(),
+        "available": not controls.demo
+        and ws.classification == Classification.PUBLIC
+        and ws.profile_name != "minimal",
+    }
+
+
 def snapshot(controls: ResearchControls) -> dict:
     from bioquorum.application.model_eval import results
 
@@ -157,6 +167,11 @@ def snapshot(controls: ResearchControls) -> dict:
             for ref in refs
         ],
         "agent": values,
+        "public_search": public_search_state(controls),
+        "specialist_profiles": [
+            profile.model_dump(mode="json", exclude={"instructions"})
+            for profile in ws.project_specialists().values()
+        ],
         "model_evaluation": results(ws, controls.store),
         "roles": {role.value: ws.config.get("roles", {}).get(role.value, []) for role in ModelRole},
         "models": {

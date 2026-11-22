@@ -6,7 +6,10 @@ import { Dialog } from "./Dialog";
 
 type Value = boolean | string | string[] | number | null;
 type Patch = Record<string, Record<string, unknown>>;
-interface Settings {
+export type SettingsSection = "methods" | "runtime";
+export interface Settings {
+  public_search: {available:boolean; enabled:boolean};
+  specialist_profiles: {name:string; description:string; tools:string[]; permissions:string[]; model:string|null}[];
   providers:Record<string,Provider>; revision: string | null; local_setup?: boolean; example: boolean;
   profile: {name:string;recommended_available:boolean;presets:Record<string,Record<string,Value>>};
   project: {name: string; instructions:string; classification: string; data_dirs: string[]};
@@ -37,8 +40,9 @@ const mechanisms = [
   ["plan_default","Request plan approval by default","Start new questions with the plan approval option selected.","v03-plan-gate"],
 ];
 const rateLabels = {input_usd_per_million: "Input USD per million tokens", output_usd_per_million: "Output USD per million tokens", context_window: "Context window in tokens"};
-export function SettingsDialog({quick = false, modelsFirst = false, base, close, saved, removeProject}: {removeProject:()=>void; quick?: boolean; modelsFirst?: boolean; base: string; close: () => void; saved: () => Promise<void>}) {
+export function SettingsDialog({initialSection, quick = false, modelsFirst = false, base, close, saved, removeProject}: {initialSection?:SettingsSection; removeProject:()=>void; quick?: boolean; modelsFirst?: boolean; base: string; close: () => void; saved: () => Promise<void>}) {
   const [data, setData] = useState<Settings>();
+  const [literatureText,setLiteratureText] = useState<string>();
   const [localTag, setLocalTag] = useState("");
   const [patch, setPatch] = useState<Patch>({});
   const [message, setMessage] = useState("");
@@ -48,6 +52,12 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
     request<Settings>("/api/settings", undefined, c.signal).then(setData).catch(e => {if (!c.signal.aborted) setMessage(errorMessage(e));});
     return () => c.abort();
   }, []);
+  useEffect(() => {
+    if (initialSection && data) {
+      const summary = document.querySelector<HTMLElement>("#settings-" + initialSection + " > summary");
+      summary?.focus(); summary?.scrollIntoView({block:"start"});
+    }
+  }, [data, initialSection]);
   function update(section: string, key: string, value: unknown) {
     setPatch(old => {
       const preset = String(old.profile?.name ?? data?.profile.name);
@@ -85,6 +95,14 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
       <small>{description} {!quick && <a href={"https://github.com/the8thday/bioquorum/blob/main/docs/research/" + report + ".md"} target="_blank" rel="noreferrer">Evaluation</a>}</small>
     </div>;
   }
+  const names = (agentValue("literature_tools") ?? []) as string[];
+  const literatureFields = data && <div>
+    <label>Literature tool names (comma-separated)<input value={literatureText ?? names.join(", ")}
+      onChange={e=>{setLiteratureText(e.target.value); update("agent","literature_tools",e.target.value.split(",").map(s=>s.trim()).filter(Boolean));}}/></label>
+    {data.public_search.available && data.public_search.enabled && <button type="button" className="quiet"
+      onClick={()=>{const next=[...new Set([...names,"search_papers","get_abstract"])];
+        setLiteratureText(next.join(", ")); update("agent","literature_tools",next);}}>Use public literature tools</button>}
+  </div>;
   return <Dialog id="settings-dialog" title={modelsFirst ? "Models & accounts" : quick ? "Chat settings" : "Project settings"} closeLabel="Close settings" close={()=>{if (!busy) close();}}>
     {!data ? <p role="status">{message || "Loading settings…"}</p> : <>
       <p>{data.project.name} · {data.project.classification}</p>
@@ -94,8 +112,9 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
         apply={connection=>act("/api/settings",{revision:data.revision,patch:{connection}})}/>}
       <fieldset disabled={busy || data.example}>
       {quick ? <><p className="muted">Project defaults for future questions in this project.</p>
-        {mechanisms.filter(([key]) => common.includes(key)).map(mechanism)}</> : <>
-      {!modelsFirst && <><details open><summary>Project details</summary>
+        {mechanisms.filter(([key]) => common.includes(key)).map(mechanism)}
+        {!!agentValue("literature_subtasks") && literatureFields}</> : <>
+      {!modelsFirst && <><details open={!initialSection}><summary>Project details</summary>
         <label>Project name<input maxLength={160} value={String(patch.project?.display_name ?? data.project.name)}
           onChange={e=>update("project","display_name",e.target.value)}/></label>
         <label>Data classification<select aria-label="Data classification" value={String(patch.project?.classification ?? data.project.classification)}
@@ -110,9 +129,9 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
           onChange={e=>update("project","instructions",e.target.value)}/></label>
         <small>Applied to future research and plans in this project.</small>
         <div className="actions"><button type="button" className="quiet danger" onClick={removeProject}>{location.pathname.startsWith("/projects/") ? "Delete this project…" : "Manage projects"}</button></div></details>
-      <details open><summary>Mechanisms</summary>
+      <details id="settings-methods" open={initialSection!=="runtime"}><summary>Mechanisms</summary>
         <label>Research profile<select aria-label="Research profile" value={String(patch.profile?.name ?? (patch.agent ? "custom" : data.profile.name))}
-          onChange={e=>{const name=e.target.value; setPatch(old=>{const next:Patch={...old,profile:{name}}; delete next.agent; return next;});}}>
+          onChange={e=>{const name=e.target.value; setLiteratureText(undefined); setPatch(old=>{const next:Patch={...old,profile:{name}}; delete next.agent; return next;});}}>
           <option value="recommended" disabled={!data.profile.recommended_available}>Recommended{data.profile.recommended_available ? "" : " (evaluation pending)"}</option>
           <option value="minimal">Minimal</option><option value="custom">Custom</option>
         </select></label>
@@ -121,18 +140,23 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
           onChange={e=>update("agent","subtask_tools",e.target.value.split(",").map(s=>s.trim()).filter(Boolean))}/></label>
         <label>Concurrent subtasks<input type="number" min={1} max={8} defaultValue={Number(data.agent.subtask_parallelism)}
           onChange={e=>update("agent","subtask_parallelism",Number(e.target.value))}/></label>
-        <label>Literature tool names (comma-separated)<input defaultValue={(data.agent.literature_tools as string[]).join(", ")}
-          onChange={e => update("agent","literature_tools",e.target.value.split(",").map(s => s.trim()).filter(Boolean))}/></label>
+        {literatureFields}
+        <details><summary>Specialist profiles ({data.specialist_profiles.length})</summary>
+          {data.specialist_profiles.map(s=><div className="setting-row" key={s.name}><strong>{s.name}</strong>
+            <p>{s.description}</p><small>{s.model || "Project research model"} · Declared tools: {s.tools.join(", ") || "None"} · Permissions: {s.permissions.join(", ") || "None"}</small></div>)}
+          <p>Define profiles in <code>.bioquorum/agents/</code> in this project. Enable parallel research tasks and project specialists to use matching tools.</p>
+        </details>
       </details></>}
       {modelsFirst && data.roles.worker?.length>0 && <p>Current research model · {Array.isArray(data.roles.worker) ? data.roles.worker[0] : data.roles.worker}</p>}
       <details><summary>{modelsFirst ? "Project models and fallbacks" : "Models and roles"}</summary>
-{Object.entries(data.roles).filter(([role])=>!modelsFirst || role==="worker").map(([role, value]) => {
+{Object.entries(data.roles).map(([role, value]) => {
         const chosen = patch.roles?.[role] ?? value;
+        const label = modelsFirst && role==="worker" ? "Research model" : role;
         const chain: string[] = Array.isArray(chosen) ? chosen : chosen ? [String(chosen)] : [];
         const models = Object.entries(data.models);
         const options = models.filter(([name,m])=>m.allowed && !chain.includes(name));
-        return <div className="setting-row" key={role}><label>{modelsFirst ? "Research model" : role}
-          <select aria-label={modelsFirst ? "Research model" : role} value={chain[0] ?? ""}
+        return <div className="setting-row" key={role}><label>{label}
+          <select aria-label={label} value={chain[0] ?? ""}
             onChange={e=>update("roles",role,e.target.value==="auto" ? "auto" : [e.target.value,...chain.slice(1).filter(s=>s!==e.target.value)])}>
             <option value="" disabled>{role==="worker" ? "Select a model" : "Default routing"}</option>{role==="reviewer" && <option>auto</option>}
             {chain[0] && chain[0]!=="auto" && !data.models[chain[0]] && <option>{chain[0]}</option>}{models.map(([name,m])=><option key={name} disabled={!m.allowed}>{name}</option>)}</select></label>
@@ -146,10 +170,10 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
         {data.local_setup && <details><summary>Use a local Ollama worker</summary>
           <label>Installed model tag<input value={localTag} onChange={e=>setLocalTag(e.target.value)} placeholder="e.g. qwen3:8b"/></label>
           <button className="quiet" disabled={!localTag.trim()} onClick={()=>update("roles","worker",["ollama:"+localTag.trim()])}>Select local model</button></details>}
-      {!modelsFirst && data.model_evaluation && <section><h3>Model evaluation</h3>
+      {data.model_evaluation && <details><summary>Model evaluation</summary>
         {Object.entries(data.model_evaluation.scores).length===0 && <p>Run <code>bq models eval</code> to score the configured models.</p>}
         {Object.entries(data.model_evaluation.scores).map(([model,scores])=><p key={model}>{model} · {Object.entries(scores).map(([role,s])=>role+" "+s.correct+"/"+s.total+(s.failed?" ("+s.failed+" failed)":"")).join(" · ")}</p>)}
-        {Object.entries(data.model_evaluation.suggestions).map(([role,models])=><p key={role}>Suggested for {role} · {models.join(", ")}</p>)}</section>}{!modelsFirst && Object.entries(data.models).filter(([,m])=>m.configured!==false).map(([spec,m]) => <details key={spec}><summary>{spec}</summary>
+        {Object.entries(data.model_evaluation.suggestions).map(([role,models])=><p key={role}>Suggested for {role} · {models.join(", ")}</p>)}</details>}{!modelsFirst && Object.entries(data.models).filter(([,m])=>m.configured!==false).map(([spec,m]) => <details key={spec}><summary>{spec}</summary>
         {Object.entries(rateLabels).map(([k,label]) => <label key={k}>{label}<input type="number" min="0" step="any"
           defaultValue={String(m[k] ?? "")} onChange={e => {
             const n = e.target.value === "" ? null : Number(e.target.value);
@@ -168,7 +192,7 @@ export function SettingsDialog({quick = false, modelsFirst = false, base, close,
           onClick={() => act(base+"/connectors/"+encodeURIComponent(s.name)+"/reconnect",{})}>Reconnect</button></div>) : <p>No MCP servers configured.</p>}</details>}
       <details open={modelsFirst}><summary>API keys</summary><p>This reports the environment of the running workbench. Start it from the terminal where you exported the key.</p>
         {data.keys.length ? data.keys.map(k => <div key={k.reference}><code>{k.reference.slice(4)}</code> · {k.state==="set" ? "Detected by workbench" : "Missing from workbench"}{k.state==="missing" && <KeyHelp name={k.reference.slice(4)}/>}</div>) : <p>No provider environment variables configured.</p>}</details>
-      {!modelsFirst && <details><summary>Runtime and project</summary><p>Kernel isolation: {data.environment.isolation} · Network: {data.environment.network}</p>
+      {!modelsFirst && <details id="settings-runtime" open={initialSection==="runtime"}><summary>Runtime and project</summary><p>Kernel isolation: {data.environment.isolation} · Network: {data.environment.network}</p>
         <p>Data directories: {data.project.data_dirs.join(", ") || "Project directory only"}</p>
         <p>Environment lock SHA-256: <code>{data.environment.lock_hash || "No active project lock"}</code></p>
         <details><summary>Python packages ({data.environment.packages.length})</summary><ul>{data.environment.packages.map(([n,v]) => <li key={n+v}>{n} {v}</li>)}</ul><p>Add a project package with <code>pixi add PACKAGE</code>.</p></details>

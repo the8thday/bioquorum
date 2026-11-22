@@ -4,12 +4,12 @@ import type { DraftReference, Project, Snapshot } from "./types";
 import { Icon } from "./Icon";
 import type { Product } from "./Artifacts";
 
-export function Composer({draftPlan,initialDraft,executing,connection,upload,openSettings,chooseModel,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+export function Composer({draftPlan,initialDraft,executing,connection,upload,openSettings,chooseModel,attachments,setAttachments,refs, setRefs, literatureEnabled, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
   chooseModel?:()=>void;
   draftPlan:(q:string)=>Promise<{steps:string[];model:string}>;
   initialDraft?:string; executing: boolean; connection: string; upload: ReactNode; openSettings: () => void; attachments:Product[]; setAttachments:(p:Product[])=>void;
   refs: DraftReference[]; setRefs: (items: DraftReference[]) => void;
-  planDefault?: boolean; worker: string; setWorker: (value: string) => void;
+  literatureEnabled?: boolean; planDefault?: boolean; worker: string; setWorker: (value: string) => void;
   models: Project["worker_models"]; classification: string;
   record: Snapshot; example: Project["example"]; preset: number;
   mutate: (suffix: string, body: unknown) => Promise<void>; report: (error: unknown) => void;
@@ -17,6 +17,7 @@ export function Composer({draftPlan,initialDraft,executing,connection,upload,ope
   const [question, setQuestion] = useState(initialDraft ?? "");
   useEffect(()=>{if(initialDraft) setQuestion(initialDraft);},[initialDraft]);
   const [steps, setSteps] = useState("");
+  const [literature, setLiterature] = useState(false);
   const [plan, setPlan] = useState(!!planDefault);
   useEffect(() => setPlan(!!planDefault), [planDefault]);
   const saved=record.plan_draft;
@@ -57,13 +58,18 @@ export function Composer({draftPlan,initialDraft,executing,connection,upload,ope
   const notes = refs.flatMap((r,i) => r.note ? [refs.length === 1 && !question.trim()
     ? r.note : "Reference " + (i+1) + ": " + r.note] : []);
   const message = [question.trim(),...notes].filter(Boolean).join("\n\n");
+  const lookup = literatureEnabled && !example && !plan && literature;
   function submit(event: FormEvent) {
     event.preventDefault();
     if (chooseModel) {chooseModel(); return;}
     if (!message || message.length > 12000) {report(new Error("Enter a question of up to 12,000 characters, including reference notes."));return;}
+    const query = lookup ? message.replace(/^\/literature(?:\s+|$)/, "").trim() : message;
+    if (lookup && (!query || [...query].length > 1200)) {
+      report(new Error("Enter a literature question of 1 to 1,200 characters.")); return;
+    }
     void act(async () => {
-      await mutate("/turns", {question:message, attachments:attachments.map(a=>a.id), references:refs.map(r=>r.item), worker_model: worker || null, steps: plan ? steps.split("\n").map(s => s.trim()).filter(Boolean) : null});
-      setAttachments([]); setRefs([]); setQuestion("");
+      await mutate("/turns", {question:lookup ? "/literature " + query : message, attachments:attachments.map(a=>a.id), references:refs.map(r=>r.item), worker_model: worker || null, steps: plan ? steps.split("\n").map(s => s.trim()).filter(Boolean) : null});
+      setAttachments([]); setRefs([]); setQuestion(""); setLiterature(false);
     });
   }
   return <form id="composer" className={demoDone ? "finished-example" : undefined} onSubmit={submit}>
@@ -106,7 +112,9 @@ export function Composer({draftPlan,initialDraft,executing,connection,upload,ope
       onChange={e => setQuestion(e.target.value)}
       placeholder={demoDone ? "Start a new session to run the example again." : "What would you like to investigate?"}/>
     <div className="composer-footer">{upload}<button type="button" className="quiet chat-settings" onClick={openSettings} title="Common project settings"><Icon name="settings"/>Chat settings</button><label className="checkbox">
-      <input type="checkbox" checked={plan} disabled={disabled} onChange={e => setPlan(e.target.checked)}/> Review a plan first</label>
+      <input type="checkbox" checked={plan} disabled={disabled || !!lookup} onChange={e => setPlan(e.target.checked)}/> Review a plan first</label>
+      {literatureEnabled && !example && <label className="checkbox">
+        <input type="checkbox" checked={!!lookup} disabled={disabled || plan} onChange={e=>setLiterature(e.target.checked)}/> Dedicated literature lookup</label>}
       {models.length > 0 && <label className="model-picker"><span className="sr-only">Worker model</span><select title="Worker model" value={worker} disabled={disabled} onChange={e => setWorker(e.target.value)}>
         <option value="">Role default</option>{models.map(m => <option key={m.spec} value={m.spec} disabled={!m.allowed}>
           {m.spec}{!m.allowed && " · unavailable for " + classification + " data"}</option>)}</select></label>}

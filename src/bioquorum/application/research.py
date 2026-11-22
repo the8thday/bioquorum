@@ -91,7 +91,12 @@ def answer_evidence(store: EventStore, session_id: str, answer_event_id: str) ->
 
 def citation_context(ws: wsp.Workspace, store: EventStore, sid: str) -> ToolContext:
     policy = PermissionPolicy()
+    revoked = ws.config.get("permissions", {}).get("revoked", [])
     for host in (PUBMED_HOST, DOI_HOST):
+        if any(
+            perm == PermissionClass.NETWORK and target in ("*", host) for perm, target in revoked
+        ):
+            continue
         policy.grant(PermissionClass.NETWORK, host, PermissionScope.SESSION, session_id=sid)
     return ToolContext(
         store=store,
@@ -377,18 +382,7 @@ async def execute(
                 )
             )
             if delegated:
-                from bioquorum.skills.specialists import load_specialists
-
-                profiles = (
-                    load_specialists(ws.root / ".bioquorum" / "agents")
-                    if options.specialists
-                    else {}
-                )
-                profiles = {
-                    name: spec
-                    for name, spec in profiles.items()
-                    if redact(spec.model_dump_json()) == spec.model_dump_json()
-                }
+                profiles = ws.project_specialists() if options.specialists else {}
                 if profiles:
                     catalog = {name: profile.description for name, profile in profiles.items()}
                     project_context.append(

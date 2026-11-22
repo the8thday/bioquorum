@@ -11,7 +11,7 @@ from bioquorum.agent import Hooks
 from bioquorum.application import recovery, research
 from bioquorum.application import workspace as wsp
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, PermissionScope
+from bioquorum.core.enums import Actor, Classification, PermissionScope
 from bioquorum.core.ids import new_id
 from bioquorum.models import Router
 from bioquorum.policy.permissions import Decision, PermissionPolicy, PermissionRequest
@@ -455,8 +455,10 @@ class ResearchControls:
                 cause,
             )
 
-    async def review(self, sid: str, answer_id: str) -> None:
+    async def review(self, sid: str, answer_id: str, *, online_citations: bool = False) -> None:
         self.ensure_idle()
+        if online_citations and (self.demo or self.ws.classification != Classification.PUBLIC):
+            raise ValueError("Online citation review requires a live Public project")
         events = self.require_session(sid)
         if not any(
             e.id == answer_id
@@ -474,6 +476,7 @@ class ResearchControls:
                 sid,
                 self.make_client(self.ws, self.store),
                 answer_event_id=answer_id,
+                online_citations=online_citations,
             )
             self._check_failures(sid, answer_id, result.errors)
         except Exception as exc:

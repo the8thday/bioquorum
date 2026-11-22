@@ -10,9 +10,9 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field
 
 from bioquorum.application.controls import ConflictError, ResearchControls
-from bioquorum.application.settings import project_state
+from bioquorum.application.settings import project_state, public_search_state
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, Classification
+from bioquorum.core.enums import Actor
 from bioquorum.core.ids import new_id
 from bioquorum.policy.classification import allows
 from bioquorum.policy.secrets import public_url, redact
@@ -89,12 +89,7 @@ def snapshot(controls: ResearchControls) -> dict:
         ],
         classification=ws.classification.value,
         minimal=ws.profile_name == "minimal",
-        public_search={
-            "enabled": ws.public_sources_enabled(),
-            "available": not controls.demo
-            and ws.classification == Classification.PUBLIC
-            and ws.profile_name != "minimal",
-        },
+        public_search=public_search_state(controls),
         skills_enabled=ws.agent_options().skills
         or ws.agent_options().evidence_skills
         or ws.agent_options().domain_skills,

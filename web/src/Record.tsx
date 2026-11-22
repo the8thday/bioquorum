@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { inlineText } from "./InlineText";
 import { BrandMark } from "./BrandMark";
 import { Coverage } from "./Coverage";
@@ -40,7 +41,7 @@ export function TurnCard({turn, animated, waiting, reopen}: {reopen?:(r:TurnRef)
 type Actions = {
   addReference?: (ref: TurnRef) => void;
   onEvidence: (answer: string, ref: EvidenceRef) => void;
-  onReview: (answer: string) => void;
+  onReview: (answer: string, online?: boolean) => void;
   onVerify: (claim: string, kind: "rerun" | "replication") => void;
 };
 
@@ -63,7 +64,7 @@ function VerificationResult({entry}: {entry: Verification}) {
   </details>;
 }
 
-type AnswerProps = Actions & {discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
+type AnswerProps = Actions & {onlineReviewAvailable?:boolean; discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
 const rawText = (segments: Segment[]) => segments.map(segment => segment.raw ?? segment.text).join("").trim();
 
 function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, verification, onEvidence, onVerify}:
@@ -94,6 +95,7 @@ function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, ve
 }
 
 export function AnswerCard(props: AnswerProps) {
+  const [onlineReview, setOnlineReview] = useState(false);
   const {answer} = props;
   const rows = answer.paragraphs.map(p => {
     const text = rawText(p.segments).replace(/^(?:[-*•]|\d+[.)])\s+/, "");
@@ -145,7 +147,9 @@ export function AnswerCard(props: AnswerProps) {
     {additional.length > 0 && <details className="claims"><summary>Review by claim</summary>
       {additional.map(c => <ClaimRow key={c.id} {...props} parts={c.segments} claim={c}/>)}</details>}
     {!answer.inherited && !props.example && <div className="actions">
-      <button className="quiet" onClick={() => props.onReview(answer.id)}>Run review</button>
+      <button className="quiet" onClick={() => props.onReview(answer.id, !!props.onlineReviewAvailable && onlineReview)}>Run review</button>
+      {props.onlineReviewAvailable && <label className="checkbox"><input type="checkbox" checked={onlineReview}
+        onChange={e=>setOnlineReview(e.target.checked)}/> Check recorded PMIDs and DOIs online</label>}
     </div>}
   </article>;
 }

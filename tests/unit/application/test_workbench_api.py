@@ -189,3 +189,40 @@ async def test_create_switch_and_reopen_project(tmp_path, monkeypatch):
     ):
         assert (await http.get("/api/projects")).json()[-1]["href"] == path
         assert "Private to this project" in (await http.get(path + "api/sessions")).text
+
+
+async def test_review_registry_lookup_is_explicit_and_public_only(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from bioquorum.application import research
+    from bioquorum.application.controls import ResearchControls
+    from bioquorum.application.workspace import init_project
+    from bioquorum.core.enums import Classification
+    from bioquorum.core.messages import Message
+
+    calls = []
+
+    async def audit(*args, online_citations=False, **kwargs):
+        calls.append(online_citations)
+        return SimpleNamespace(errors=[])
+
+    monkeypatch.setattr(research, "audit", audit)
+    for level in (Classification.INTERNAL, Classification.PUBLIC):
+        ws = init_project(tmp_path / level.value, classification=level)
+        controls = ResearchControls(ws)
+        sid = controls.new_session("Review")
+        event = controls.store.append(
+            ev.AssistantMessage(message=Message.assistant("Recorded.")),
+            session_id=sid,
+            actor=Actor.AGENT,
+        )
+        path = f"/api/sessions/{sid}/answers/{event.id}/review"
+        async with httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=create_app(controls, HOST)),
+            base_url=ORIGIN,
+            headers={"Origin": ORIGIN},
+        ) as http:
+            assert (await http.post(path, json={})).status_code == 204
+            result = await http.post(path, json={"online_citations": True})
+            assert result.status_code == (204 if level == Classification.PUBLIC else 400)
+    assert calls == [False, False, True]

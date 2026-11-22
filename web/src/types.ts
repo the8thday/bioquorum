@@ -1,5 +1,6 @@
 export interface Project {
   first_pass?:boolean;
+  literature_subtasks?:boolean;
   project: string;
   instructions?: string;
   classification: string;

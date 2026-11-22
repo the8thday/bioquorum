@@ -201,3 +201,28 @@ def test_selecting_recommended_resets_opt_in_delegation(tmp_path):
         SettingsEdit(revision=custom["revision"], patch={"profile": {"name": "recommended"}}),
     )
     assert not recommended["agent"]["subtasks"] and not recommended["agent"]["specialists"]
+
+
+def test_research_tool_settings_show_local_profiles_and_effective_database_policy(tmp_path):
+    from bioquorum.application import settings
+    from bioquorum.core.enums import Classification
+
+    ws = init_project(tmp_path, classification=Classification.INTERNAL)
+    directory = ws.state_dir / "agents"
+    directory.mkdir(exist_ok=True)
+    (directory / "reader.md").write_text(
+        "---\nname: reader\ndescription: Read archive records\ntools: [read_file]\n"
+        "permissions: [read_fs]\n---\nInternal instructions for the worker."
+    )
+    state = settings.snapshot(ResearchControls(ws))
+    assert state["public_search"] == {"enabled": False, "available": False}
+    assert state["specialist_profiles"] == [
+        {
+            "name": "reader",
+            "description": "Read archive records",
+            "tools": ["read_file"],
+            "permissions": ["read_fs"],
+            "model": None,
+        }
+    ]
+    assert "Internal instructions" not in str(state)

@@ -52,6 +52,8 @@ For public literature and pipeline research, create a **Public** project. In **M
 
 ## What you can do
 
+Open **Research tools** in the sidebar to see project settings and jump to databases, kernels, evidence, artifacts and background tasks. [Version-by-version workbench guide](docs/workbench-capabilities.md)
+
 | Research task | What the workbench records |
 |---|---|
 | Check a target assessment | Follow a quote to its retrieved source and inspect the review of the claim it supports. The IL23R/IBD example produces an evidence bundle. In four additional target questions, the local model missed key sources during autonomous retrieval. [Scenario results](docs/research/v05-scenarios.md) · [Coverage evaluation](docs/research/v05-target-expansion.md) |
