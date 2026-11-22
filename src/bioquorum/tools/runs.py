@@ -11,6 +11,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, DataKind, OutputStream
@@ -64,11 +65,12 @@ async def execute_run(
         root = ctx.workdir.resolve()
         output_stamps = {}
         for name in output_paths:
-            path = root / input_path(name)
+            clean = input_path(name).as_posix()
+            path = root / clean
             if path.resolve() != path or not path.resolve().is_relative_to(root):
                 raise ValueError("Declared output must be an ordinary project path")
             stat = path.stat() if path.is_file() else None
-            output_stamps[name] = (stat.st_ino, stat.st_size, stat.st_mtime_ns) if stat else None
+            output_stamps[clean] = (stat.st_ino, stat.st_size, stat.st_mtime_ns) if stat else None
         kernel = await kernels.get(sid, language)
         started = store.append(
             ev.RunStarted(
@@ -175,66 +177,77 @@ async def execute_run(
             )
             raise
 
-    if end.status is EndStatus.OK:
-        try:
-            for name, before in output_stamps.items():
-                path = root / name
-                if path.resolve() != path or not path.is_file():
-                    raise ValueError(f"Declared output was not written: {name}")
-                after = path.stat()
-                if before == (after.st_ino, after.st_size, after.st_mtime_ns):
-                    raise ValueError(f"Declared output was not updated: {name}")
-                ref = cas.put_file(path)
-                store.append(
-                    ev.LineageObserved(
-                        run_id=run_id,
-                        path=name,
-                        direction="output",
-                        function="declared_write",
-                        post_run_hash=ref.content_hash,
-                    ),
-                    session_id=sid,
-                    actor=Actor.TOOL,
-                    causation_id=started.id,
+        if end.status is EndStatus.OK:
+            try:
+                for clean, before in output_stamps.items():
+                    path = root / clean
+                    if path.resolve() != path or not path.is_file():
+                        raise ValueError(f"Declared output was not written: {clean}")
+                    after = path.stat()
+                    if before == (after.st_ino, after.st_size, after.st_mtime_ns):
+                        raise ValueError(f"Declared output was not updated: {clean}")
+                    ref = cas.put_file(path)
+                    store.append(
+                        ev.LineageObserved(
+                            run_id=run_id,
+                            path=clean,
+                            direction="output",
+                            function="declared_write",
+                            post_run_hash=ref.content_hash,
+                        ),
+                        session_id=sid,
+                        actor=Actor.TOOL,
+                        causation_id=started.id,
+                    )
+            except (ValueError, OSError, RuntimeError) as exc:
+                end = ExecutionEnd(
+                    status=EndStatus.ERROR,
+                    error=KernelError(ename="OutputRecordingError", evalue=str(exc)),
                 )
-        except (ValueError, OSError, RuntimeError) as exc:
-            end = ExecutionEnd(
-                status=EndStatus.ERROR,
-                error=KernelError(ename="OutputRecordingError", evalue=str(exc)),
-            )
 
-    # A library-specific observation names the same write more precisely.
-    library_outputs = {
-        path for path, direction, fn in observed_io if direction == "output" and fn != "file_write"
-    }
-    for path, direction, fn in sorted(observed_io):
-        if direction == "output" and path in output_stamps:
-            continue
-        if fn == "file_write" and path in library_outputs:
-            continue
-        # The kernel reports observations, not proof of what bytes a call used.
-        root = ctx.workdir.resolve()
-        try:
-            resolved = (root / path).resolve()
-            relative = resolved.relative_to(root)
-            if any(part.startswith(".") for part in relative.parts) or not relative.parts:
+        # Resolve observed paths to project-relative names before deduplicating against declared writes.
+        resolved_io: list[tuple[str, str, str, Path]] = []
+        for path, direction, fn in sorted(observed_io):
+            try:
+                resolved = (root / path).resolve()
+                relative = resolved.relative_to(root)
+                if any(part.startswith(".") for part in relative.parts) or not relative.parts:
+                    continue
+                resolved_io.append((relative.as_posix(), direction, fn, resolved))
+            except (ValueError, OSError, RuntimeError):
                 continue
-            digest = None
-            if resolved.is_file() and resolved.stat().st_size <= 64 * 2**20:
-                if direction == "output" and relative.as_posix() != "bioquorum.toml":
-                    digest = cas.put_file(resolved).content_hash
-                else:
-                    digest = sha256_file(resolved)
-            event = ev.LineageObserved(
-                run_id=run_id,
-                path=relative.as_posix(),
-                direction=direction,  # type: ignore[arg-type]
-                function=fn,
-                post_run_hash=digest,
-            )
-            store.append(event, session_id=sid, actor=Actor.TOOL, causation_id=started.id)
-        except (ValueError, OSError, RuntimeError):
-            continue
+        library_outputs = {
+            rel
+            for rel, direction, fn, _ in resolved_io
+            if direction == "output" and fn != "file_write"
+        }
+        seen_io: set[tuple[str, str, str]] = set()
+        for rel, direction, fn, resolved in resolved_io:
+            if direction == "output" and rel in output_stamps:
+                continue
+            if fn == "file_write" and rel in library_outputs:
+                continue
+            if (rel, direction, fn) in seen_io:
+                continue
+            seen_io.add((rel, direction, fn))
+            # The kernel reports observations, not proof of what bytes a call used.
+            try:
+                digest = None
+                if resolved.is_file() and resolved.stat().st_size <= 64 * 2**20:
+                    if direction == "output" and rel != "bioquorum.toml":
+                        digest = cas.put_file(resolved).content_hash
+                    else:
+                        digest = sha256_file(resolved)
+                event = ev.LineageObserved(
+                    run_id=run_id,
+                    path=rel,
+                    direction=direction,  # type: ignore[arg-type]
+                    function=fn,
+                    post_run_hash=digest,
+                )
+                store.append(event, session_id=sid, actor=Actor.TOOL, causation_id=started.id)
+            except (ValueError, OSError, RuntimeError):
+                continue
 
     stdout_ref = (
         cas.put_bytes("".join(stdout).encode("utf-8"), kind=DataKind.OTHER) if stdout else None

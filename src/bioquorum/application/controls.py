@@ -249,12 +249,13 @@ class ResearchControls:
             Actor.USER,
             events[-1].id,
         )
-        answered = {e.payload["request_id"] for e in events if e.type == "clarification_answered"}
+        history = self.store.history(sid) if references else events
+        answered = {e.payload["request_id"] for e in history if e.type == "clarification_answered"}
         for item in references or ():
             if (
                 item.kind == "activity"
                 and item.id not in answered
-                and any(e.id == item.id and e.type == "clarification_requested" for e in events)
+                and any(e.id == item.id and e.type == "clarification_requested" for e in history)
             ):
                 self._append(
                     sid,

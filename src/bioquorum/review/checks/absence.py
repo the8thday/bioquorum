@@ -23,6 +23,18 @@ BOUNDED = re.compile(
 )
 
 
+def _scope_terms(scope: dict) -> list[str]:
+    terms: list[str] = []
+    for k, v in scope.items():
+        if k in {"page", "offset", "limit", "pageSize"}:
+            continue
+        if isinstance(v, str) and v.strip():
+            terms.append(v)
+        elif isinstance(v, list):
+            terms.extend(item for item in v if isinstance(item, str) and item.strip())
+    return terms
+
+
 def unsupported_absence(text: str, ledger: dict | None) -> bool:
     if ledger is None:
         return False
@@ -38,11 +50,7 @@ def unsupported_absence(text: str, ledger: dict | None) -> bool:
         matching = [q for q in ledger["queries"] if q["id"] in ids and q["status"] == "empty"]
         if not any(
             q["tool"].casefold() in clause.casefold()
-            and any(
-                isinstance(v, str) and v.strip() and v.casefold() in clause.casefold()
-                for k, v in q["scope"].items()
-                if k not in {"page", "offset", "limit", "pageSize"}
-            )
+            and any(term.casefold() in clause.casefold() for term in _scope_terms(q["scope"]))
             for q in matching
         ):
             return True

@@ -47,6 +47,7 @@ def reference_controls(directory: str) -> ResearchControls:
         "kind": "value",
         "id": "original-count",
         "run": "original-count",
+        "language": "python",
         "code": code,
         "code_hash": digest,
         "input_hashes": [],

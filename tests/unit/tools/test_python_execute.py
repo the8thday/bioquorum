@@ -214,6 +214,75 @@ async def test_cross_language_name_collision_cannot_bind(ctx, store, kernel):
     assert "n" not in Evidence.from_events(store.read("S")).values
 
 
+async def test_cross_language_name_collision_persists_across_system_binding_retry(
+    ctx, store, kernel
+):
+    from bioquorum.core.messages import Message
+    from bioquorum.review.evidence import Evidence
+
+    kernel.queue(*(Script(outputs=[value_output("n", value)]) for value in (1, 2, 3)))
+    await invoke(default_registry().get("python_execute"), {"code": "declare"}, ctx)
+    store.append(
+        ev.UserMessage(message=Message.user("Fix unresolved bindings.")),
+        session_id="S",
+        actor=Actor.SYSTEM,
+    )
+    await invoke(default_registry().get("r_execute"), {"code": "declare"}, ctx)
+    assert "n" not in Evidence.from_events(store.read("S")).values
+    store.append(
+        ev.UserMessage(message=Message.user("Next user turn.")),
+        session_id="S",
+        actor=Actor.USER,
+    )
+    await invoke(default_registry().get("r_execute"), {"code": "declare"}, ctx)
+    assert Evidence.from_events(store.read("S")).values["n"].value.value == 3
+
+
+async def test_declared_output_path_is_normalized_for_handoff_and_dedup(ctx, store):
+    import json
+
+    from bioquorum.runtime import FakeKernel, KernelManager
+    from bioquorum.runtime.lineage import LINEAGE_MIME
+    from bioquorum.tools.replay import dependency_chain
+
+    path = ctx.workdir / "outputs" / "counts.csv"
+
+    def write_counts(code):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("gene,count\na,7\n")
+        return True
+
+    observed = KernelOutput(
+        stream=OutputStream.DISPLAY,
+        data={
+            LINEAGE_MIME: json.dumps(
+                {"path": str(path), "direction": "output", "function": "pandas.DataFrame.to_csv"}
+            )
+        },
+    )
+
+    async def make(language):
+        kernel = FakeKernel(language=language)
+        if language == "python":
+            kernel.on(write_counts, Script(outputs=[observed]))
+        return kernel
+
+    ctx.kernels = KernelManager(make)
+    await invoke(SPEC, {"code": "make", "output_files": ["./outputs//counts.csv"]}, ctx)
+    await invoke(
+        default_registry().get("r_execute"),
+        {"code": "read", "input_files": ["outputs/counts.csv"]},
+        ctx,
+    )
+    events = store.read("S")
+    starts = [e.parsed() for e in events if e.type == "run_started"]
+    writes = [e.parsed() for e in events if e.type == "lineage_observed"]
+    assert len(writes) == 1
+    assert writes[0].path == "outputs/counts.csv"
+    assert writes[0].function == "declared_write"
+    assert dependency_chain(events, starts[1]) == starts
+
+
 async def test_cross_language_handoff_records_matching_bytes(ctx, store):
     from bioquorum.runtime import FakeKernel, KernelManager
     from bioquorum.tools.replay import dependency_chain

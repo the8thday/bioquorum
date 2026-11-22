@@ -49,3 +49,31 @@ def test_links_inside_reference_directory_are_rejected(tmp_path):
     (directory / "alias.txt").symlink_to(external)
     with pytest.raises(ValueError):
         discover(tmp_path / "skills")["calibration"].load("references/alias.txt")
+
+
+def test_discover_and_load_work_when_ancestor_is_not_readable(tmp_path, monkeypatch):
+    import os
+
+    root = tmp_path / "skills"
+    file = skill(root, "calibration")
+    external = tmp_path / "external.txt"
+    external.write_text("Unrelated")
+    refs = file.parent / "references"
+    refs.mkdir()
+    (refs / "guide.txt").write_text("Keep the protocol.")
+    (refs / "alias.txt").symlink_to(external)
+
+    real_open = os.open
+    blocked_part = tmp_path.parent.name
+
+    def restricted_open(path, flags, *args, **kwargs):
+        if path == blocked_part and kwargs.get("dir_fd") is not None:
+            raise PermissionError(1, "Operation not permitted", path)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", restricted_open)
+    guide = discover(root)["calibration"]
+    assert guide.load().text == "Load only when requested."
+    assert guide.load("references/guide.txt").text == "Keep the protocol."
+    with pytest.raises(ValueError):
+        guide.load("references/alias.txt")

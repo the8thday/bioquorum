@@ -15,7 +15,7 @@ from typing import Any
 
 from bioquorum.core import events as ev
 from bioquorum.core.coverage import coverage_view
-from bioquorum.core.enums import ClaimKind, OutputStream
+from bioquorum.core.enums import Actor, ClaimKind, OutputStream
 from bioquorum.core.messages import TextPart
 from bioquorum.core.refs import NamedValue, QuoteRef
 from bioquorum.tools.builtin.citation import CITATION_LOOKUP
@@ -201,7 +201,8 @@ class Evidence:
             p = e.parsed()
             if isinstance(p, ev.UserMessage):
                 question = question or p.message.text()
-                name_languages.clear()
+                if e.actor is Actor.USER:
+                    name_languages.clear()
             elif isinstance(p, ev.RunStarted) and not p.verification_run:
                 languages[p.run_id] = p.language
                 runs[p.run_id] = {"code": p.code, "stdout": [], "ok": False}

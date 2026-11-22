@@ -110,7 +110,7 @@ def conversation(
                         for q in files
                     ]
                     text += (
-                        "\n\nAttached project files. When reading one with python_execute, declare its path in input_files.\n"
+                        "\n\nAttached project files. When reading one with python_execute or r_execute, declare its path in input_files.\n"
                         + fence_untrusted(json.dumps(metadata, ensure_ascii=False))
                     )
                 out.append(Message.user(text))
@@ -259,6 +259,7 @@ def reference_text(
             raise ValueError("Referenced calculation is unavailable")
         data.update(
             run=run_id,
+            language=start.language,
             code=start.code[:12000],
             code_hash=start.code_hash,
             input_hashes=[r.content_hash for r in start.inputs],

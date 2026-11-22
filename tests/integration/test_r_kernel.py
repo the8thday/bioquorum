@@ -61,7 +61,9 @@ async def test_project_ir_kernel_isolation_recovery_and_values(tmp_path):
             and base64.b64decode(item.data["image/png"]).startswith(b"\x89PNG\r\n\x1a\n")
             for item in graphics
         )
-        assert any(isinstance(item, KernelOutput) and "10" in (item.text or "") for item in graphics)
+        assert any(
+            isinstance(item, KernelOutput) and "10" in (item.text or "") for item in graphics
+        )
         for manual in (False, True):
             old = kernel.kernel_id
             task = asyncio.create_task(run("Sys.sleep(60)", 60 if manual else 1))

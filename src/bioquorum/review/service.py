@@ -200,15 +200,15 @@ async def review(
         r.status = new
 
     for r in reviewed:
-        if any(f.check == NEGATIVE_SCOPE for f in r.findings):
-            continue
         state = r.grounding.state
+        failed = state == "failed" or any(f.severity is Severity.ERROR for f in r.findings)
+        if not failed and any(f.check == NEGATIVE_SCOPE for f in r.findings):
+            continue
         if state == "grounded":
             move(r, StatusTrigger.BINDINGS_RESOLVED, f"{len(r.grounding.bindings)} bindings hold")
         elif state == "failed":
             bad = [b.raw[:60] for b in r.grounding.bindings if not b.ok]
             move(r, StatusTrigger.BINDINGS_FAILED, "unresolved: " + ", ".join(bad))
-        failed = any(f.severity is Severity.ERROR for f in r.findings)
         if not failed and (
             errors
             or any(

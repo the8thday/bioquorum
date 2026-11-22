@@ -8,10 +8,15 @@ from bioquorum.core.refs import NamedValue
 
 def test_value_reference_resolves_original_run_even_when_name_reused():
     payloads = []
-    for run, code in [("earlier", "numerator / denominator"), ("later", "new calculation")]:
+    for run, lang, code in [
+        ("earlier", "python", "numerator / denominator"),
+        ("later", "r", "new_calculation()"),
+    ]:
         payloads.extend(
             [
-                ev.RunStarted(run_id=run, code=code, kernel_id="k", code_hash="a" * 64),
+                ev.RunStarted(
+                    run_id=run, language=lang, code=code, kernel_id="k", code_hash="a" * 64
+                ),
                 ev.RunFinished(run_id=run, run_key="x", values=[NamedValue(name="ratio", value=2)]),
             ]
         )
@@ -19,8 +24,11 @@ def test_value_reference_resolves_original_run_even_when_name_reused():
         ev.Event.build(p, session_id="s", seq=i, actor=Actor.TOOL) for i, p in enumerate(payloads)
     ]
     ref = ev.TurnReference(kind="value", id="earlier", name="ratio")
-    assert "numerator / denominator" in reference_text(events, ref)
-    assert "new calculation" not in reference_text(events, ref)
+    earlier = reference_text(events, ref)
+    assert "numerator / denominator" in earlier and '"language": "python"' in earlier
+    assert "new_calculation" not in earlier
+    later = reference_text(events, ev.TurnReference(kind="value", id="later", name="ratio"))
+    assert "new_calculation()" in later and '"language": "r"' in later
     with pytest.raises(ValueError):
         reference_text(events, ev.TurnReference(kind="value", id="elsewhere", name="ratio"))
 

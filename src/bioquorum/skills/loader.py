@@ -36,6 +36,27 @@ def _stamp(value: os.stat_result) -> tuple[int, int, int, int]:
     return value.st_dev, value.st_ino, value.st_mtime_ns, value.st_size
 
 
+def _open_dir_fd(root: Path) -> int:
+    """Open ``root`` without following symlinks; tolerate traverse-only (0711) ancestors."""
+    traverse_flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    anchor, *parts = root.parts
+    try:
+        parent = os.open(anchor, traverse_flags if parts else root_flags)
+        try:
+            for index, part in enumerate(parts):
+                flags = root_flags if index == len(parts) - 1 else traverse_flags
+                child = os.open(part, flags, dir_fd=parent)
+                os.close(parent)
+                parent = child
+            return parent
+        except BaseException:
+            os.close(parent)
+            raise
+    except PermissionError:
+        return os.open(root, root_flags)
+
+
 def _open(root: Path, relative: PurePosixPath) -> BinaryIO:
     here = root
     if root.is_symlink() or root.resolve() != root:
@@ -46,17 +67,15 @@ def _open(root: Path, relative: PurePosixPath) -> BinaryIO:
             raise ValueError("Symbolic links are not skill resources")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     if os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
-        # Walk from the absolute anchor with no-follow descriptors. A pathname check alone
-        # can be invalidated by an intermediate symlink swap.
+        # Walk with no-follow descriptors so an intermediate symlink swap cannot escape root.
         directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        anchor, *parts = here.parts
-        parent = os.open(anchor, directory_flags)
+        parent = _open_dir_fd(root)
         try:
-            for part in parts[:-1]:
+            for part in relative.parts[:-1]:
                 child = os.open(part, directory_flags, dir_fd=parent)
                 os.close(parent)
                 parent = child
-            leaf = os.open(parts[-1], flags, dir_fd=parent)
+            leaf = os.open(relative.parts[-1], flags, dir_fd=parent)
         finally:
             os.close(parent)
     else:

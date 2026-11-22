@@ -96,6 +96,76 @@ def test_reply_records_which_clarification_the_researcher_answered(tmp_path):
     }
 
 
+def test_reply_in_forked_session_records_parent_clarification_answered(tmp_path):
+    from bioquorum.core import events as ev
+    from bioquorum.core.enums import Actor
+    from bioquorum.core.messages import Message
+
+    ws = workspace.init_project(tmp_path)
+    ws.config["agent"] = {"first_pass": True}
+    controls = ResearchControls(ws)
+    parent = controls.new_session("Parent cohort")
+
+    def add(payload, actor):
+        return controls.store.append(payload, session_id=parent, actor=actor)
+
+    add(ev.UserMessage(message=Message.user("Which cohort?")), Actor.USER)
+    add(ev.FirstPassStarted(), Actor.SYSTEM)
+    ambiguity = add(
+        ev.ClarificationRequested(question="Which age?", assumption="Adults."), Actor.AGENT
+    )
+    child = controls.fork(parent, "Child cohort")
+    reply = controls.submit(
+        child,
+        "Use pediatric cohort.",
+        steps=["Check pediatric cohort"],
+        references=[ev.TurnReference(kind="activity", id=ambiguity.id)],
+    )
+    assert controls.store.read(child, types=["clarification_answered"])[0].payload == {
+        "request_id": ambiguity.id,
+        "turn_id": reply.id,
+    }
+
+
+@pytest.mark.anyio
+async def test_minimal_profile_omits_kernel_package_instructions(tmp_path):
+    from pydantic_ai import messages as pa
+    from pydantic_ai.models.function import FunctionModel
+
+    from bioquorum.application import research
+    from bioquorum.core.enums import Classification
+    from bioquorum.models import ModelClient, ModelsConfig, Router
+
+    ws = workspace.init_project(tmp_path, classification=Classification.PUBLIC)
+    ws.config = {"profile": {"name": "minimal"}}
+    store = ResearchControls(ws).store
+    sid = workspace.start_session(ws, store, "Minimal prompt")
+    seen_system: list[str] = []
+
+    def respond(messages, info):
+        seen_system.extend(
+            p.content
+            for m in messages
+            for p in m.parts
+            if isinstance(p, pa.SystemPromptPart) and isinstance(p.content, str)
+        )
+        return pa.ModelResponse(parts=[pa.TextPart(content="Done.")])
+
+    cfg = ModelsConfig.from_dict({"providers": {"openai": {}}, "roles": {"worker": "openai:w"}})
+    client = ModelClient(Router(cfg), store, factory=lambda _: FunctionModel(respond))
+    await research.execute(
+        ws,
+        store,
+        sid,
+        "Count rows.",
+        client=client,
+        permissions=lambda servers: workspace.default_permissions(ws, allow=[], servers=servers),
+    )
+    assert seen_system == [
+        "Answer the research question using the provided computation tools and local files."
+    ]
+
+
 def test_new_projects_record_the_recommendation_when_evidence_is_available(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, "RECOMMENDED", None)
     before = workspace.init_project(tmp_path / "before")

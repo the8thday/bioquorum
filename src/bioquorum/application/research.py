@@ -287,12 +287,13 @@ async def execute(
             else None
         )
         project_context = _project_context(ws, store, sid, registry, policy, options)
-        project_context.extend(
-            kernel_instructions(
-                r_available="r_execute" in registry,
-                inventory=inventory if registry_factory is default_registry else None,
+        if not minimal:
+            project_context.extend(
+                kernel_instructions(
+                    r_available="r_execute" in registry,
+                    inventory=inventory if registry_factory is default_registry else None,
+                )
             )
-        )
         effective_budget = budget if budget is not None else options.budget
         meter: BudgetMeter | None = None
         prefetch = None

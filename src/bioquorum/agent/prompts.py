@@ -58,7 +58,8 @@ def binding_feedback(problems: list[tuple[str, str]]) -> str:
     return (
         "[BioQuorum] Some evidence bindings in your answer did not resolve:\n"
         f"{lines}\n"
-        "Fix each one: declare the value with bq.value in python_execute and keep {{name}}; "
+        "Fix each one: declare the value with bq.value in python_execute or bq_value in r_execute "
+        "and keep {{name}}; "
         "copy the quote exactly from the tool result; or remove the marker and state the point "
         "as unverified. Then write the complete answer again."
     )

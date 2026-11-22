@@ -23,9 +23,9 @@ const mechanisms = [
   ["literature_subtasks","Literature subtasks","Allow a child session to search the listed literature tools.","v05-literature-subtasks"],
   ["source_to_kernel","Sources in kernel","Stage retrieved source content for computation.","v05-literature-subtasks"],
   ["references","Follow-up references","Attach the recorded source, calculation or finding to a question.","v07-references"],
-  ["coverage","Evidence coverage","Record subquestions, actual searches and remaining gaps.","v08-baseline"],
-  ["evidence_skills","Evidence category skills","Suggest evidence types and sources for the three research scenarios.","v08-retrieval-diagnosis"],
-  ["first_pass","First-pass judgment","Record a judgment, counterevidence, disagreement and next step.","v08-baseline"],
+  ["coverage","Evidence coverage","Record subquestions, actual searches and remaining gaps.","v08-profile"],
+  ["evidence_skills","Evidence category skills","Suggest evidence types and sources for the three research scenarios.","v08-profile"],
+  ["first_pass","First-pass judgment","Record a judgment, counterevidence, disagreement and next step.","v08-profile"],
   ["vision","Figure inspection","Let a compatible model inspect recorded images.","v05-target-expansion"],
   ["plan_default","Request plan approval by default","Start new questions with the plan approval option selected.","v03-plan-gate"],
 ];
