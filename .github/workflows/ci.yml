@@ -46,7 +46,11 @@ jobs:
       - run: BQ_TEST_VIEWERS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_MATERIALS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_SCENARIO_D=1 npm test --prefix tests/e2e
-      - run: BQ_TEST_HER2=1 npm test --prefix tests/e2e
+      - name: Prepare and verify the HER2 research example
+        run: |
+          export BQ_TEST_REAL_PROJECT="$RUNNER_TEMP/her2-project"
+          uv run --locked python examples/v11/prepare.py --project "$BQ_TEST_REAL_PROJECT"
+          BQ_TEST_HER2=1 npm test --prefix tests/e2e
       - run: BQ_TEST_COVERAGE=1 npm test --prefix tests/e2e
       - run: BQ_TEST_BILINGUAL=1 npm test --prefix tests/e2e
       - run: BQ_TEST_REFERENCES=1 npm test --prefix tests/e2e

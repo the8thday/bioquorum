@@ -96,6 +96,12 @@ module.exports=async function verifyViewers(page) {
   await button("Open counts.svg").click({timeout:60000});
   const overlay=viewer.getByLabel("Select plotted samples");
   await overlay.waitFor();
+  await overlay.locator('circle[data-point="0"]').click();
+  await button("Quote selected samples (1)").click();
+  await page.getByRole("list",{name:"References"}).getByText("counts.svg · a",{exact:true}).waitFor();
+  await button("Remove reference").click();
+  await overlay.click({position:{x:2,y:2}});
+  assert.ok(await button("Quote selected samples (0)").isDisabled());
   const rect=await overlay.boundingBox();
   await page.mouse.move(rect.x+rect.width*.55,rect.y+rect.height*.55);
   await page.mouse.down();

@@ -13,7 +13,7 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
   const [chosen,setChosen]=useState<number[]>(initial?.type==="figure"?initial.points:[]);
   const [compare,setCompare]=useState("");
   const [error,setError]=useState("");
-  const anchor=useRef<XY|null>(null);
+  const anchor=useRef<(XY & {pointIndex:number|null})|null>(null);
   const [extent,setExtent]=useState<XY|null>(null);
   const path=filePath(base,file.id);
   useEffect(()=>{
@@ -24,13 +24,19 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
   },[path]);
   useEffect(()=>{if(comparedFigure)setCompare(comparedFigure);},[comparedFigure]);
   const a=anchor.current;
+  function start(e:PointerEvent<SVGSVGElement>) {
+    // Capture retargets pointerup to the SVG, so save the original sample here.
+    const pointIndex=e.target instanceof SVGCircleElement ? Number(e.target.dataset.point) : null;
+    anchor.current={...position(e),pointIndex};
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setExtent(anchor.current);
+  }
   function finish(e:PointerEvent<SVGSVGElement>) {
     if(e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     const b=position(e),a=anchor.current;
     if(!a) return;
     if(Math.abs(a.x-b.x)+Math.abs(a.y-b.y)<0.01) {
-      const hit=e.target instanceof SVGCircleElement?e.target.getAttribute("data-point"):null;
-      setChosen(hit===null?[]:[+hit]);
+      setChosen(a.pointIndex===null?[]:[a.pointIndex]);
     } else {
       setChosen(points.flatMap((p,i)=>p.x>=Math.min(a.x,b.x)&&p.x<=Math.max(a.x,b.x)&&p.y>=Math.min(a.y,b.y)&&p.y<=Math.max(a.y,b.y)?[i]:[]));
     }
@@ -40,7 +46,7 @@ export default function Figure({base,file,quote,products,initial,comparedFigure}
   return <>{error && <p role="alert">{error}</p>}<div className="figure-pair"><figure className="figure-frame"><div className="figure-layer">
     <img className="reader-figure" alt={file.name} src={path+"/preview/image"} onError={()=>setError("The recorded image could not be displayed.")}/>
     {points.length>0 && <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Select plotted samples"
-      onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);anchor.current=position(e);setExtent(anchor.current);}}
+      onPointerDown={start}
       onPointerMove={e=>{if(anchor.current)setExtent(position(e));}} onPointerUp={finish}
       onPointerCancel={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);anchor.current=null;setExtent(null);}}>
       {points.map((p,i)=><circle key={i} data-point={i} cx={p.x*1000} cy={p.y*1000} r="9" className={chosen.includes(i)?"chosen":""}><title>{p.sample_id}</title></circle>)}
