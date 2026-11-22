@@ -19,7 +19,7 @@ h1,h2,h3{line-height:1.22;color:#173b38}h2{margin-top:2.2rem}
 a{color:#12645b;text-underline-offset:.16em}pre,code{font-family:ui-monospace,monospace}
 pre{padding:1rem;background:#eaf0ee;overflow:auto}code{overflow-wrap:anywhere}
 table{display:block;overflow:auto;border-collapse:collapse}td,th{border:1px solid #cdd6d3;padding:.4rem .7rem;text-align:left}
-img{max-width:100%}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #8db4aa}
+img{max-width:100%}h1 img{height:1.2em;width:auto;vertical-align:-.22em}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #8db4aa}
 """
 
 
@@ -39,7 +39,9 @@ def build(repo: Path, output: Path) -> None:
         title = "BioQuorum"
         for i, token in enumerate(tokens):
             if token.type == "heading_open":
-                heading = tokens[i + 1].content
+                heading = engine.renderer.renderInlineAsText(
+                    tokens[i + 1].children, engine.options, {}
+                ).strip()
                 if token.tag == "h1":
                     title = heading
                 base = re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
