@@ -1,0 +1,1 @@
+import{i as e,t}from"./app.js";var n=e();function r({file:e,base:r}){return(0,n.jsx)(`div`,{className:`html-viewer`,children:(0,n.jsx)(`iframe`,{className:`html-viewer-frame`,title:e.name,sandbox:``,src:t(r,e.id)+`/preview/html`})})}export{r as default};

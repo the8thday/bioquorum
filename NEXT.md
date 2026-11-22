@@ -5,6 +5,8 @@
 
 ## 当前交接
 
+2026-11-22，补齐 HTML 产物右侧沙箱交互预览（`catalog.py`、`server/app.py` `/preview/html`、`web/src/viewers/Html.tsx`），并将模型生成的 `sandbox:/...` 本地文件链接解析为可点击预览链接；本轮产物卡片紧跟回答正文下方展示并带独立下载按钮；修复未开启 `Follow-up references` 时划词不弹追问框的问题（默认退回引用块带入输入框）。已重建随包前端。
+
 2026-11-22，工作台 UI 整体升级与输入区控制（[ADR-051](docs/adr/051-composer-controls.md)）已在本地完成并通过作者观感复核。输入区改为桌面 Agent 风格的单行工具栏：附件、`Plan` / `Literature` 模式切换、会话权限浮层（展示项目默认授权、本会话已允许项及一键重置）、模型选择、推理强度（`Default` / `Low` / `Medium` / `High`，按模型能力自动显示）、圆形发送按钮及 Enter 发送 / Shift+Enter 换行；新一轮默认沿用本会话上一轮的模型与推理强度。权限请求卡片提供 `Allow for this session`、`Allow once`、`Deny` 三项，会话授权从事件日志重建并支持 `session_permissions_reset` 事件撤销，不放宽分级与沙箱边界。侧栏 **+ New session** 改为免弹窗直接进入空白提问页并在首轮提问时自动生成会话标题；同步修复侧栏 `Manage projects` / `New project` 对齐、项目设置弹窗表单排版、首页启动台居中布局、正文引文胶囊收敛、未核验引用胶囊（`[s1 · unverified]`）与行内斜体渲染，并在右上角 Workbench settings 和 Project settings → Models and roles 中补齐完整的模型与账号配置入口。已重建随包前端并补充前后端单元测试。
 
 2026-11-22，项目设置、模型账号、Public 检索及回答阅读的上一批修复已推送至 main（d3c7766）。本地完成 [v0.1–v0.12 工作台功能对照](docs/workbench-capabilities.md)。侧栏 Research tools 从项目设置读取数据库、R 内核和研究机制状态，可进入项目配置、研究线和会话面板。快速设置可显式选择用于独立文献检索的工具，在问题旁发起检索；项目设置可查看专家配置，模型页展示四个角色及最新评测结果。Public 项目可按回答选择在线核验已记录的文献编号。默认后端 640 项、前端 23 项、9 条导入契约、Ruff 和 Pyright 通过。浏览器复验覆盖项目设置、引用、布局、扩展、覆盖台账、双语言证据、材料更正、专业查看器、后台收件箱和研究包下载；合成样本的真实 Python 重跑得到原记录的 68 个细胞。本轮未调用付费模型。

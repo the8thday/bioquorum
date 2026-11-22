@@ -113,6 +113,8 @@ def catalog_records(parsed: Iterable[tuple[ev.Event, ev.EventPayload]]) -> list[
                 preview = "figure"
             elif suffix in {".md", ".markdown", ".txt"}:
                 preview = "report"
+            elif suffix in {".html", ".htm"}:
+                preview = "html"
             elif suffix in {".mol", ".sdf"}:
                 preview = "molecule"
             elif suffix == ".bed":

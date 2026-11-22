@@ -161,4 +161,36 @@ describe("brand mark", () => {
     expect(activityLabel({type:"session_permissions_reset"}))
       .toBe("Session permissions reset");
   });
+
+  it("turns sandbox artifact links into interactive viewer and download actions and places turn artifacts at the top", () => {
+    const answer: Answer = {
+      id: "a", seq: 1, inherited: false, review_limitations: [], claims: [],
+      paragraphs: [{ segments: [{ text: "1. [下载报告](sandbox:/mnt/data/CD19_report.html)" }], unbound: [] }],
+    };
+    const prod = {
+      id: "p1", name: "CD19_report.html", kind: "file", version: 1, status: "observed",
+      seq: 1, preview: "html" as const,
+    };
+    const html = renderToStaticMarkup(
+      <AnswerCard
+        answer={answer}
+        example={false}
+        verification={[]}
+        base="/api/sessions/s1"
+        turnProducts={[prod]}
+        resolveArtifact={(href) =>
+          href.endsWith("CD19_report.html")
+            ? { name: "CD19_report.html", open: () => {}, downloadHref: "/api/sessions/s1/artifacts/p1/file" }
+            : null
+        }
+        onEvidence={() => {}}
+        onReview={() => {}}
+        onVerify={() => {}}
+      />
+    );
+    expect(html).toContain('class="inline-artifact-link"');
+    expect(html).toContain('href="/api/sessions/s1/artifacts/p1/file"');
+    expect(html.indexOf("下载报告")).toBeLessThan(html.indexOf("answer-artifacts"));
+    expect(html.indexOf("answer-artifacts")).toBeLessThan(html.indexOf("Run review"));
+  });
 });

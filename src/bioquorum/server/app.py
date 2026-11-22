@@ -44,7 +44,7 @@ from bioquorum.server.request_body import Empty
 from bioquorum.server.request_body import read_body as _body
 
 CSP = (
-    "default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'sha256-ITHmamcImsZ/Je1xrdtDLZVvRSpj1Zokb6uHXORB824=' 'sha256-NTwDUA6nIvRRpI2lIBtHJqkV0TlTj4HVmI6vI81fIfM='; img-src 'self' data:; "
+    "default-src 'none'; script-src 'self'; worker-src 'self'; frame-src 'self'; style-src 'self' 'sha256-ITHmamcImsZ/Je1xrdtDLZVvRSpj1Zokb6uHXORB824=' 'sha256-NTwDUA6nIvRRpI2lIBtHJqkV0TlTj4HVmI6vI81fIfM='; img-src 'self' data:; "
     "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 )
 WEB = files("bioquorum.server").joinpath("web")
@@ -473,6 +473,21 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 media_type=image_type(data),
                 headers={
                     "Content-Security-Policy": "sandbox; default-src 'none'",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        if request.path_params["format"] == "html":
+            if path.stat().st_size > 5_000_000:
+                raise ValueError("HTML report exceeds the preview size limit")
+            data = path.read_bytes()
+            return Response(
+                data,
+                media_type="text/html; charset=utf-8",
+                headers={
+                    "Content-Security-Policy": (
+                        "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+                    ),
                     "Cache-Control": "no-store",
                     "X-Content-Type-Options": "nosniff",
                 },

@@ -27,6 +27,7 @@ const paths = {
   list: "M8 6h12 M8 12h12 M8 18h12 M4 6h.01 M4 12h.01 M4 18h.01",
   book: "M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22z M4 19.5A2.5 2.5 0 0 1 6.5 17H20",
   chevron: "m8 10 4 4 4-4",
+  download: "M12 4v11 M7 10l5 5 5-5 M5 19h14",
   search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0z M15 15l5 5",
 };
 export function Icon({name}: {name: keyof typeof paths}) {

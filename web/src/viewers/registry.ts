@@ -24,6 +24,7 @@ const registry = new Map([
   ["table", viewer(()=>import("./Table"))],
   ["figure", viewer(()=>import("./Figure"))],
   ["report", viewer(()=>import("./Report"))],
+  ["html", viewer(()=>import("./Html"))],
 ]);
 export const viewerFor = (type:string|null) => type ? registry.get(type) : undefined;
 export const filePath = (base:string, id:string) => base+"/artifacts/"+encodeURIComponent(id);

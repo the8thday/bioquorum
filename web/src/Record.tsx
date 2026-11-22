@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { inlineText } from "./InlineText";
+import { inlineText, type ArtifactResolver } from "./InlineText";
 import { BrandMark } from "./BrandMark";
 import { Coverage } from "./Coverage";
+import { Icon } from "./Icon";
 import { ResultTable, tableAt, type AnswerTable } from "./ResultTables";
+import type { Product } from "./Artifacts";
 import type { TurnRef, Answer, Claim, EvidenceRef, Segment, Turn, Verification } from "./types";
 
 const labels: Record<string, string> = {
@@ -73,7 +75,18 @@ function VerificationResult({entry}: {entry: Verification}) {
   </details>;
 }
 
-type AnswerProps = Actions & {onlineReviewAvailable?:boolean; discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
+type AnswerProps = Actions & {
+  onlineReviewAvailable?: boolean;
+  discuss?: (ref: TurnRef) => void;
+  openTable?: (item: AnswerTable) => void;
+  resolveArtifact?: ArtifactResolver;
+  turnProducts?: Product[];
+  openProduct?: (p: Product) => void;
+  base?: string;
+  answer: Answer;
+  example: boolean;
+  verification: Verification[];
+};
 const rawText = (segments: Segment[]) => segments.map(segment => segment.raw ?? segment.text).join("").trim();
 
 function problemLabel(text: string) {
@@ -83,7 +96,7 @@ function problemLabel(text: string) {
   return null;
 }
 
-function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, verification, onEvidence, onVerify}:
+function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, verification, onEvidence, onVerify, resolveArtifact}:
   Omit<AnswerProps, "onReview"> & {parts: Segment[]; claim?: Claim; sharedStatus?: boolean}) {
   const status = claim?.status ?? "unverified";
   const canVerify = claim?.has_calculation && !answer.inherited && !example &&
@@ -97,9 +110,9 @@ function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, ve
         ? (() => {
             const short = problemLabel(text);
             return <span key={i} className="segment binding-problem" title={problem + "\n" + text}>
-              {short ? <><span hidden>{text}</span>{short}</> : inlineText(text)}</span>;
+              {short ? <><span hidden>{text}</span>{short}</> : inlineText(text, resolveArtifact)}</span>;
           })()
-        : <span key={i} className="segment">{inlineText(text)}</span>)}</p>
+        : <span key={i} className="segment">{inlineText(text, resolveArtifact)}</span>)}</p>
     {!sharedStatus && <Badge status={status}/>}
     {claim?.needs_review && <span className="review-notice">Needs review</span>}
     {claim?.replacement_claim_id && claim.replacement_session_id && <a className="replacement-link"
@@ -153,6 +166,35 @@ export function AnswerCard(props: AnswerProps) {
   return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><BrandMark className="answer-mark"/><h2>Findings</h2></header>
     <p className="muted answer-meta"><span>{answer.model ?? "Model not recorded"}</span>{answer.reasoning_effort && <> · <span className="effort-tag">{answer.reasoning_effort} reasoning</span></>}</p>
     {body}
+    {props.turnProducts && props.turnProducts.length > 0 && (
+      <div className="result-links answer-artifacts" aria-label="Research results" role="group">
+        {props.turnProducts.map((p) => (
+          <div key={p.id} className="result-chip">
+            <button
+              type="button"
+              className="result-link"
+              aria-label={"Open " + p.name}
+              title={p.preview + " · v" + p.version}
+              onClick={() => props.openProduct?.(p)}
+            >
+              <Icon name={p.preview === "table" ? "table" : p.preview === "figure" ? "image" : "document"} />
+              <span>{p.name}</span>
+            </button>
+            {props.base && (
+              <a
+                className="icon-button result-download"
+                href={props.base + "/artifacts/" + encodeURIComponent(p.id) + "/file"}
+                download
+                aria-label={"Download " + p.name}
+                title={"Download " + p.name}
+              >
+                <Icon name="download" />
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
     {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}
     {props.discuss && Object.entries(answer.discussion_items ?? {}).map(([label,excerpt])=>
       <button className="quiet" key={label} onClick={()=>props.discuss?.({kind:"answer",id:answer.id,excerpt})}>Discuss {label.toLowerCase()}</button>)}

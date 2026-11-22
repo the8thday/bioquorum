@@ -177,6 +177,18 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     return true;
   }
   const quote = project.references ? add : undefined;
+  function quoteText(_item: TurnRef, visibleText?: string, note?: string) {
+    const excerpt = (visibleText ?? "").trim();
+    const quoted = excerpt ? "> " + excerpt.replace(/\n+/g, "\n> ") : "";
+    const addition = [quoted, note?.trim()].filter(Boolean).join("\n\n");
+    if (!addition) return false;
+    const el = document.getElementById("question") as HTMLTextAreaElement | null;
+    const existing = el?.value ?? "";
+    setQuickDraft(existing.trim() ? existing.trimEnd() + "\n\n" + addition : addition);
+    setModal(null);
+    requestAnimationFrame(() => document.getElementById("question")?.focus());
+    return true;
+  }
   const [worker, setWorker] = useState("");
   const [effort, setEffort] = useState<ReasoningEffort | "">("");
   const [quickDraft, setQuickDraft] = useState(draft);
@@ -307,15 +319,38 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   const resultFigures = new Map(products.filter(p=>recordedFigures.has(p.id)).map(p=>[p.id,p]));
   const sizes=layout.columns(!!active && !materials,!!id && !collapsed && !materials);
   const answerPositions = new Map(record?.answers.map(a=>[a.turn,a.seq]));
+  const answerProducts = new Map<string, Product[]>();
   const firstSeq = record?.first_seq ?? -Infinity;
   const groups = new Map<string,{seq:number;items:Product[]}>();
   for (const p of products) {
     if (!p.preview || p.seq < firstSeq || recordedFigures.has(p.id) || (p.kind==="figure" && p.status==="recorded")) continue;
+    if (p.turn && answerPositions.has(p.turn)) {
+      const list = answerProducts.get(p.turn) ?? [];
+      list.push(p);
+      answerProducts.set(p.turn, list);
+      continue;
+    }
     const key=p.turn || p.id;
     const group=groups.get(key) ?? {seq:p.turn ? answerPositions.get(p.turn) ?? p.seq : p.seq,items:[]};
     group.seq=Math.max(group.seq,p.seq);
     group.items.push(p);
     groups.set(key,group);
+  }
+  function resolveArtifact(rawPath: string) {
+    if (!base) return null;
+    const cleaned = rawPath.replace(/^(?:sandbox:|file:\/\/)/i, "").split(/[?#]/)[0];
+    const baseName = cleaned.split("/").filter(Boolean).pop() ?? "";
+    if (!baseName) return null;
+    const match = [...products].reverse().find(p => {
+      const pBase = p.name.split("/").filter(Boolean).pop() ?? p.name;
+      return p.name === cleaned || pBase === baseName || pBase.toLowerCase() === baseName.toLowerCase();
+    });
+    if (!match) return null;
+    return {
+      name: match.name,
+      open: match.preview ? () => openResult(match) : undefined,
+      downloadHref: base + "/artifacts/" + encodeURIComponent(match.id) + "/file",
+    };
   }
   const cards = record ? [
     ...record.questions.map(q => ({seq: q.seq, view: <TurnCard key={"q" + q.seq} turn={{question: q.text,id:q.id}}/>})),
@@ -323,7 +358,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     ...record.figures.map(f => ({seq: f.seq, view: <article key={"f" + f.seq} className="panel figure"><h2>Recorded figure</h2>
       <button className="figure-trigger" aria-label="Open recorded figure" onClick={()=>{const p=resultFigures.get(f.id);if(p)openResult(p);}}>
         <img src={figurePath(base, f.hash)} loading="lazy" alt="Figure from the recorded calculation"/><span>Open figure <Icon name="arrow"/></span></button>{quote && <button className="quiet" onClick={() => quote({kind:"figure",id:f.hash,name:f.run_id})}>Quote figure</button>}</article>})),
-    ...record.answers.map(a => ({seq: a.seq, view: <AnswerCard discuss={project.first_pass ? add : undefined} openTable={openResult} addReference={quote} key={a.id} answer={a} example={!!project.example}
+    ...record.answers.map(a => ({seq: a.seq, view: <AnswerCard discuss={project.first_pass ? add : undefined} openTable={openResult} resolveArtifact={resolveArtifact} turnProducts={a.turn ? answerProducts.get(a.turn) : undefined} openProduct={openResult} base={base} addReference={quote} key={a.id} answer={a} example={!!project.example}
       verification={record.verification} onEvidence={(answer, ref) => evidence(answer, ref).catch(report)}
       onlineReviewAvailable={!project.example && project.classification==="public"}
       onReview={(answer,online) => mutate("/answers/" + answer + "/review", {online_citations:!!online}).catch(report)}
@@ -411,7 +446,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     <section id="record" aria-label="Research record">{record?.has_earlier && <button className="quiet" onClick={()=>earlier().catch(report)}>Show earlier research</button>}{cards.length ? cards.map(c => c.view)
       : project.example && (!id || record) && <Intro start={() => start().catch(report)}/>}</section>
     {record && running && progress && <p role="status" className="generation-progress">{progress}</p>}
-    {quote && !modal && <SelectedText add={quote}/>}
+    {(quote || (!project.example && !!id)) && !modal && <SelectedText add={quote ?? quoteText}/>}
     </div>
     <div className="compose-dock">
     {(record || home && !project.example) && <Composer draftPlan={async q=>{
