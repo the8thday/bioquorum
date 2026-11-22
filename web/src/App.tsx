@@ -20,6 +20,7 @@ import { UsageDialog } from "./Usage";
 import { useRecord } from "./useRecord";
 import type { DraftReference, EvidenceRef, Project, Snapshot, TurnRef } from "./types";
 import { Icon } from "./Icon";
+import { BrandMark } from "./BrandMark";
 import { InboxNotifications } from "./InboxNotifications";
 import { Tasks } from "./Tasks";
 import { Projects } from "./Projects";
@@ -281,7 +282,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     <button className="desktop-nav icon-button" aria-label={layout.compact?"Expand navigation":"Collapse navigation"} title={layout.compact?"Expand navigation":"Collapse navigation"}
       aria-controls="project-nav" aria-expanded={!layout.compact} onClick={()=>layout.setCompact(!layout.compact)}><Icon name="side"/></button>
     <button className="mobile-nav icon-button" aria-label="Projects and sessions" aria-expanded={navOpen} onClick={() => setNavOpen(v => !v)}><Icon name="menu"/></button>
-    <div className="brand"><span className="brand-mark" aria-hidden="true"/><strong>BioQuorum</strong></div>
+    <div className="brand"><BrandMark className="brand-mark"/><strong>BioQuorum</strong></div>
     <span className="masthead-label">Research workspace</span><span className="mode">
       {project.example ? "Offline example" : project.classification + " project"}</span>
     {id && !materials && <button className="quiet panel-toggle" aria-label={collapsed ? "Show research panels" : "Hide research panels"} title="Research panels" aria-expanded={!collapsed} aria-controls="research-panels"

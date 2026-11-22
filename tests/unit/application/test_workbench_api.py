@@ -62,12 +62,20 @@ async def test_offline_record_reloads_and_forks(tmp_path: Path):
         page = await http.get("/")
         assert page.headers["content-security-policy"]
         assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', page.text)
-        for suffix, mime in [(".js", "text/javascript"), (".css", "text/css")]:
+        for suffix, mime in [
+            (".js", "text/javascript"),
+            (".css", "text/css"),
+            (".svg", "image/svg+xml"),
+        ]:
             (url,) = [path for path in assets if path.endswith(suffix)]
             response = await http.get(url)
             assert response.status_code == 200
             assert response.headers["content-type"].startswith(mime)
             assert response.content
+        logo = await http.get("/assets/logo.svg")
+        assert logo.status_code == 200
+        assert logo.headers["content-type"].startswith("image/svg+xml")
+        assert b"<svg" in logo.content
         assert (await http.get("/assets/index.html")).status_code == 404
         plate = await http.get("/assets/radiolaria.webp")
         assert plate.headers["content-type"] == "image/webp"

@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { BrandMark } from "./BrandMark";
 import { AnswerCard, TurnCard } from "./Record";
 import { Highlight } from "./Evidence";
 import { activityLabel } from "./Activity";
@@ -104,5 +105,26 @@ describe("coverage in the research record", () => {
       onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
     for (const text of ["sample term","Which trials?","No outcome data","No records in this search","matching scoped query"])
       expect(html).toContain(text);
+  });
+});
+
+describe("brand mark", () => {
+  it("renders the vector antibody-Q mark with unique gradient ids across instances", () => {
+    const html = renderToStaticMarkup(<div><BrandMark className="brand-mark"/><BrandMark className="answer-mark"/></div>);
+    const ids = [...html.matchAll(/linearGradient id="([^"]+)"/g)].map(m => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(html).toContain('class="brand-mark"');
+    expect(html).toContain('class="answer-mark"');
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it("uses the vector mark on answer headers", () => {
+    const answer: Answer = {id:"a", seq:1, inherited:false, review_limitations:[], claims:[],
+      paragraphs:[{segments:[{text:"Observation."}],unbound:[]}]};
+    const html = renderToStaticMarkup(<AnswerCard answer={answer} example verification={[]}
+      onEvidence={()=>{}} onReview={()=>{}} onVerify={()=>{}}/>);
+    expect(html).toContain('class="answer-mark"');
+    expect(html).toContain("<svg");
   });
 });

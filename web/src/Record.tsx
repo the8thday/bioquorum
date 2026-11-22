@@ -1,3 +1,4 @@
+import { BrandMark } from "./BrandMark";
 import { Coverage } from "./Coverage";
 import { ResultTable, tableAt, type AnswerTable } from "./ResultTables";
 import type { TurnRef, Answer, Claim, EvidenceRef, Segment, Turn, Verification } from "./types";
@@ -132,7 +133,7 @@ export function AnswerCard(props: AnswerProps) {
     </section>);
     i=end;
   }
-  return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
+  return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><BrandMark className="answer-mark"/><h2>Findings</h2></header>
     <p className="muted">{answer.model ?? "Model not recorded"}</p>
     {body}
     {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}

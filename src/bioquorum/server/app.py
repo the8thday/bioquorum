@@ -52,6 +52,7 @@ ASSETS = {
     "index.html": "text/html",
     "app.css": "text/css",
     "app.js": "text/javascript",
+    "logo.svg": "image/svg+xml",
     "radiolaria.webp": "image/webp",
 }
 
