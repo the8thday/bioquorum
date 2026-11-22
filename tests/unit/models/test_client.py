@@ -197,9 +197,14 @@ async def test_fallback_on_failure_and_secrets_redacted(store):
         classification=Classification.INTERNAL,
     )
     assert str(c.route.spec) == "deepseek:m2"
+    transitions = store.read("S", types=["model_route_fallback"])
+    assert [(e.payload["previous"], e.payload["next_model"]) for e in transitions] == [
+        ("openai:m1", "deepseek:m2")
+    ]
     assert types(store) == [
         "model_call_started",
         "model_call_failed",
+        "model_route_fallback",
         "model_call_started",
         "model_call_finished",
     ]
@@ -278,3 +283,29 @@ async def test_cassette_record_then_replay_ignores_ulids(store, tmp_path):
         )
     assert "no recorded model response" in str(info.value)
     assert CassetteMissError.__name__
+
+
+async def test_failure_cannot_fall_back_across_project_classification(store):
+    cfg = ModelsConfig.from_dict(
+        {
+            "providers": {"ollama": {}, "openai": {"allowed_classifications": ["public"]}},
+            "roles": {
+                "planner": ["ollama:primary", "openai:public-only"],
+                "worker": "ollama:primary",
+            },
+        }
+    )
+    client = ModelClient(
+        Router(cfg), store, factory=factory({"ollama:primary": failing("offline")})
+    )
+    with pytest.raises(ModelUnavailableError):
+        await client.complete(
+            ModelRole.PLANNER,
+            [Message.user("q")],
+            session_id="S",
+            classification=Classification.CONFIDENTIAL,
+        )
+    assert [e.payload["provider"] for e in store.read("S", types=["model_call_started"])] == [
+        "ollama"
+    ]
+    assert not store.read("S", types=["model_route_fallback"])

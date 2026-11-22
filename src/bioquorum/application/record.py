@@ -11,17 +11,21 @@ from bioquorum.application.onboarding import disconnected
 from bioquorum.application.program_lineage import review_state
 from bioquorum.core import events as ev
 from bioquorum.core.activity import ACTIVITY
+from bioquorum.core.coverage import coverage_view
 from bioquorum.core.enums import Actor
 from bioquorum.core.refs import QuoteRef, RunRef, ValueRef
 from bioquorum.core.review_record import AnswerReview, answer_reviews
 from bioquorum.provenance.recompute import replacement_claims
 from bioquorum.review.binding import find_bindings, ground_claim, render
 from bioquorum.review.checks.absence import unsupported_absence
-from bioquorum.review.evidence import Evidence, result_text
+from bioquorum.review.evidence import Evidence, EvidenceBuilder, result_text
 from bioquorum.storage.programs import for_session
 from bioquorum.tools.replay import dependency_chain, recorded_inputs
 
 AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
+    "model_route_fallback": ("role", "previous", "next_model"),
+    "subtask_started": ("task_id", "specialist"),
+    "subtask_finished": ("task_id", "outcome"),
     "model_call_started": ("provider", "model", "role", "classification"),
     "model_call_finished": (
         "provider",
@@ -66,13 +70,19 @@ def _fields(event: ev.Event, fields: tuple[str, ...]) -> dict:
 
 def audit_log(controls: ResearchControls, sid: str, *, before: int | None, limit: int) -> dict:
     """Read session-local policy and execution metadata without prompts or tool arguments."""
-    history = controls.require_session(sid)
-    if not 1 <= limit <= 100 or (before is not None and not 1 <= before <= history[-1].seq + 1):
+    controls.check_session(sid)
+    if not 1 <= limit <= 100 or (
+        before is not None and not 1 <= before <= controls.store.last_seq(sid) + 1
+    ):
         raise ValueError("Invalid audit cursor or page size")
     records = []
-    for event in reversed(history):
-        if event.type not in AUDIT_FIELDS or (before is not None and event.seq >= before):
-            continue
+    for event in controls.store.read(
+        sid,
+        to_seq=before - 1 if before is not None else None,
+        types=tuple(AUDIT_FIELDS),
+        newest_first=True,
+        limit=limit + 1,
+    ):
         records.append(
             {
                 "seq": event.seq,
@@ -82,8 +92,6 @@ def audit_log(controls: ResearchControls, sid: str, *, before: int | None, limit
                 "details": _fields(event, AUDIT_FIELDS[event.type]),
             }
         )
-        if len(records) > limit:
-            break
     return {
         "classification": controls.ws.classification.value,
         "entries": records[:limit],
@@ -112,25 +120,16 @@ def _answer(
     event: ev.Event,
     text: str,
     prefix: list[ev.Event],
+    evidence: Evidence,
     review: AnswerReview,
     statuses: dict[str, str],
     findings: dict[str, list[dict]],
     pending_claims: dict[str, set[str]],
     replacements: dict[str, tuple[str, str]],
 ) -> dict:
-    evidence = Evidence.from_events(prefix)
-    start = next(
-        (
-            i
-            for i in range(len(prefix) - 1, -1, -1)
-            if prefix[i].type == "user_message" and prefix[i].actor is Actor.USER
-        ),
-        len(prefix),
-    )
-    first_pass = any(e.type == "first_pass_started" for e in prefix[start:])
+    first_pass = any(e.type == "first_pass_started" for e in prefix)
     clarification = next(
-        ({"id": e.id, **e.payload} for e in prefix[start:] if e.type == "clarification_requested"),
-        None,
+        ({"id": e.id, **e.payload} for e in prefix if e.type == "clarification_requested"), None
     )
     parts = sections(render(text, evidence)) if first_pass else {}
     lines = text.splitlines()
@@ -177,8 +176,10 @@ def _answer(
     }
 
 
-def snapshot(controls: ResearchControls, sid: str) -> dict:
-    local = controls.require_session(sid)
+def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = None) -> dict:
+    if turn_limit is not None and turn_limit < 1:
+        raise ValueError("Invalid research record window")
+    controls.check_session(sid)
     program_id = for_session(controls.store.db, controls.ws.project_id, sid)
     pending_claims: dict[str, set[str]] = {}
     replacements: dict[str, tuple[str, str]] = {}
@@ -195,6 +196,7 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
         pending_claims, _ = review_state(controls, program_id)
         replacements = replacement_claims(review_events, controls.ws.project_id, program_id)
     events = controls.store.history(sid)
+    local = [e for e in events if e.seq >= 0]
     parsed = [(e, e.parsed()) for e in events]
     rerun_ids = {
         payload.run_id
@@ -212,6 +214,7 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
     permission_requests: dict[str, dict] = {}
     turns: dict[str, dict] = {}
     plans: dict[str, dict] = {}
+    latest_draft = None
     pending = controls.pending(local)
     for e, p in parsed:
         if isinstance(p, ev.ClaimStatusChanged):
@@ -220,7 +223,10 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             findings.setdefault(p.claim_id, []).append(
                 {"check": p.check, "severity": p.severity.value, "evidence": p.evidence}
             )
+        elif isinstance(p, ev.PlanDrafted) and e.seq >= 0:
+            latest_draft = p.model_dump()
         elif isinstance(p, ev.TurnRequested):
+            latest_draft = None
             turns[e.id] = {
                 "id": e.id,
                 "seq": e.seq,
@@ -231,8 +237,8 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
                 "status": "queued",
                 "plan_id": p.plan_id,
             }
-        elif isinstance(p, ev.TurnStarted) and p.turn_id in turns:
-            turns[p.turn_id]["status"] = "running"
+        elif isinstance(p, ev.TurnStarted | ev.TurnResumed) and p.turn_id in turns:
+            turns[p.turn_id].update(status="running", error="")
         elif isinstance(p, ev.TurnFinished) and p.turn_id in turns:
             turns[p.turn_id].update(status=p.outcome, error=p.error)
         elif isinstance(p, ev.PlanProposed):
@@ -254,12 +260,19 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             permission_requests[p.request_id] = p.model_dump(mode="json")
         elif isinstance(p, ev.PermissionDecided):
             permission_requests.pop(p.request_id, None)
+    from bioquorum.application.recovery import checkpoint
+
+    point = (
+        checkpoint(local) if turns and list(turns.values())[-1]["status"] == "interrupted" else None
+    )
+    if point:
+        turns[point.request.id]["resume_checks"] = point.uncertain
     live = controls.tasks.get(sid)
     questions = []
     current_turn = None
     answer_turns = {}
     for e, p in parsed:
-        if isinstance(p, ev.TurnStarted):
+        if isinstance(p, ev.TurnStarted | ev.TurnResumed):
             current_turn = p.turn_id
         elif isinstance(p, ev.TurnFinished | ev.SessionForked):
             current_turn = None
@@ -267,10 +280,51 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
             answer_turns[e.id] = current_turn
         elif isinstance(p, ev.UserMessage) and e.actor is Actor.USER and current_turn is None:
             questions.append({"id": e.id, "seq": e.seq, "text": p.message.text()})
+    markers = sorted([q["seq"] for q in questions] + [turn["seq"] for turn in turns.values()])
+    has_earlier = bool(turn_limit and len(markers) > turn_limit)
+    first_seq = markers[-turn_limit] if turn_limit and has_earlier else events[0].seq
+    answers = []
+    builder = EvidenceBuilder()
+    question_start = len(events)
+    for index, (e, p) in enumerate(parsed):
+        if isinstance(p, ev.UserMessage) and e.actor is Actor.USER:
+            question_start = index
+        if (
+            e.seq >= first_seq
+            and isinstance(p, ev.AssistantMessage)
+            and not p.message.tool_calls()
+            and p.message.text().strip()
+        ):
+            prefix = events[question_start:index]
+            answers.append(
+                {
+                    **_answer(
+                        e,
+                        p.message.text(),
+                        prefix,
+                        builder.view(coverage_view(prefix)),
+                        reviews.get(e.id, AnswerReview()),
+                        statuses,
+                        findings,
+                        pending_claims,
+                        replacements,
+                    ),
+                    "turn": answer_turns.get(e.id),
+                    "model": models.get(p.model_call_id) if p.model_call_id else None,
+                }
+            )
+        builder.observe(e, p)
     return {
         "last_seq": local[-1].seq,
-        "questions": questions,
-        "turns": [{**turn, "plan": plans.get(turn["plan_id"])} for turn in turns.values()],
+        "has_earlier": has_earlier,
+        "first_seq": first_seq,
+        "questions": [q for q in questions if q["seq"] >= first_seq],
+        "turns": [
+            {**turn, "plan": plans.get(turn["plan_id"])}
+            for turn in turns.values()
+            if turn["seq"] >= first_seq
+        ],
+        "plan_draft": latest_draft,
         "pending_plan": pending[0].id if pending else None,
         "verification": [
             {
@@ -286,26 +340,7 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
         "permissions": [
             p for key, p in permission_requests.items() if live and key in live.permissions
         ],
-        "answers": [
-            {
-                **_answer(
-                    e,
-                    p.message.text(),
-                    events[:index],
-                    reviews.get(e.id, AnswerReview()),
-                    statuses,
-                    findings,
-                    pending_claims,
-                    replacements,
-                ),
-                "turn": answer_turns.get(e.id),
-                "model": models.get(p.model_call_id) if p.model_call_id else None,
-            }
-            for index, (e, p) in enumerate(parsed)
-            if isinstance(p, ev.AssistantMessage)
-            and not p.message.tool_calls()
-            and p.message.text().strip()
-        ],
+        "answers": answers,
         "disconnected": disconnected(controls),
         "activity": [
             {
@@ -322,7 +357,10 @@ def snapshot(controls: ResearchControls, sid: str) -> dict:
         "figures": [
             {"id": e.id, "hash": p.ref.content_hash, "run_id": p.run_id, "seq": e.seq}
             for e, p in parsed
-            if isinstance(p, ev.RunOutput) and p.ref is not None and p.run_id not in rerun_ids
+            if e.seq >= first_seq
+            and isinstance(p, ev.RunOutput)
+            and p.ref is not None
+            and p.run_id not in rerun_ids
         ],
     }
 

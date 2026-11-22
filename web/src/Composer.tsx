@@ -4,7 +4,8 @@ import type { DraftReference, Project, Snapshot } from "./types";
 import { Icon } from "./Icon";
 import type { Product } from "./Artifacts";
 
-export function Composer({initialDraft,executing,connection,upload,openSettings,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+export function Composer({draftPlan,initialDraft,executing,connection,upload,openSettings,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+  draftPlan:(q:string)=>Promise<{steps:string[];model:string}>;
   initialDraft?:string; executing: boolean; connection: string; upload: ReactNode; openSettings: () => void; attachments:Product[]; setAttachments:(p:Product[])=>void;
   refs: DraftReference[]; setRefs: (items: DraftReference[]) => void;
   planDefault?: boolean; worker: string; setWorker: (value: string) => void;
@@ -17,6 +18,14 @@ export function Composer({initialDraft,executing,connection,upload,openSettings,
   const [steps, setSteps] = useState("");
   const [plan, setPlan] = useState(!!planDefault);
   useEffect(() => setPlan(!!planDefault), [planDefault]);
+  const saved=record.plan_draft;
+  const restored=useRef<string | undefined>(undefined);
+  useEffect(()=>{
+    if(saved && restored.current!==saved.question){
+      restored.current=saved.question;
+      if(!question.trim()) {setQuestion(saved.question);setSteps(saved.steps.join("\n"));setPlan(true);}
+    }
+  },[saved,question]);
   const [busy, setBusy] = useState(false);
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const stepsRef = useRef<HTMLTextAreaElement>(null);
@@ -27,6 +36,8 @@ export function Composer({initialDraft,executing,connection,upload,openSettings,
     }
   }, [preset, example]);
   const running = record.turns.some(t => t.seq >= 0 && t.status === "running");
+  const interrupted = record.turns.find(t => t.seq >= 0 && t.resume_checks !== undefined);
+  const checks = Object.entries(interrupted?.resume_checks ?? {});
   const demoDone = !!example && !running && record.turns.some(t => t.status !== "declined" && t.status !== "queued");
   const disabled = busy || running || !!record.pending_plan || demoDone;
   const focused = useRef<DraftReference | undefined>(undefined);
@@ -55,6 +66,14 @@ export function Composer({initialDraft,executing,connection,upload,openSettings,
   }
   return <form id="composer" className={demoDone ? "finished-example" : undefined} onSubmit={submit}>
     <div id="controls">
+      {interrupted && <article className="panel">
+        <h2>Interrupted research</h2>
+        {checks.length > 0 && <><p>Verify the outcome of these operations before continuing.</p>
+          <ul>{checks.map(([id,tool])=><li key={id}>{tool} · {id}</li>)}</ul></>}
+        <button type="button" className="quiet" disabled={busy || running}
+          onClick={()=>act(()=>mutate("/turns/"+interrupted.id+"/resume",{checked_calls:checks.map(([id])=>id)}))}>
+          {checks.length ? "I checked these operations — resume research" : "Resume research"}</button>
+      </article>}
       {running && <article className="panel run-status"><p role="status" className={executing ? "running-indicator" : ""}>{record.permissions.length
         ? "Awaiting your permission" : executing ? "Research running" : connection || "Checking session status…"}</p>
         <button type="button" className="quiet" disabled={busy} onClick={() => act(() => mutate("/stop", {}))}>Stop research</button></article>}
@@ -69,7 +88,7 @@ export function Composer({initialDraft,executing,connection,upload,openSettings,
           <button type="button" className="quiet" disabled={busy} onClick={() =>
             act(() => mutate(planPath, {approve: false, reason: "Declined by researcher"}))}>Decline plan</button></div>
       </article>}
-      {record.permissions.map(p => <article className="panel" key={p.request_id}><h2>Permission requested</h2>
+      {record.permissions.map(p => <article className="panel" id={"record-"+p.request_id} key={p.request_id}><h2>Permission requested</h2>
         <p>{p.reason} · {p.permission}</p><p className="segment">{p.target}</p><div className="actions">
           {[true, false].map(grant => <button type="button" key={String(grant)} className={grant ? "primary" : "quiet"}
             disabled={busy} onClick={() => act(() => mutate("/permissions/" + p.request_id, {grant}))}>
@@ -90,7 +109,12 @@ export function Composer({initialDraft,executing,connection,upload,openSettings,
         <option value="">Role default</option>{models.map(m => <option key={m.spec} value={m.spec} disabled={!m.allowed}>
           {m.spec}{!m.allowed && " · unavailable for " + classification + " data"}</option>)}</select></label>}
       <button type="submit" className="primary" disabled={disabled}>{plan ? "Submit plan" : "Run research"}</button></div>
-    {plan && <div id="plan-editor"><label htmlFor="steps">Analysis plan <span className="muted">One step per line</span></label>
+    {plan && <div id="plan-editor">
+      {!example && <button type="button" className="quiet" disabled={disabled || !question.trim()} onClick={()=>act(async()=>{
+        const draft=await draftPlan(question);
+        setSteps(draft.steps.join("\n"));
+      })}>Draft steps with planner</button>}
+      <label htmlFor="steps">Analysis plan <span className="muted">One step per line</span></label>
       <textarea id="steps" ref={stepsRef} rows={3} maxLength={7320} value={steps} disabled={disabled} onChange={e => setSteps(e.target.value)}
         placeholder={"Identify the evidence needed\nCompare the findings and limits"}/></div>}
   </form>;

@@ -1,0 +1,5 @@
+[
+  {"topic":"collection locality","records":{"field-r":"The survey sheet identifies the collection locality as cedar ravine.","field-s":"The second survey sheet identifies the collection locality as maple ridge."},"terms":["cedar ravine","maple ridge"]},
+  {"topic":"mount substrate","records":{"mount-u":"The first slide record identifies its support as copper mesh.","mount-v":"The follow-up slide record identifies its support as nickel grid."},"terms":["copper mesh","nickel grid"]},
+  {"topic":"reference medium","records":{"ref-x":"The original inventory lists the reference medium as willow oil.","ref-y":"The independent inventory lists the reference medium as birch wax."},"terms":["willow oil","birch wax"]}
+]

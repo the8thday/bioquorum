@@ -90,3 +90,15 @@ def test_caused_events_are_atomic_when_later_projection_fails(store, monkeypatch
     with pytest.raises(ValueError, match="projection failed"):
         store.append_chain([question, answer], session_id="S", actor=Actor.SYSTEM)
     assert store.read("S") == []
+
+
+def test_reverse_page_honors_types_and_exclusive_cursor(store):
+    from bioquorum.core import events as ev
+    from bioquorum.core.enums import Actor
+
+    for i in range(8):
+        store.append(ev.ExplorationStopped(reason=str(i)), session_id="page", actor=Actor.SYSTEM)
+    newest = store.read("page", types=["exploration_stopped"], newest_first=True, limit=3)
+    assert [e.seq for e in newest] == [7, 6, 5]
+    older = store.read("page", to_seq=newest[-1].seq - 1, newest_first=True, limit=3)
+    assert [e.seq for e in older] == [4, 3, 2]

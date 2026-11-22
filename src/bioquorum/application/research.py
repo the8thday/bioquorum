@@ -233,6 +233,7 @@ async def execute(
     kernel_factory: KernelFactory | None = None,
     env_lock_hash: str | None = None,
     session_kernels: SessionKernels | None = None,
+    resume_events: list[ev.Event] | None = None,
     registry_factory: Callable[[], ToolRegistry] = default_registry,
 ) -> TurnResult:
     options = ws.agent_options()
@@ -336,6 +337,58 @@ async def execute(
             )
         elif explicit:
             raise wsp.WorkspaceError("No configured literature retrieval tools are available")
+        if options.subtasks:
+            from bioquorum.agent import subtasks
+
+            delegated = ToolRegistry(
+                tool
+                for tool in registry
+                if tool.name in options.subtask_tools
+                and tool.permission
+                in (
+                    PermissionClass.CONNECTOR,
+                    PermissionClass.EXTERNAL_MCP,
+                    PermissionClass.READ_FS,
+                )
+            )
+            if delegated:
+                from bioquorum.skills.specialists import load_specialists
+
+                profiles = (
+                    load_specialists(ws.root / ".bioquorum" / "agents")
+                    if options.specialists
+                    else {}
+                )
+                profiles = {
+                    name: spec
+                    for name, spec in profiles.items()
+                    if redact(spec.model_dump_json()) == spec.model_dump_json()
+                }
+                if profiles:
+                    catalog = {name: profile.description for name, profile in profiles.items()}
+                    project_context.append(
+                        "Optional specialists for delegate_tasks: "
+                        + fence_untrusted(json.dumps(catalog))
+                    )
+                meter = meter or BudgetMeter(effective_budget)
+                registry.register(
+                    subtasks.batch_tool(
+                        delegated,
+                        client,
+                        meter,
+                        parallelism=options.subtask_parallelism,
+                        specialists=profiles,
+                    )
+                )
+                policy.grant(
+                    PermissionClass.EXECUTE,
+                    subtasks.TARGET,
+                    PermissionScope.SESSION,
+                    session_id=sid,
+                )
+                project_context.append(
+                    "For independent research questions, use delegate_tasks in one batch. Use validated excerpts in the answer; child summaries are unverified."
+                )
         if plan:
             for tool in plan_tools(plan):
                 registry.register(tool)
@@ -381,18 +434,28 @@ async def execute(
             ctx.kernels = await session_kernels.acquire(sid, configuration, ctx.require_kernels())
 
         async def first_event(asked: ev.Event) -> None:
-            if options.first_pass:
+            recorded = {e.type for e in (resume_events or ())}
+            if options.first_pass and "first_pass_started" not in recorded:
                 store.append(
                     ev.FirstPassStarted(), session_id=sid, actor=Actor.SYSTEM, causation_id=asked.id
                 )
-            if options.coverage:
+            if options.coverage and "coverage_planned" not in recorded:
                 store.append(
                     ev.CoveragePlanned(topics={}),
                     session_id=sid,
                     actor=Actor.SYSTEM,
                     causation_id=asked.id,
                 )
-            if prefetch is not None and request is not None:
+            if (
+                prefetch is not None
+                and request is not None
+                and not any(
+                    e.causation_id == asked.id
+                    and e.type
+                    in ("permission_requested", "tool_call_requested", "tool_call_failed")
+                    for e in (resume_events or ())
+                )
+            ):
                 await invoke(
                     prefetch,
                     request.model_dump(),
@@ -413,6 +476,7 @@ async def execute(
                 binding_retries=options.binding_retries,
                 budget=effective_budget,
                 budget_meter=meter,
+                resume_events=resume_events,
                 before_first_model=first_event
                 if explicit or options.coverage or options.first_pass
                 else None,

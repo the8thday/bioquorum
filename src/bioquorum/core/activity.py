@@ -1,6 +1,7 @@
 """Fields exposed in an activity record and its follow-up reference."""
 
 ACTIVITY: dict[str, tuple[str, ...]] = {
+    "model_route_fallback": ("role", "previous", "next_model"),
     "model_call_started": ("provider", "model", "role"),
     "model_call_finished": (
         "model",
@@ -33,6 +34,16 @@ ACTIVITY: dict[str, tuple[str, ...]] = {
     "replication_started": ("claim_id",),
     "replication_finished": ("claim_id", "outcome"),
     "bundle_exported": ("bundle_id",),
+    "subtask_started": ("task_id", "question", "specialist"),
+    "subtask_finished": (
+        "task_id",
+        "outcome",
+        "input_tokens",
+        "output_tokens",
+        "cost_known",
+        "cost_usd",
+        "reason",
+    ),
     "literature_started": ("task_id", "question"),
     "literature_finished": (
         "task_id",

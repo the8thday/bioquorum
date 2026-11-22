@@ -52,7 +52,7 @@ def _log(controls: ResearchControls, pid: str) -> list[ev.Event]:
     return projected.event_log(controls.store.db, controls.ws.project_id, pid)
 
 
-def _decisions(events: list[ev.Event], affected: set[str]) -> list[dict]:
+def decision_versions(events: list[ev.Event], affected: set[str]) -> list[dict]:
     timelines: dict[str, list[dict]] = {}
     for event in events:
         if event.type not in ("decision_recorded", "decision_revised"):
@@ -179,7 +179,7 @@ def _handoff(controls: ResearchControls, pid: str, events: list[ev.Event]) -> di
         ),
         "gaps": _gaps(events),
         "materials": [{**m, "event_id": m["id"]} for m in materials.catalog(controls, pid)],
-        "decisions": _decisions(events, set(outstanding) | set(replacements)),
+        "decisions": decision_versions(events, set(outstanding) | set(replacements)),
     }
 
 

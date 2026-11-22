@@ -50,7 +50,12 @@ class ToolSpec(Generic[SessionId]):  # noqa: UP046 - Python 3.12 needs TypeVar f
     target: TargetFn[SessionId] | None = None
     """What the permission is about (a path, a host, ...). Defaults to the tool name."""
 
+    parallel_read: bool = False
+    """A built-in connector whose requests only read records may share a child execution slot."""
+
     def __post_init__(self) -> None:
+        if self.parallel_read and self.permission is not PermissionClass.CONNECTOR:
+            raise ValueError(f"{self.name}: only a built-in connector may declare a parallel read")
         if (self.args_model is None) == (self.raw_input_schema is None):
             raise ValueError(f"{self.name}: give exactly one of args_model / raw_input_schema")
         if self.output_trust is Trust.TRUSTED and self.permission in (

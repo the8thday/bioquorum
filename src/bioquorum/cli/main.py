@@ -200,9 +200,30 @@ def program_show(program_id: str, project: ProjectDir = Path(".")) -> None:
     typer.echo(json.dumps(detail, ensure_ascii=False, indent=2))
 
 
-@app.command("models")
-def models_show(project: ProjectDir = Path(".")) -> None:
+models_app = typer.Typer(help="Inspect or evaluate model routing.", invoke_without_command=True)
+app.add_typer(models_app, name="models")
+
+
+@models_app.command("eval")
+def models_eval(ctx: typer.Context, project: ProjectDir = Path(".")) -> None:
+    """Run eight scored requests per eligible model using the configured providers."""
+    from bioquorum.application import model_eval, research
+    from bioquorum.storage.events import EventStore
+
+    source = ctx.get_parameter_source("project")
+    if source and source.name == "DEFAULT" and ctx.parent:
+        project = ctx.parent.params.get("project", project)
+    ws = _load(project, ctx)
+    store = EventStore(ws.database())
+    asyncio.run(model_eval.evaluate(ws, store, research.model_client(ws, store)))
+    typer.echo(json.dumps(model_eval.results(ws, store), indent=2))
+
+
+@models_app.callback()
+def models_show(ctx: typer.Context, project: ProjectDir = Path(".")) -> None:
     """Show which model each role uses under this project's classification."""
+    if ctx.invoked_subcommand:
+        return
     ws = _load(project)
     try:
         router = Router(ws.models_config())

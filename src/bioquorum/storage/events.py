@@ -132,6 +132,8 @@ class EventStore:
         to_seq: int | None = None,
         *,
         types: Sequence[str] | None = None,
+        newest_first: bool = False,
+        limit: int | None = None,
     ) -> list[Event]:
         q = select(schema.events).where(schema.events.c.seq >= from_seq)
         q = (
@@ -143,9 +145,18 @@ class EventStore:
             q = q.where(schema.events.c.seq <= to_seq)
         if types is not None:
             q = q.where(schema.events.c.type.in_(types))
-        q = q.order_by(schema.events.c.seq)
+        seq = schema.events.c.seq
+        q = q.order_by(seq.desc() if newest_first else seq)
+        if limit is not None:
+            if limit < 1:
+                raise ValueError("Event page size must be positive")
+            q = q.limit(limit)
         with self.db.connect() as conn:
             return [_from_row(r) for r in conn.execute(q)]
+
+    def last_seq(self, session_id: str) -> int:
+        with self.db.connect() as conn:
+            return self._next_seq(conn, session_id) - 1
 
     def history(
         self, session_id: str, *, members: frozenset[str] | None = None, to_seq: int | None = None
@@ -201,9 +212,12 @@ class EventStore:
             yield from self.replay_rows(conn)
 
     @staticmethod
-    def replay_rows(conn: Connection) -> Iterator[Event]:
+    def replay_rows(conn: Connection, *, types: Sequence[str] | None = None) -> Iterator[Event]:
         """SQLite insertion order also holds when multiple processes allocate ULIDs."""
-        for row in conn.execute(select(schema.events).order_by(literal_column("rowid"))):
+        query = select(schema.events).order_by(literal_column("rowid"))
+        if types is not None:
+            query = query.where(schema.events.c.type.in_(types))
+        for row in conn.execute(query):
             yield _from_row(row)
 
     def count(self) -> int:

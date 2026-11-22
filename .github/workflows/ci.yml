@@ -36,6 +36,7 @@ jobs:
           diff -ru src/bioquorum/server/web "$RUNNER_TEMP/workbench"
       - run: npm ci --prefix tests/e2e --ignore-scripts
       - run: npm test --prefix tests/e2e
+      - run: BQ_TEST_TASKS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_CONVERSATION=1 npm test --prefix tests/e2e
       - run: BQ_TEST_PROJECTS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_EXTENSIONS=1 npm test --prefix tests/e2e

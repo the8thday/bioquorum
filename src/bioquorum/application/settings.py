@@ -34,6 +34,8 @@ FLAGS = (
     "program_context",
     "project_notes",
     "literature_subtasks",
+    "subtasks",
+    "specialists",
     "source_to_kernel",
     "vision",
     "evidence_skills",
@@ -95,6 +97,8 @@ def project_state(controls: ResearchControls) -> tuple[str | None, dict]:
 
 
 def snapshot(controls: ResearchControls) -> dict:
+    from bioquorum.application.model_eval import results
+
     ws = controls.ws
     revision, checks = project_state(controls)
     models = ws.models_config()
@@ -110,6 +114,8 @@ def snapshot(controls: ResearchControls) -> dict:
     values = {k: getattr(agent, k) for k in (*FLAGS, "binding_retries", "compact_at_bytes")}
     values.update(
         literature_tools=list(agent.literature_tools),
+        subtask_tools=list(agent.subtask_tools),
+        subtask_parallelism=agent.subtask_parallelism,
         plan_default=ws.config.get("agent", {}).get("plan_default", False),
         budget_tokens=agent.budget.tokens,
         budget_seconds=agent.budget.seconds,
@@ -137,6 +143,7 @@ def snapshot(controls: ResearchControls) -> dict:
             for ref in refs
         ],
         "agent": values,
+        "model_evaluation": results(ws, controls.store),
         "roles": {role.value: ws.config.get("roles", {}).get(role.value, []) for role in ModelRole},
         "models": {
             spec: {
@@ -176,7 +183,14 @@ def _validate(ws: Workspace, patch: dict[str, dict[str, Any]]) -> dict:
         raise ValueError("Unknown profile setting")
     options = Router(ws.models_config()).worker_options(ws.classification)
     agent = patch.get("agent", {})
-    if agent.keys() - {*FLAGS, *NUMBERS, "plan_default", "literature_tools"}:
+    if agent.keys() - {
+        *FLAGS,
+        *NUMBERS,
+        "plan_default",
+        "literature_tools",
+        "subtask_tools",
+        "subtask_parallelism",
+    }:
         raise ValueError("Unsupported agent setting")
     if any(type(agent[k]) is not bool for k in (*FLAGS, "plan_default") if k in agent):
         raise ValueError("Expected a switch")
@@ -224,10 +238,9 @@ def save(controls: ResearchControls, edit: SettingsEdit) -> dict:
             if preset and patch.get("agent"):
                 raise ValueError("Choose either a preset or custom switches")
             if preset:
-                patch["agent"] = preset
-        elif (
-            ws.profile_name != "custom"
-            and patch.get("agent", {}).keys() & profile_settings(ws.profile_name).keys()
+                patch["agent"] = {**preset, "subtasks": False, "specialists": False}
+        elif ws.profile_name != "custom" and patch.get("agent", {}).keys() & (
+            profile_settings(ws.profile_name).keys() | {"subtasks", "specialists"}
         ):
             patch["profile"] = {"name": "custom"}
         config = _validate(ws, patch)

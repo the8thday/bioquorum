@@ -19,4 +19,4 @@ def apply_all(conn: Connection, event: Event) -> None:
         handler(conn, event, event.parsed())
 
 
-__all__ = ["apply_all"]
+__all__ = ["HANDLERS", "apply_all"]

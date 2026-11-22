@@ -36,7 +36,10 @@ module.exports = async function scenarioD(page) {
   await button("Save replacement").click();
   await button("Original control analysis").click();
   await page.locator(".claim").getByText("Needs review",{exact:true}).waitFor();
-  await button("Research lines").click();
+  await button("Inbox").click();
+  const inbox = page.getByRole("dialog",{name:"Inbox"});
+  await inbox.getByRole("button",{name:/Control mean was/}).waitFor();
+  await inbox.getByRole("link",{name:"Repeat the control measurement."}).click();
   await page.getByRole("article",{name:"Research decision"}).getByText("Needs review",{exact:true}).waitFor();
   await page.getByRole("heading",{name:"Pending review"}).locator("..").getByRole("button",{name:/Control mean/}).click();
   await page.getByRole("dialog",{name:"Source record"}).getByText("claim review flagged",{exact:true}).waitFor();
@@ -73,6 +76,9 @@ module.exports = async function scenarioD(page) {
   await revised.getByRole("button",{name:"Save decision"}).click();
   await decision.getByText("Reassess the corrected control measurement.").waitFor();
   assert.equal(await decision.getByText("Needs review",{exact:true}).count(),0);
+  await button("Inbox").click();
+  await inbox.getByText("No pending items.").waitFor();
+  await inbox.getByRole("button",{name:"Close list"}).click();
   await decision.getByText("Previous decision versions").click();
   await decision.getByRole("button",{name:"Repeat the control measurement."}).waitFor();
   await button("New session in research line").click();

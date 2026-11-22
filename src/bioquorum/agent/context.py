@@ -32,14 +32,15 @@ def conversation(
     quote markers use (ADR-014). Aliases come from the same rule the review uses."""
     items = list(events)
     aliases = source_aliases(items) if source_labels else {}
-    delegated = {
-        report.parent_call_id: report.sources
-        for event in items
-        if event.type == ev.LiteratureFinished.event_type
-        and (through_seq is None or event.seq <= through_seq)
-        and isinstance(report := event.parsed(), ev.LiteratureFinished)
-        and report.outcome == "completed"
-    }
+    delegated: dict[str, list[ev.LiteratureExcerpt]] = {}
+    for event in items:
+        if event.type not in ("literature_finished", "subtask_finished"):
+            continue
+        if through_seq is not None and event.seq > through_seq:
+            continue
+        report = event.parsed()
+        if isinstance(report, ev.LiteratureFinished) and report.outcome == "completed":
+            delegated.setdefault(report.parent_call_id, []).extend(report.sources)
     out: list[Message] = []
     summary = next(
         (
@@ -78,7 +79,7 @@ def conversation(
     }
     selected: ev.Event | None = None
     for index, e in enumerate(items):
-        if e.type == "turn_started":
+        if e.type in ("turn_started", "turn_resumed"):
             selected = requests.get(e.payload["turn_id"])
         if e.type == "turn_finished":
             selected = None
@@ -145,12 +146,16 @@ def conversation(
             out.append(Message.tool(result))
         elif isinstance(p, ev.ToolCallFailed) and p.call_id in pending:
             pending.remove(p.call_id)
+            excerpts = delegated.get(p.call_id, [])
             out.append(
                 Message.tool(
                     ToolResultPart(
                         call_id=p.call_id,
-                        content=[TextPart(text=p.error)],
-                        trust=Trust.TRUSTED,  # written by BioQuorum, not by the tool
+                        content=[
+                            TextPart(text=p.error),
+                            *(TextPart(text=excerpt_text(q)) for q in excerpts),
+                        ],
+                        trust=Trust.UNTRUSTED if excerpts else Trust.TRUSTED,
                         is_error=True,
                     )
                 )

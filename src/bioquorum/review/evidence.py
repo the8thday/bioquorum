@@ -15,7 +15,7 @@ from typing import Any
 
 from bioquorum.core import events as ev
 from bioquorum.core.coverage import coverage_view
-from bioquorum.core.enums import ClaimKind, OutputStream
+from bioquorum.core.enums import Actor, ClaimKind, OutputStream
 from bioquorum.core.messages import TextPart
 from bioquorum.core.refs import NamedValue, QuoteRef
 from bioquorum.tools.builtin.citation import CITATION_LOOKUP
@@ -92,6 +92,7 @@ NON_SOURCE_TOOLS = {
     "save_project_note",
     "register_upload",
     "delegate_literature",
+    "delegate_tasks",
     "stage_tool_source",
 }
 
@@ -123,7 +124,11 @@ def source_aliases(events: Iterable[ev.Event]) -> dict[str, str]:
     """Assign stable source aliases for direct tool results and approved excerpts."""
     out: dict[str, str] = {}
     for event in events:
-        if event.type not in (ev.ToolCallFinished.event_type, ev.LiteratureFinished.event_type):
+        if event.type not in (
+            ev.ToolCallFinished.event_type,
+            ev.LiteratureFinished.event_type,
+            ev.SubtaskFinished.event_type,
+        ):
             continue
         for source in _sources(event.parsed()):
             if source.call_id not in out:
@@ -188,69 +193,84 @@ class Evidence:
         steps from plan_* events; named values from run_finished; quotable sources from
         non-kernel tool results."""
         events = list(events)
-        runs: dict[str, dict[str, Any]] = {}
-        values: dict[str, DeclaredValue] = {}
-        sources: list[Source] = []
-        citations: dict[str, CitationEvidence] = {}
-        source_ids: set[str] = set()
-        plan: dict[str, list[str]] = {}
-        done: dict[str, set[int]] = {}
-        question = ""
-        languages: dict[str, str] = {}
-        name_languages: dict[str, set[str]] = {}
-        for e in events:
-            p = e.parsed()
-            if isinstance(p, ev.UserMessage):
-                question = question or p.message.text()
-                name_languages.clear()
-            elif isinstance(p, ev.RunStarted) and not p.verification_run:
-                languages[p.run_id] = p.language
-                runs[p.run_id] = {"code": p.code, "stdout": [], "ok": False}
-            elif isinstance(p, ev.RunOutput) and p.run_id in runs and p.text:
-                fragments = runs[p.run_id]["stdout"]
-                if p.stream is OutputStream.DISPLAY:
-                    if fragments and not fragments[-1].endswith("\n"):
-                        fragments.append("\n")
-                    fragments.append(p.text.rstrip("\n") + "\n")
-                else:
-                    fragments.append(p.text)
-            elif isinstance(p, ev.RunFinished) and p.run_id in runs:
-                runs[p.run_id]["ok"] = True
-                for nv in p.values:
-                    values.pop(nv.name, None)  # re-insert: keep "latest" also in order
-                    owners = name_languages.setdefault(nv.name, set())
-                    owners.add(languages[p.run_id])
-                    if len(owners) == 1:
-                        values[nv.name] = DeclaredValue(nv, p.run_id)
-            elif isinstance(p, ev.ToolCallFinished | ev.LiteratureFinished):
-                for source in _sources(p):
-                    if source.call_id in source_ids:
-                        continue
-                    source_ids.add(source.call_id)
-                    sources.append(replace(source, alias=f"s{len(sources) + 1}"))
-                    for cit in citations_in_text(source.text):
-                        citations[cit.key] = _richer(citations.get(cit.key), cit)
-            elif isinstance(p, ev.PlanProposed):
-                plan[p.plan_id] = list(p.steps)
-            elif isinstance(p, ev.PlanStepDone):
-                done.setdefault(p.plan_id, set()).add(p.step_index)
-        steps = [
-            PlanStep(text=s, done=(i in done.get(pid, set())) or None)
-            for pid, items in plan.items()
-            for i, s in enumerate(items)
-        ]
-        return cls(
-            coverage=coverage_view(events),
-            question=question,
+        builder = EvidenceBuilder()
+        for event in events:
+            builder.observe(event, event.parsed())
+        return builder.view(coverage_view(events), answer=answer)
+
+
+class EvidenceBuilder:
+    """Accumulate one ordered prefix for point-in-time answer rendering."""
+
+    def __init__(self) -> None:
+        self.runs: dict[str, dict[str, Any]] = {}
+        self.values: dict[str, DeclaredValue] = {}
+        self.sources: list[Source] = []
+        self.citations: dict[str, CitationEvidence] = {}
+        self.source_ids: set[str] = set()
+        self.plan: dict[str, list[str]] = {}
+        self.done: dict[str, set[int]] = {}
+        self.question = ""
+        self.languages: dict[str, str] = {}
+        self.name_languages: dict[str, set[str]] = {}
+
+    def observe(self, event: ev.Event, payload: ev.EventPayload) -> None:
+        p = payload
+        if isinstance(p, ev.UserMessage):
+            self.question = self.question or p.message.text()
+            if event.actor is Actor.USER:
+                self.name_languages.clear()
+        elif isinstance(p, ev.RunStarted) and not p.verification_run:
+            self.languages[p.run_id] = p.language
+            self.runs[p.run_id] = {"code": p.code, "stdout": [], "ok": False}
+        elif isinstance(p, ev.RunOutput) and p.run_id in self.runs and p.text:
+            fragments = self.runs[p.run_id]["stdout"]
+            if p.stream is OutputStream.DISPLAY:
+                if fragments and not fragments[-1].endswith("\n"):
+                    fragments.append("\n")
+                fragments.append(p.text.rstrip("\n") + "\n")
+            else:
+                fragments.append(p.text)
+        elif isinstance(p, ev.RunFinished) and p.run_id in self.runs:
+            self.runs[p.run_id]["ok"] = True
+            for nv in p.values:
+                self.values.pop(nv.name, None)
+                owners = self.name_languages.setdefault(nv.name, set())
+                owners.add(self.languages[p.run_id])
+                if len(owners) == 1:
+                    self.values[nv.name] = DeclaredValue(nv, p.run_id)
+        elif isinstance(p, ev.ToolCallFinished | ev.LiteratureFinished):
+            for source in _sources(p):
+                if source.call_id in self.source_ids:
+                    continue
+                self.source_ids.add(source.call_id)
+                self.sources.append(replace(source, alias=f"s{len(self.sources) + 1}"))
+                for citation in citations_in_text(source.text):
+                    self.citations[citation.key] = _richer(
+                        self.citations.get(citation.key), citation
+                    )
+        elif isinstance(p, ev.PlanProposed):
+            self.plan[p.plan_id] = list(p.steps)
+        elif isinstance(p, ev.PlanStepDone):
+            self.done.setdefault(p.plan_id, set()).add(p.step_index)
+
+    def view(self, coverage: dict | None, *, answer: str = "") -> Evidence:
+        return Evidence(
+            coverage=coverage,
+            question=self.question,
+            answer=answer,
             runs=[
                 RunEvidence(rid, r["ok"], r["code"], "".join(r["stdout"]))
-                for rid, r in runs.items()
+                for rid, r in self.runs.items()
             ],
-            citations=list(citations.values()),
-            plan=steps,
-            answer=answer,
-            values=values,
-            sources=sources,
+            citations=list(self.citations.values()),
+            sources=list(self.sources),
+            values=dict(self.values),
+            plan=[
+                PlanStep(text=text, done=(i in self.done.get(pid, set())) or None)
+                for pid, steps in self.plan.items()
+                for i, text in enumerate(steps)
+            ],
         )
 
 

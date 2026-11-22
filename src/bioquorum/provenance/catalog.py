@@ -22,6 +22,8 @@ def catalog_records(parsed: Iterable[tuple[ev.Event, ev.EventPayload]]) -> list[
             turn_count += 1
             turn = p.turn_id
             turn_numbers[turn] = turn_count
+        elif isinstance(p, ev.TurnResumed):
+            turn = p.turn_id
         elif isinstance(p, ev.TurnFinished):
             turn = None
         elif isinstance(p, ev.RunStarted):

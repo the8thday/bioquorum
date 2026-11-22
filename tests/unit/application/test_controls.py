@@ -428,3 +428,106 @@ async def test_bilingual_kernels_survive_two_completed_workbench_turns(tmp_path)
     finally:
         await c.close()
     assert all(k.closed for k in launched)
+
+
+async def test_project_task_list_tracks_latest_plan_decision(tmp_path):
+    from bioquorum.application.tasks import task_list
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Evidence")
+    turn = controls.submit(sid, "Compare", steps=["Review sources"])
+    from bioquorum.application.tasks import inbox
+
+    assert [(i["id"], i["kind"]) for i in inbox(controls)] == [(turn.id, "Plan approval")]
+    assert task_list(controls)[0]["status"] == "awaiting plan"
+    await controls.decide_plan(sid, turn.id, approve=False)
+    assert task_list(controls)[0]["status"] == "declined"
+    assert not inbox(controls)
+
+
+async def test_crashed_tool_requires_check_before_resume(tmp_path):
+    from bioquorum.core.enums import PermissionClass
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Check execution")
+    store = controls.store
+    turn = store.append(
+        ev.TurnRequested(question="Record the result"), session_id=sid, actor=Actor.USER
+    )
+    store.append(ev.TurnStarted(turn_id=turn.id), session_id=sid, actor=Actor.SYSTEM)
+    store.append(
+        ev.ToolCallRequested(
+            call_id="pending", tool="write_file", permission=PermissionClass.WRITE_FS
+        ),
+        session_id=sid,
+        actor=Actor.AGENT,
+    )
+    await controls.recover()
+    from bioquorum.application.controls import ConflictError
+    from bioquorum.application.tasks import inbox
+
+    assert [item["kind"] for item in inbox(controls)] == ["Interrupted research"]
+    with pytest.raises(ConflictError, match="Verify"):
+        controls.resume(sid, turn.id)
+    controls.resume(sid, turn.id, ["pending"])
+    await controls.stop(sid)
+    assert len(store.read(sid, types=["tool_call_requested"])) == 1
+    assert store.read(sid, types=["turn_resumed"])[0].payload["checked_calls"] == ["pending"]
+    from bioquorum.application.recovery import checkpoint
+
+    boundary = checkpoint(store.read(sid))
+    assert boundary is not None and not boundary.uncertain
+
+
+async def test_inbox_uses_recorded_clarification_lifecycle(tmp_path):
+    from bioquorum.application.tasks import inbox
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Clarification")
+    event = controls.store.append(
+        ev.ClarificationRequested(question="Which cohort?", assumption="All donors"),
+        session_id=sid,
+        actor=Actor.AGENT,
+    )
+    assert [(item["kind"], item["id"]) for item in inbox(controls)] == [("Question", event.id)]
+    controls.store.append(
+        ev.ClarificationAnswered(request_id=event.id, turn_id="followup"),
+        session_id=sid,
+        actor=Actor.USER,
+    )
+    assert not inbox(controls)
+
+
+async def test_task_list_shows_each_child_and_its_own_usage(tmp_path):
+    from bioquorum.application.tasks import task_list
+
+    controls = ResearchControls(init_project(tmp_path))
+    sid = controls.new_session("Compare records")
+    store = controls.store
+    turn = store.append(ev.TurnRequested(question="Read A and B"), session_id=sid, actor=Actor.USER)
+    store.append_chain(
+        [
+            ev.TurnStarted(turn_id=turn.id),
+            ev.SubtaskStarted(task_id="a", parent_call_id="batch", question="Read A"),
+            ev.SubtaskStarted(
+                task_id="b", parent_call_id="batch", question="Read B", specialist="archive"
+            ),
+            ev.SubtaskFinished(
+                task_id="b",
+                parent_call_id="batch",
+                outcome="inconclusive",
+                reason="No matching source",
+                input_tokens=10,
+                output_tokens=2,
+                model_calls=1,
+            ),
+        ],
+        session_id=sid,
+        actor=Actor.AGENT,
+    )
+    (row,) = task_list(controls)
+    a, b = row["children"]
+    assert (a["question"], a["status"]) == ("Read A", "running")
+    assert (b["question"], b["specialist"], b["status"]) == ("Read B", "archive", "inconclusive")
+    assert b["input_tokens"] + b["output_tokens"] == 12
+    assert b["model_calls"] == 1 and b["priced_calls"] == 0

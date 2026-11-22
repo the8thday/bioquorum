@@ -16,7 +16,7 @@ function Badge({status}: {status: string}) {
 
 export function TurnCard({turn, animated, waiting, reopen}: {reopen?:(r:TurnRef)=>void; turn: Turn; animated?: boolean; waiting?: boolean}) {
   const {plan} = turn;
-  return <article className="panel turn">
+  return <article className="panel turn" id={turn.id && "record-"+turn.id}>
     <span className="kicker">You</span><p className="question">{turn.question}</p>
     {turn.selections?.map((r,i)=><button className="result-link" key={i} onClick={()=>reopen?.(r)}>Reopen {r.selection?.type} selection</button>)}
     {turn.status === "running" && (animated || waiting)
@@ -132,14 +132,14 @@ export function AnswerCard(props: AnswerProps) {
     </section>);
     i=end;
   }
-  return <article className="panel answer"><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
+  return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
     <p className="muted">{answer.model ?? "Model not recorded"}</p>
     {body}
     {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}
     {props.discuss && Object.entries(answer.discussion_items ?? {}).map(([label,excerpt])=>
       <button className="quiet" key={label} onClick={()=>props.discuss?.({kind:"answer",id:answer.id,excerpt})}>Discuss {label.toLowerCase()}</button>)}
     {answer.coverage && <Coverage ledger={answer.coverage}/>}
-    {answer.clarification && <aside><strong>{answer.clarification.question}</strong>
+    {answer.clarification && <aside id={"record-"+answer.clarification.id}><strong>{answer.clarification.question}</strong>
       <p>Working assumption · {answer.clarification.assumption}</p>
       {props.discuss && <button className="quiet" onClick={()=>props.discuss?.({
         kind:"activity",id:answer.clarification!.id})}>Answer this question</button>}</aside>}

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    inbox_notifications: bool = False
     reading_size: Literal["standard", "large"] = "standard"
     initial_panel: Literal["Evidence", "Artifacts", "Activity", "Usage", "Context"] = "Activity"
 

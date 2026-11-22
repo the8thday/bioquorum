@@ -335,6 +335,13 @@ class TurnStarted(EventPayload):
 
 
 @register
+class TurnResumed(EventPayload):
+    event_type: ClassVar[str] = "turn_resumed"
+    turn_id: str
+    checked_calls: list[str] = Field(default_factory=list)
+
+
+@register
 class TurnFinished(EventPayload):
     event_type: ClassVar[str] = "turn_finished"
     turn_id: str
@@ -354,6 +361,31 @@ class AssistantMessage(EventPayload):
     message: Message
     model_call_id: str | None = None
     provider_raw: OpaqueBytes | None = Field(default=None, description="Debug only (ADR-003)")
+
+
+@register
+class ModelRouteFallback(EventPayload):
+    event_type: ClassVar[str] = "model_route_fallback"
+    role: ModelRole
+    previous: str
+    next_model: str
+
+
+class RoleScore(BaseModel):
+    correct: int = Field(ge=0)
+    total: int = Field(gt=0)
+    failed: int = Field(ge=0)
+
+
+@register
+class ModelEvaluated(EventPayload):
+    event_type: ClassVar[str] = "model_evaluated"
+    project_id: str
+    model: str
+    evaluation_id: str
+    scores: dict[str, RoleScore]
+    protocol: Literal["role-checks-v1"] = "role-checks-v1"
+    responses: dict[str, list[str | None]] = Field(default_factory=dict)
 
 
 @register
@@ -424,6 +456,14 @@ class ToolCallFailed(EventPayload):
 
 
 # ----------------------------------------------------------------- plan & permission
+
+
+@register
+class PlanDrafted(EventPayload):
+    event_type: ClassVar[str] = "plan_drafted"
+    model: str
+    question: str
+    steps: list[str] = Field(min_length=1, max_length=12)
 
 
 @register
@@ -831,6 +871,17 @@ class LiteratureFinished(EventPayload):
     priced_calls: int = 0
     model_calls: int = 0
     failed_calls: int = 0
+
+
+@register
+class SubtaskStarted(LiteratureStarted):
+    event_type: ClassVar[str] = "subtask_started"
+    specialist: str | None = None
+
+
+@register
+class SubtaskFinished(LiteratureFinished):
+    event_type: ClassVar[str] = "subtask_finished"
 
 
 @register

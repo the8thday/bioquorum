@@ -102,7 +102,11 @@ async def test_workbench_preferences_follow_user_across_projects_and_ports(tmp_p
             base_url=origin,
             headers={"Origin": origin},
         ) as http:
-            prefs = {"reading_size": "large", "initial_panel": "Usage"}
+            prefs = {
+                "reading_size": "large",
+                "initial_panel": "Usage",
+                "inbox_notifications": False,
+            }
             if port == 8181:
                 assert (await http.get("/api/workbench-settings")).json()[
                     "reading_size"
@@ -175,3 +179,25 @@ def test_project_language_inventory_reads_only_configured_prefix(tmp_path):
     assert enabled["lock_hash"] == env_lock_hash(b"locked")
     assert ("DESeq2", "1.44.0") in enabled["r_packages"]
     assert package_inventory(tmp_path, use_pixi=False)["r_packages"] == []
+
+
+def test_selecting_recommended_resets_opt_in_delegation(tmp_path):
+    from bioquorum.application.settings import SettingsEdit, save, snapshot
+
+    controls = ResearchControls(init_project(tmp_path))
+    custom = save(
+        controls,
+        SettingsEdit(
+            revision=snapshot(controls)["revision"],
+            patch={
+                "profile": {"name": "custom"},
+                "agent": {"subtasks": True, "specialists": True, "subtask_tools": ["read_file"]},
+            },
+        ),
+    )
+    assert custom["agent"]["subtasks"]
+    recommended = save(
+        controls,
+        SettingsEdit(revision=custom["revision"], patch={"profile": {"name": "recommended"}}),
+    )
+    assert not recommended["agent"]["subtasks"] and not recommended["agent"]["specialists"]

@@ -6,7 +6,7 @@ import { Extensions, type Section } from "./Extensions";
 import { Icon } from "./Icon";
 
 export const panels = ["Evidence","Artifacts","Activity","Usage","Context"] as const;
-export type Preferences = {reading_size: "standard" | "large"; initial_panel: typeof panels[number]};
+export type Preferences = {inbox_notifications?:boolean; reading_size: "standard" | "large"; initial_panel: typeof panels[number]};
 export const defaults: Preferences = {reading_size: "standard", initial_panel: "Activity"};
 
 export function WorkbenchSettings({value, saved, close, initial, base, newProject}: {
@@ -36,6 +36,14 @@ export function WorkbenchSettings({value, saved, close, initial, base, newProjec
         setDraft({...draft,initial_panel:e.target.value as Preferences["initial_panel"]})}>
         {panels.map(name => <option key={name}>{name}</option>)}
       </select></label>
+      {"Notification" in window && <label><input type="checkbox" checked={!!draft.inbox_notifications}
+        onChange={async e=>{
+          if (!e.target.checked) {setDraft({...draft,inbox_notifications:false});return;}
+          try {
+            if (await Notification.requestPermission()==="granted") setDraft({...draft,inbox_notifications:true});
+            else setError("Allow notifications for this site in your browser.");
+          } catch(e) {setError(errorMessage(e));}
+        }}/> Notify me of new inbox items while the workbench is open</label>}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="actions"><button className="quiet" type="button" onClick={close}>Cancel</button>
         <button className="primary" disabled={pending}>Save preferences</button></div>

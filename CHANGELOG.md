@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.12 · 开发中
+
+- 0.12.1 项目任务列表、服务重启检测、原轮次恢复和未确认工具结果的人工核对。
+- 0.12.2 项目待办入口和可选浏览器通知。
+- 0.12.3–0.12.4 通用并行子任务与 Markdown 专家，各自按项目启用。每项有独立事件流、权限上限、父会话共享预算和可核对的来源。[真实模型对照](docs/research/v12-scale.md)
+- 0.12.5 计划草稿、逐角色模型评测、可调整的备用模型链与回退事件。
+- 0.12.6 长会话首屏分页、增量证据绑定、游标续传与审计页。[工程验收](docs/release/v0.12-acceptance.md)
+
+
 Extension interfaces (checks, connectors, providers, skills) may change before v1.0; every such change is recorded here (ARCHITECTURE.md §7).
 
 ## Unreleased · Artifact viewers and domain Skills (v0.11 development branch)

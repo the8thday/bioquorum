@@ -42,3 +42,36 @@ def test_source_selection_stays_inside_untrusted_fence_and_rejects_fabricated_qu
             history, ev.TurnReference(kind="source", id="c1", excerpt="An invented claim")
         )
     assert ev.upgrade_payload("turn_requested", 1, {"question": "Old turn"})["references"] == []
+
+
+def test_resumed_turn_keeps_original_reference_if_question_was_not_yet_logged(store):
+    from bioquorum.agent.context import conversation
+    from bioquorum.core.enums import Actor
+    from bioquorum.core.messages import Message
+
+    sid = "reference-resume"
+    source = store.append(
+        ev.AssistantMessage(message=Message.assistant("Archived finding.")),
+        session_id=sid,
+        actor=Actor.AGENT,
+    )
+    question = store.append(
+        ev.TurnRequested(
+            question="Explain",
+            references=[ev.TurnReference(kind="answer", id=source.id, excerpt="Archived finding.")],
+        ),
+        session_id=sid,
+        actor=Actor.USER,
+    )
+    store.append_chain(
+        [
+            ev.TurnStarted(turn_id=question.id),
+            ev.TurnFinished(turn_id=question.id, outcome="interrupted"),
+            ev.TurnResumed(turn_id=question.id),
+            ev.UserMessage(message=Message.user("Explain")),
+        ],
+        session_id=sid,
+        actor=Actor.USER,
+    )
+    history = conversation(store.read(sid), references=True)
+    assert "Archived finding." in history[-1].text()

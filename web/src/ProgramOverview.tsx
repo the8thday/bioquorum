@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Dialog } from "./Dialog";
 import { errorMessage, request, sessionPath } from "./api";
 import { useProjectRead } from "./useProjectRead";
@@ -18,7 +18,7 @@ type Handoff = {
 type ViewRecord = (id:string)=>void;
 
 export function DecisionEntry({decision, showRecord, revise}:{decision:Decision;showRecord:ViewRecord;revise?:()=>void}) {
-  return <article aria-label="Research decision" className="program-decision">
+  return <article aria-label="Research decision" id={"decision-"+decision.id} className="program-decision">
     {decision.time && <time className="muted" dateTime={decision.time}>{new Date(decision.time).toLocaleString()}</time>}
     <p><strong>{decision.text}</strong> {decision.needs_review && <span className="review-notice">Needs review</span>}</p>
     <ul aria-label="Fixed claim versions">{decision.claims.map(c=><li key={c.id}>
@@ -107,6 +107,10 @@ export function ProgramOverview({base,openSession}:{base:string;openSession:(sid
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
   const data = result.value;
+  useEffect(()=>{
+    const target=location.hash.slice(1);
+    if (data && target.startsWith("decision-")) document.getElementById(target)?.scrollIntoView({block:"center"});
+  },[data]);
   async function bundle() {
     setBusy(true);setError("");
     try {

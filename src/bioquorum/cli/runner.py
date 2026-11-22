@@ -123,7 +123,12 @@ def print_usage(console: Console, events: list[ev.Event], *, after_seq: int, lab
         p
         for e in events
         if e.seq > after_seq
-        and e.type in (ev.ModelCallFinished.event_type, ev.LiteratureFinished.event_type)
+        and e.type
+        in (
+            ev.ModelCallFinished.event_type,
+            ev.LiteratureFinished.event_type,
+            ev.SubtaskFinished.event_type,
+        )
         and isinstance(p := e.parsed(), ev.ModelCallFinished | ev.LiteratureFinished)
     ]
     if not calls:

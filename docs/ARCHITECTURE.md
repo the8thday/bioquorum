@@ -183,17 +183,17 @@ Event(
 | 项目笔记 | `project_note_saved`, `project_note_drafted` |
 | 会话 | `session_created`, `session_forked`, `session_title_set`, `session_archived` |
 | 对话 | `user_message`, `assistant_message` |
-| 模型 | `model_call_started`, `model_call_finished`, `model_call_failed` |
+| 模型 | `model_call_started`, `model_call_finished`, `model_call_failed`, `model_evaluated`, `model_route_fallback` |
 | 工具 | `tool_call_requested`, `tool_call_finished`, `tool_call_failed` |
-| 计划 | `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
+| 计划 | `plan_drafted`, `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
 | 权限 | `permission_requested`, `permission_decided` |
 | 执行 | `run_started`, `run_output`, `lineage_observed`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
 | 产物 | `file_registered`, `artifact_version_created`, `artifact_status_changed` |
 | 结论 | `claim_extracted`, `claim_status_changed` |
 | 审查 | `review_started`, `review_finding`, `review_finished`, `finding_resolved` |
 | 复现 | `rerun_started`, `rerun_finished`, `replication_started`, `replication_finished`, `bundle_exported` |
-| 研究交互 | `turn_requested`, `turn_started`, `turn_finished` |
-| 文献子任务 | `literature_started`, `literature_finished` |
+| 研究交互 | `turn_requested`, `turn_started`, `turn_resumed`, `turn_finished` |
+| 文献子任务 | `literature_started`, `literature_finished`, `subtask_started`, `subtask_finished` |
 | 首轮判断 | `first_pass_started`, `clarification_requested`, `clarification_answered` |
 | 证据覆盖 | `coverage_planned`, `coverage_updated`, `coverage_closed` |
 | 探索控制 | `context_compacted`, `exploration_stopped` |
@@ -576,3 +576,6 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 040 | [研究线归属与材料版本的身份](adr/040-program-membership-and-material-versions.md) |
 | 041 | [研究线更正、重算与接手](adr/041-correction-and-handoff.md) |
 | 042 | [按需加载本地文件查看器与可回放的选区](adr/042-artifact-viewers.md) |
+| 043 | [从事件记录恢复中断的研究轮次](adr/043-turn-recovery.md) |
+| 044 | [有权限上限的并行子任务](adr/044-scoped-subtasks.md) |
+| 045 | [按角色评测和记录模型回退](adr/045-role-evaluation-and-routing.md) |

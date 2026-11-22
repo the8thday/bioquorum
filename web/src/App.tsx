@@ -20,12 +20,14 @@ import { UsageDialog } from "./Usage";
 import { useRecord } from "./useRecord";
 import type { DraftReference, EvidenceRef, Project, Snapshot, TurnRef } from "./types";
 import { Icon } from "./Icon";
+import { InboxNotifications } from "./InboxNotifications";
+import { Tasks } from "./Tasks";
 import { Projects } from "./Projects";
 import { Materials } from "./Materials";
 import type { Section } from "./Extensions";
 import plate from "./radiolaria.webp";
 
-type Modal = {kind: "new" | "fork" | "rename" | "archive" | "usage" | "context" | "settings" | "chat-settings"} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
+type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "rename" | "archive" | "usage" | "context" | "settings" | "chat-settings"} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
   | {kind: "evidence"; claimIds:string[]; item: TurnRef; data: Awaited<ReturnType<typeof readEvidence>>}
   | {kind: "replication"; path: string; estimate: Estimate};
 
@@ -83,19 +85,33 @@ export function App() {
 
 function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Selection & {layout:ReturnType<typeof useSidebarLayout>;prefs: Preferences; setPrefs: (value: Preferences) => void; select: (id: string, fill?: boolean,home?:boolean, draft?:string, leaveLine?:boolean) => Promise<void>}) {
   const base = id ? sessionPath(id) : "";
-  const {record, refresh, connection, progress, error} = useRecord(base);
+  const {record, refresh, earlier, full, connection, progress, error} = useRecord(base);
   const transcript = useRef<HTMLDivElement>(null);
-  const highlightedClaim = useRef("");
+  const [anchor,setAnchor] = useState(location.hash.slice(1));
+  const located = useRef("");
+  const requestedHistory = useRef("");
   useEffect(()=>{
-    const hash=location.hash;
-    if (!record || highlightedClaim.current === hash || !hash.startsWith("#claim-")) return;
-    const node = transcript.current?.querySelector<HTMLElement>('[data-claim-id="'+CSS.escape(hash.slice(7))+'"]');
-    if (!node) return;
+    const changed=()=>{located.current="";setAnchor(location.hash.slice(1));};
+    window.addEventListener("hashchange",changed);
+    return ()=>window.removeEventListener("hashchange",changed);
+  },[]);
+  useEffect(()=>{
+    if (!record || !/^(claim|record)-/.test(anchor) || located.current===anchor) return;
+    const node = anchor.startsWith("claim-")
+      ? transcript.current?.querySelector<HTMLElement>('[data-claim-id="'+CSS.escape(anchor.slice(6))+'"]')
+      : document.getElementById(anchor);
+    if (!node) {
+      if (record.has_earlier && requestedHistory.current!==anchor) {
+        requestedHistory.current=anchor;
+        full().catch(report);
+      }
+      return;
+    }
     let closed = node.closest<HTMLDetailsElement>("details:not([open])");
     while (closed) {closed.open=true; closed=closed.closest("details:not([open])");}
     node.scrollIntoView({block:"center"});
-    highlightedClaim.current=hash;
-  },[record]);
+    located.current=anchor;
+  },[record,anchor,full]);
   const follow = useRef(false);
   const [modal, setModal] = useState<Modal | null>(null);
   const [message, setMessage] = useState<ReactNode>("");
@@ -244,7 +260,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     groups.set(key,group);
   }
   const cards = record ? [
-    ...record.questions.map(q => ({seq: q.seq, view: <TurnCard key={"q" + q.seq} turn={{question: q.text}}/>})),
+    ...record.questions.map(q => ({seq: q.seq, view: <TurnCard key={"q" + q.seq} turn={{question: q.text,id:q.id}}/>})),
     ...record.turns.map(t => ({seq: t.seq, view: <TurnCard key={t.id} turn={t} reopen={r=>{const p=products.find(product=>product.id===r.id);if(p)openResult(p,r.selection);}} animated={t.seq >= 0 && executing} waiting={t.seq >= 0 && awaitingPermission}/>})),
     ...record.figures.map(f => ({seq: f.seq, view: <article key={"f" + f.seq} className="panel figure"><h2>Recorded figure</h2>
       <button className="figure-trigger" aria-label="Open recorded figure" onClick={()=>{const p=resultFigures.get(f.id);if(p)openResult(p);}}>
@@ -277,6 +293,8 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
           onClick={()=>{showMaterials(true,true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Evidence"/><span>Research lines</span></button>}
         {!project.example && <button className="rail-action" title="Materials" aria-current={lineView==="materials" ? "page":undefined}
           onClick={()=>{showMaterials(true);requestAnimationFrame(()=>document.getElementById("workspace")?.focus());}}><Icon name="Artifacts"/><span>Materials</span></button>}
+        <button className="rail-action" title="Inbox" onClick={()=>setModal({kind:"inbox"})}><Icon name="Evidence"/><span>Inbox</span></button>
+        <button className="rail-action" title="Research tasks" onClick={()=>setModal({kind:"tasks"})}><Icon name="Activity"/><span>Research tasks</span></button>
         <button className="rail-action" title="Skills" onClick={()=>preferences("Skills")}><Icon name="skills"/><span>Skills</span></button>
         <button className="rail-action" title="MCP connectors" onClick={()=>preferences("MCP connectors")}><Icon name="plug"/><span>MCP connectors</span></button></nav>
       <Projects name={project.project}/>
@@ -313,13 +331,16 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     {(record?.disconnected ?? project.onboarding?.disconnected ?? []).map(name => <p key={name} className="warning" role="status">MCP connector {name} is disconnected. Its tools are unavailable. Reconnect it in Project settings.</p>)}
     {id && !record && !error && <p role="status">Loading session record…</p>}
     {!home && project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}
-    <section id="record" aria-label="Research record">{cards.length ? cards.map(c => c.view)
+    <section id="record" aria-label="Research record">{record?.has_earlier && <button className="quiet" onClick={()=>earlier().catch(report)}>Show earlier research</button>}{cards.length ? cards.map(c => c.view)
       : project.example && (!id || record) && <Intro start={() => start().catch(report)}/>}</section>
     {record && running && progress && <p role="status" className="generation-progress">{progress}</p>}
     {quote && !modal && <SelectedText add={quote}/>}
     </div>
     <div className="compose-dock">
-    {(record || home && !project.example) && <Composer initialDraft={draft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
+    {(record || home && !project.example) && <Composer draftPlan={async q=>{
+      const session=id || await prepareSession(q);
+      return request(sessionPath(session)+"/plan-draft",{question:q});
+    }} initialDraft={draft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("Research session")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
       onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} planDefault={project.plan_default} worker={worker} setWorker={setWorker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
     <p id="message" role="status" aria-live="polite">{message || error}</p></div>{home && <>{project.kernel_notice && <p id="kernel-notice" className="warning">{project.kernel_notice}</p>}<Onboarding project={project}/></>}</main>
@@ -347,6 +368,17 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       active={!!running || !!record?.pending_plan} example={!!project.example} close={close} fork={() => setModal({kind: "fork"})}/>}
     {modal?.kind === "preferences" && <WorkbenchSettings initial={modal.section} base={base} newProject={()=>{close();requestAnimationFrame(()=>document.getElementById("new-project")?.click());}} value={prefs} saved={setPrefs} close={close}/>}
     {(modal?.kind === "settings" || modal?.kind === "chat-settings") && <SettingsDialog quick={modal.kind === "chat-settings"} base={base} close={close} saved={async () => {await select(id,false,!id); if (id) await refresh();}}/>}
+    <InboxNotifications enabled={!!prefs.inbox_notifications} show={()=>setModal({kind:"inbox"})}/>
+    {(modal?.kind === "tasks" || modal?.kind === "inbox") && <Tasks inbox={modal.kind==="inbox"} close={close} open={(sid,target)=>{
+      close();showMaterials(false);
+      const url=new URL(location.href);
+      url.searchParams.set("session",sid);url.searchParams.delete("home");url.searchParams.delete("view");url.hash=target;
+      if(sid!==id) {location.assign(url);return;}
+      history.replaceState(null,"",url);
+      located.current="";
+      setAnchor(target);
+      refresh().catch(report);
+    }}/>}
     {modal?.kind === "usage" && <UsageDialog base={base} seq={record?.last_seq ?? 0} close={close}/>}
     {modal?.kind === "archive" && <Dialog id="archive-dialog" title="Archive session" close={close}>
       <p>Remove this session from the list? Its research record will be preserved.</p>

@@ -100,6 +100,14 @@ class Question(BaseModel):
     worker_model: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class ResumeTurn(BaseModel):
+    checked_calls: list[str] = Field(default_factory=list)
+
+
+class PlanQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=12000)
+
+
 class PlanDecision(BaseModel):
     approve: bool
     reason: str = Field(default="", max_length=600)
@@ -190,6 +198,16 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             await settings.reconnect(controls, _sid(request), request.path_params["name"])
         )
 
+    async def tasks(request: Request) -> Response:
+        from bioquorum.application.tasks import task_list
+
+        return JSONResponse(task_list(controls), headers={"Cache-Control": "no-store"})
+
+    async def pending_items(request: Request) -> Response:
+        from bioquorum.application.tasks import inbox
+
+        return JSONResponse(inbox(controls), headers={"Cache-Control": "no-store"})
+
     async def sessions(request: Request) -> Response:
         if request.method == "POST":
             body = await _body(request, Title)
@@ -228,7 +246,14 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def read(request: Request) -> Response:
         return JSONResponse(
-            record.snapshot(controls, _sid(request)), headers={"Cache-Control": "no-store"}
+            record.snapshot(
+                controls,
+                _sid(request),
+                turn_limit=int(request.query_params["turn_limit"])
+                if "turn_limit" in request.query_params
+                else None,
+            ),
+            headers={"Cache-Control": "no-store"},
         )
 
     async def context_info(request: Request) -> Response:
@@ -267,6 +292,10 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         )
         return JSONResponse({"turn_id": turn.id}, status_code=202)
 
+    async def draft_plan(request: Request) -> Response:
+        body = await _body(request, PlanQuestion)
+        return JSONResponse(await controls.draft_plan(_sid(request), body.question))
+
     async def plan(request: Request) -> Response:
         body = await _body(request, PlanDecision)
         await controls.decide_plan(
@@ -278,6 +307,11 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         body = await _body(request, PermissionDecision)
         controls.decide_permission(_sid(request), request.path_params["request_id"], body.grant)
         return Response(status_code=204)
+
+    async def resume(request: Request) -> Response:
+        body = await _body(request, ResumeTurn)
+        controls.resume(_sid(request), request.path_params["turn_id"], body.checked_calls)
+        return JSONResponse({"turn_id": request.path_params["turn_id"]}, status_code=202)
 
     async def stop(request: Request) -> Response:
         await _body(request, Empty)
@@ -475,14 +509,14 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def events(request: Request) -> Response:
         sid = _sid(request)
-        available = controls.require_session(sid)
+        controls.check_session(sid)
         try:
             cursor = int(
                 request.headers.get("last-event-id", request.query_params.get("after", "-1"))
             )
         except ValueError:
             raise ValueError("Invalid event cursor") from None
-        if not -1 <= cursor <= available[-1].seq:
+        if not -1 <= cursor <= controls.store.last_seq(sid):
             raise ValueError("Invalid event cursor")
 
         async def stream():
@@ -491,7 +525,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             progress = None
             idle = 0
             while not await request.is_disconnected():
-                changes = controls.store.read(sid, from_seq=cursor + 1)
+                changes = controls.store.read(sid, from_seq=cursor + 1, limit=256)
                 for event in changes:
                     cursor = event.seq
                     yield f"id: {cursor}\nevent: change\ndata: {json.dumps(event.type)}\n\n"
@@ -504,7 +538,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 if idle >= 40:
                     yield ": keepalive\n\n"
                     idle = 0
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0 if len(changes) == 256 else 0.25)
 
         return StreamingResponse(
             stream(),
@@ -614,6 +648,8 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route("/api/extensions", project_extensions, methods=["GET", "POST"]),
             Route("/api/settings", project_settings, methods=["GET", "POST"]),
             Route(session + "/connectors/{name}/reconnect", reconnect, methods=["POST"]),
+            Route("/api/tasks", tasks),
+            Route("/api/inbox", pending_items),
             Route(base, sessions, methods=["GET", "POST"]),
             Route(session, read),
             Route(session + "/title", rename, methods=["POST"]),
@@ -622,7 +658,9 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/usage", usage_report),
             Route(session + "/audit", audit_history),
             Route(session + "/events", events),
+            Route(session + "/plan-draft", draft_plan, methods=["POST"]),
             Route(session + "/turns", ask, methods=["POST"]),
+            Route(session + "/turns/{turn_id}/resume", resume, methods=["POST"]),
             Route(session + "/turns/{turn_id}/plan", plan, methods=["POST"]),
             Route(session + "/permissions/{request_id}", permission, methods=["POST"]),
             Route(session + "/stop", stop, methods=["POST"]),

@@ -99,6 +99,10 @@ class AgentOptions:
     program_context: bool = False
     project_notes: bool = False
     literature_subtasks: bool = False
+    specialists: bool = False
+    subtasks: bool = False
+    subtask_parallelism: int = 2
+    subtask_tools: tuple[str, ...] = ()
     literature_tools: tuple[str, ...] = ()
     source_to_kernel: bool = False
     references: bool = False
@@ -269,6 +273,8 @@ class Workspace:
             "program_context",
             "project_notes",
             "literature_subtasks",
+            "specialists",
+            "subtasks",
             "source_to_kernel",
             "evidence_skills",
             "domain_skills",
@@ -290,6 +296,18 @@ class Workspace:
             raise WorkspaceError(
                 "[agent] literature_subtasks requires an explicit literature_tools allowlist"
             )
+        tools = cfg.get("subtask_tools", [])
+        parallelism = cfg.get("subtask_parallelism", 2)
+        if (
+            not isinstance(tools, list)
+            or len(tools) > 32
+            or any(not isinstance(name, str) or not 1 <= len(name) <= 64 for name in tools)
+        ):
+            raise WorkspaceError("[agent] subtask_tools must list exact tool names")
+        if self.profile_name != "minimal" and cfg.get("subtasks") and not tools:
+            raise WorkspaceError("[agent] subtasks requires an explicit subtask_tools allowlist")
+        if type(parallelism) is not int or not 1 <= parallelism <= 8:
+            raise WorkspaceError("[agent] subtask_parallelism must be between 1 and 8")
         retries = cfg.get("binding_retries", AgentOptions.binding_retries)
         if type(retries) is not int or not 0 <= retries <= 2:
             raise WorkspaceError("[agent] binding_retries must be 0, 1 or 2")
@@ -316,6 +334,10 @@ class Workspace:
             project_notes=cfg.get("project_notes", False),
             literature_subtasks=cfg.get("literature_subtasks", False),
             literature_tools=tuple(literature),
+            specialists=self.profile_name != "minimal" and cfg.get("specialists", False),
+            subtasks=self.profile_name != "minimal" and cfg.get("subtasks", False),
+            subtask_tools=tuple(tools),
+            subtask_parallelism=parallelism,
             source_to_kernel=cfg.get("source_to_kernel", False),
             evidence_skills=cfg.get("evidence_skills", False),
             domain_skills=self.profile_name != "minimal" and cfg.get("domain_skills", False),

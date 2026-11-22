@@ -79,6 +79,7 @@ async def run_turn(
     binding_retries: int = 0,
     budget: Budget | None = None,
     budget_meter: BudgetMeter | None = None,
+    resume_events: list[ev.Event] | None = None,
     before_first_model: Callable[[ev.Event], Awaitable[None]] | None = None,
     references: bool = False,
     compact_at_bytes: int | None = None,
@@ -107,18 +108,51 @@ async def run_turn(
     retries_left = max(0, min(binding_retries, MAX_BINDING_RETRIES))
     retried = 0
     store, sid = ctx.store, ctx.session_id
-    asked = store.append(
-        ev.UserMessage(message=recorded_message(Message.user(question))),
-        session_id=sid,
-        actor=Actor.USER,
-    )
-    if before_first_model is not None:
-        await before_first_model(asked)
+    prior = resume_events or []
+    asked = next((e for e in prior if e.type == "user_message" and e.actor is Actor.USER), None)
+    if asked is None:
+        asked = store.append(
+            ev.UserMessage(message=recorded_message(Message.user(question))),
+            session_id=sid,
+            actor=Actor.USER,
+        )
     tools = registry.definitions()
-    cause = asked.id
+    cause = prior[-1].id if prior else asked.id
     calls = 0
     specs: list[str] = []
     step = 0
+    recorded_calls = []
+    if prior:
+        system += (
+            "\nContinue from the recorded tool results. The kernel may have restarted. "
+            "Use saved files and evidence. Do not repeat completed operations."
+        )
+        accounting = list(prior)
+        for e in prior:
+            if e.type in ("literature_started", "subtask_started"):
+                accounting.extend(store.read(e.payload["task_id"]))
+            elif e.type == "tool_call_requested":
+                recorded_calls.append((e.payload["tool"], e.payload["args"]))
+            elif e.type == "model_call_started" and e.payload["role"] == "worker":
+                step += 1
+            elif e.type == "user_message" and e.actor is Actor.SYSTEM:
+                retries_left = max(0, retries_left - 1)
+        for e in accounting:
+            p = e.parsed()
+            if isinstance(p, ev.ModelCallFinished) and p.role is not ModelRole.REVIEWER:
+                used = p.input_tokens + p.output_tokens
+                meter.tokens += used
+                meter.usd += p.cost_usd
+                meter.missing_usage |= used == 0 or (budget.usd is not None and not p.cost_known)
+            elif (
+                isinstance(p, ev.ModelCallFailed)
+                and e.actor is Actor.SYSTEM
+                and p.error == "The previous process exited."
+            ):
+                meter.missing_usage = True
+        meter.started -= max(0.0, (prior[-1].ts - prior[0].ts).total_seconds())
+    if before_first_model is not None and not any(e.type == "model_call_started" for e in prior):
+        await before_first_model(asked)
     compacted_through = -1
     while (max_steps is None or step < max_steps) and not meter.stop_reason():
         events = store.history(sid)
@@ -206,7 +240,12 @@ async def run_turn(
                     ctx,
                     call_id=call.call_id,
                     causation_id=said.id,
-                    skip_reason=meter.stop_reason(),
+                    skip_reason=(
+                        "This operation already entered execution before the interruption; use its recorded result."
+                        if (call.name, recorded_args(call.name, call.args, ctx.workdir))
+                        in recorded_calls
+                        else meter.stop_reason()
+                    ),
                 )
                 await _call(hooks.on_tool_result, call, result)
         except asyncio.CancelledError:
