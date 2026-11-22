@@ -30,6 +30,9 @@ def check_member(name: str, content: bytes, *, wheel: bool, private_paths: list[
             or relative.parts[:2] == ("src", "bioquorum")
             or relative.parts[:1] == ("bundle-spec",)
         )
+    if path.match("bioquorum/server/web/chem-worker-*.js"):
+        # Emscripten initializes this virtual home inside the RDKit browser worker.
+        content = content.replace(b"`/home/web_user`", b"``")
     if not allowed or any(marker in content for marker in private_paths):
         raise ValueError(f"Unexpected file or build-machine path in {name}")
 

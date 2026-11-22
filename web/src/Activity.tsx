@@ -16,6 +16,9 @@ export function activityLabel(item: Activity) {
     case "plan_deviation": return "Approved plan deviation";
     case "run_finished": return "Calculation recorded";
     case "run_failed": return "Calculation failed · " + item.error;
+    case "model_route_fallback": return item.role+" fallback · "+item.previous+" → "+item.next_model;
+    case "subtask_started": return "Subtask started · "+item.question;
+    case "subtask_finished": return "Subtask "+item.task_id+" · "+item.outcome+" · "+item.input_tokens+" input / "+item.output_tokens+" output tokens";
     case "run_cancelled": return "Calculation interrupted";
     case "run_timed_out": return "Calculation timed out";
     case "rerun_started": return "Rerun started";

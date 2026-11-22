@@ -14,10 +14,11 @@ function Badge({status}: {status: string}) {
   return <span title={status === "unverified" ? "No verified evidence is linked to this statement." : undefined} className={"badge " + status}>{labels[status] ?? status}</span>;
 }
 
-export function TurnCard({turn, animated, waiting}: {turn: Turn; animated?: boolean; waiting?: boolean}) {
+export function TurnCard({turn, animated, waiting, reopen}: {reopen?:(r:TurnRef)=>void; turn: Turn; animated?: boolean; waiting?: boolean}) {
   const {plan} = turn;
-  return <article className="panel turn">
+  return <article className="panel turn" id={turn.id && "record-"+turn.id}>
     <span className="kicker">You</span><p className="question">{turn.question}</p>
+    {turn.selections?.map((r,i)=><button className="result-link" key={i} onClick={()=>reopen?.(r)}>Reopen {r.selection?.type} selection</button>)}
     {turn.status === "running" && (animated || waiting)
       ? <span className={"badge running" + (animated ? " running-indicator" : "")}>{waiting ? "Awaiting permission" : "Running"}</span>
       : turn.status && <Badge status={turn.status}/>}
@@ -76,13 +77,16 @@ function ClaimRow({addReference, parts, claim, unbound, sharedStatus, answer, ex
   const status = claim?.status ?? "unverified";
   const canVerify = claim?.has_calculation && !answer.inherited && !example &&
     ["reviewed", "reproduced", "replicated"].includes(status);
-  return <div className={"claim " + status}>
+  return <div className={"claim " + status} data-claim-id={claim?.id}>
     <p data-ref-kind="answer" data-ref-id={answer.id}>{parts.map(({ref, text, problem}, i) => ref
       ? <button key={i} type="button" className="evidence-link" onClick={() => onEvidence(answer.id, ref)}
           title={ref.type === "quote" ? "Open cited source" : "Open calculation for " + ref.name}>
           {ref.type === "quote" ? <><span hidden>{text.slice(0,-("["+ref.source+"]").length)}</span>{"[" + ref.source + "]"}</> : text}</button>
       : <span key={i} className={"segment" + (problem ? " error" : "")} title={problem}>{inlineText(text)}</span>)}</p>
     {!sharedStatus && <Badge status={status}/>}
+    {claim?.needs_review && <span className="review-notice">Needs review</span>}
+    {claim?.replacement_claim_id && claim.replacement_session_id && <a className="replacement-link"
+      href={"?session="+encodeURIComponent(claim.replacement_session_id)+"#claim-"+encodeURIComponent(claim.replacement_claim_id)}>View corrected claim</a>}
     {claim && addReference && <button className="quiet" onClick={() => addReference({kind:"claim",id:claim.id})}>Quote claim</button>}
     {!!unbound?.length && <span className="muted" title={unbound.join(", ")}> · Unbound values or citations</span>}
     {claim?.findings.map((f, i) => <p key={i} className={"muted " + (f.severity === "error" ? "error" : "warning")}>
@@ -128,14 +132,14 @@ export function AnswerCard(props: AnswerProps) {
     </section>);
     i=end;
   }
-  return <article className="panel answer"><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
+  return <article className="panel answer" id={"record-"+answer.id}><header className="answer-author"><span className="answer-mark" aria-hidden="true">Q</span><h2>Findings</h2></header>
     <p className="muted">{answer.model ?? "Model not recorded"}</p>
     {body}
     {answer.first_pass && !!answer.missing_sections?.length && <p className="muted">Sections not reported · {answer.missing_sections.join(", ")}</p>}
     {props.discuss && Object.entries(answer.discussion_items ?? {}).map(([label,excerpt])=>
       <button className="quiet" key={label} onClick={()=>props.discuss?.({kind:"answer",id:answer.id,excerpt})}>Discuss {label.toLowerCase()}</button>)}
     {answer.coverage && <Coverage ledger={answer.coverage}/>}
-    {answer.clarification && <aside><strong>{answer.clarification.question}</strong>
+    {answer.clarification && <aside id={"record-"+answer.clarification.id}><strong>{answer.clarification.question}</strong>
       <p>Working assumption · {answer.clarification.assumption}</p>
       {props.discuss && <button className="quiet" onClick={()=>props.discuss?.({
         kind:"activity",id:answer.clarification!.id})}>Answer this question</button>}</aside>}

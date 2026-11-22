@@ -52,6 +52,7 @@ def snapshot(controls: ResearchControls) -> dict:
             dict(
                 name=name,
                 description=redact(skill.description),
+                license=redact(skill.license) or "Unspecified",
                 managed=bool(entry.get("version")),
                 enabled=entry.get("enabled", True),
             )
@@ -77,7 +78,9 @@ def snapshot(controls: ResearchControls) -> dict:
         example=controls.demo,
         project=ws.name,
         skills=skills,
-        skills_enabled=ws.agent_options().skills or ws.agent_options().evidence_skills,
+        skills_enabled=ws.agent_options().skills
+        or ws.agent_options().evidence_skills
+        or ws.agent_options().domain_skills,
         connectors=connectors,
     )
 

@@ -34,7 +34,7 @@ from bioquorum.core.messages import DataRefPart, TextPart, ToolResultPart
 from bioquorum.policy import classification
 from bioquorum.policy.permissions import PermissionRequest
 from bioquorum.policy.secrets import display_path, recorded_args, redact
-from bioquorum.tools.context import ToolContext
+from bioquorum.tools.context import SessionId, ToolContext
 from bioquorum.tools.registry import ToolRegistry
 from bioquorum.tools.spec import ToolSpec
 
@@ -49,7 +49,7 @@ def _refusal(call_id: str, text: str) -> ToolResultPart:
 
 
 def _refuse(
-    ctx: ToolContext, call_id: str, tool: str, text: str, causation_id: str | None
+    ctx: ToolContext[SessionId], call_id: str, tool: str, text: str, causation_id: str | None
 ) -> ToolResultPart:
     ctx.store.append(
         ev.ToolCallFailed(call_id=call_id, tool=tool, error=redact(text)[:_MAX_ERROR]),
@@ -61,9 +61,9 @@ def _refuse(
 
 
 async def invoke(
-    spec: ToolSpec,
+    spec: ToolSpec[SessionId],
     args: dict[str, Any],
-    ctx: ToolContext,
+    ctx: ToolContext[SessionId],
     *,
     call_id: str | None = None,
     causation_id: str | None = None,

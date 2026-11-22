@@ -129,9 +129,10 @@ async def test_shared_budget_can_stop_the_child_before_any_retrieval(store):
     assert not Evidence.from_events(store.read("parent")).sources
 
 
-async def test_parent_conversation_carries_only_validated_source_text(store):
+@pytest.mark.parametrize("lost_parent_result", [False, True])
+async def test_parent_conversation_carries_only_validated_source_text(store, lost_parent_result):
     from bioquorum.agent.context import conversation
-    from bioquorum.core.enums import MessageRole
+    from bioquorum.core.enums import MessageRole, Trust
     from bioquorum.core.messages import ToolCallPart
 
     tool, ctx, _, _, _ = setup(store, allow=True)
@@ -144,8 +145,95 @@ async def test_parent_conversation_carries_only_validated_source_text(store):
         actor=Actor.AGENT,
     )
     await invoke(tool, main_call.args, ctx, call_id=main_call.call_id)
-    messages = conversation(store.read("parent"), source_labels=True)
+    history = store.read("parent")
+    if lost_parent_result:
+        history = [e for e in history if e.type != "tool_call_finished"]
+        history.append(
+            store.append(
+                ev.ToolCallFailed(
+                    call_id=main_call.call_id, tool=tool.name, error="Previous process exited"
+                ),
+                session_id="parent",
+                actor=Actor.SYSTEM,
+            )
+        )
+    messages = conversation(history, source_labels=True)
+    if lost_parent_result:
+        assert messages[-1].model_dump()["parts"][0]["trust"] == Trust.UNTRUSTED
     assert len(messages) == 2 and messages[-1].role is MessageRole.TOOL
     text = messages[-1].model_dump_json()
     assert "[source s1]" in text and ABSTRACT in text
     assert "Workflow article" not in text
+
+
+@pytest.mark.parametrize("safe_read", [False, True])
+async def test_two_general_tasks_keep_separate_sources_and_share_meter(store, safe_read):
+    import asyncio
+
+    from bioquorum.agent.subtasks import batch_tool
+
+    _, ctx, meter, _, _ = setup(store, allow=True)
+
+    active = peak = 0
+
+    async def search(args: Search, child: ToolContext) -> ToolResult:
+        nonlocal active, peak
+        active += 1
+        peak = max(active, peak)
+        await asyncio.sleep(0.03)
+        active -= 1
+        return ToolResult.text(ABSTRACT)
+
+    def script(history, info):
+        if any(isinstance(p, pa.ToolReturnPart) for m in history for p in m.parts):
+            return pa.ModelResponse(
+                parts=[
+                    pa.TextPart(
+                        content=json.dumps(
+                            {"summary": "recorded", "quotes": [{"source": "s1", "quote": ABSTRACT}]}
+                        )
+                    )
+                ]
+            )
+        return pa.ModelResponse(parts=[pa.ToolCallPart("lookup", {"query": "calibration"})])
+
+    registry = ToolRegistry(
+        [
+            ToolSpec(
+                "lookup",
+                "Find record",
+                search,
+                PermissionClass.CONNECTOR if safe_read else PermissionClass.EXTERNAL_MCP,
+                parallel_read=safe_read,
+                args_model=Search,
+                target=lambda *_: "mcp:lit",
+                classification_floor=Classification.PUBLIC,
+            )
+        ]
+    )
+    client = ModelClient(Router(CONFIG), store, factory=lambda _: FunctionModel(script))
+    ctx.permissions.grant(
+        PermissionClass.EXECUTE, "research-subtasks", PermissionScope.SESSION, session_id="parent"
+    )
+    ctx.permissions.grant(
+        PermissionClass.CONNECTOR, "mcp:lit", PermissionScope.SESSION, session_id="parent"
+    )
+    tool = batch_tool(registry, client, meter, parallelism=2)
+    result = await invoke(
+        tool, {"tasks": [{"question": "Review dataset A"}, {"question": "Review dataset B"}]}, ctx
+    )
+    assert not result.is_error
+    assert peak == (2 if safe_read else 1)
+    rows = store.read("parent", types=["subtask_finished"])
+    assert len({e.payload["task_id"] for e in rows}) == 2
+    assert len(Evidence.from_events(store.read("parent")).sources) == 2
+    assert all(e.payload["sources"][0]["text"] == ABSTRACT for e in rows)
+    assert meter.tokens == sum(e.payload["input_tokens"] + e.payload["output_tokens"] for e in rows)
+
+
+async def test_batch_schema_omits_specialist_field_when_switch_is_off(store):
+    from bioquorum.agent.subtasks import batch_tool
+
+    _, _, meter, _, _ = setup(store, allow=True)
+    tool = batch_tool(ToolRegistry(), ModelClient(Router(CONFIG), store), meter, parallelism=2)
+    assert "specialist" not in json.dumps(tool.input_schema)

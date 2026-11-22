@@ -11,11 +11,14 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from pydantic import TypeAdapter, ValidationError
+
 from bioquorum.core.enums import DataKind
 from bioquorum.core.hashing import cas_relpath, sha256_bytes, sha256_file
-from bioquorum.core.refs import DataRef
+from bioquorum.core.refs import DataRef, Sha256
 
 URI_SCHEME = "cas://"
+_DIGEST = TypeAdapter(Sha256)
 
 
 class IntegrityError(Exception):
@@ -72,6 +75,17 @@ class ContentStore:
         )
 
     # ------------------------------------------------------------- read
+
+    def verified_path(self, content_hash: str) -> Path:
+        """Locate recorded content and verify its digest without loading it into memory."""
+        try:
+            _DIGEST.validate_python(content_hash, strict=True)
+        except ValidationError:
+            raise LookupError("Invalid recorded content hash") from None
+        path = self.path(content_hash)
+        if not path.is_file() or sha256_file(path) != content_hash:
+            raise LookupError("Recorded file content is unavailable or corrupt")
+        return path
 
     def get_bytes(self, content_hash: str, *, verify: bool = True) -> bytes:
         data = self.path(content_hash).read_bytes()

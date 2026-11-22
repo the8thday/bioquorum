@@ -14,6 +14,7 @@ from bioquorum.core import events as ev
 from bioquorum.core.activity import ACTIVITY
 from bioquorum.core.enums import Actor, Trust
 from bioquorum.core.messages import Message, TextPart, ToolResultPart, fence_untrusted
+from bioquorum.provenance.catalog import catalog_records
 from bioquorum.review.binding import quote_matches, render
 from bioquorum.review.evidence import Evidence, result_text, source_aliases
 
@@ -31,14 +32,15 @@ def conversation(
     quote markers use (ADR-014). Aliases come from the same rule the review uses."""
     items = list(events)
     aliases = source_aliases(items) if source_labels else {}
-    delegated = {
-        report.parent_call_id: report.sources
-        for event in items
-        if event.type == ev.LiteratureFinished.event_type
-        and (through_seq is None or event.seq <= through_seq)
-        and isinstance(report := event.parsed(), ev.LiteratureFinished)
-        and report.outcome == "completed"
-    }
+    delegated: dict[str, list[ev.LiteratureExcerpt]] = {}
+    for event in items:
+        if event.type not in ("literature_finished", "subtask_finished"):
+            continue
+        if through_seq is not None and event.seq > through_seq:
+            continue
+        report = event.parsed()
+        if isinstance(report, ev.LiteratureFinished) and report.outcome == "completed":
+            delegated.setdefault(report.parent_call_id, []).extend(report.sources)
     out: list[Message] = []
     summary = next(
         (
@@ -77,7 +79,7 @@ def conversation(
     }
     selected: ev.Event | None = None
     for index, e in enumerate(items):
-        if e.type == "turn_started":
+        if e.type in ("turn_started", "turn_resumed"):
             selected = requests.get(e.payload["turn_id"])
         if e.type == "turn_finished":
             selected = None
@@ -144,12 +146,16 @@ def conversation(
             out.append(Message.tool(result))
         elif isinstance(p, ev.ToolCallFailed) and p.call_id in pending:
             pending.remove(p.call_id)
+            excerpts = delegated.get(p.call_id, [])
             out.append(
                 Message.tool(
                     ToolResultPart(
                         call_id=p.call_id,
-                        content=[TextPart(text=p.error)],
-                        trust=Trust.TRUSTED,  # written by BioQuorum, not by the tool
+                        content=[
+                            TextPart(text=p.error),
+                            *(TextPart(text=excerpt_text(q)) for q in excerpts),
+                        ],
+                        trust=Trust.UNTRUSTED if excerpts else Trust.TRUSTED,
                         is_error=True,
                     )
                 )
@@ -181,6 +187,38 @@ def reference_text(
     data: dict = {"kind": kind, "id": ident}
     source_text = ""
     verified_excerpt = False
+    if kind == "artifact" and reference.selection is not None:
+        catalog = catalog_records((event, event.parsed()) for event in events)
+        product = next((row for row in catalog if row["id"] == ident), None)
+        if not product or product["preview"] != reference.selection.type:
+            raise ValueError("Referenced artifact is unavailable")
+        data.update(
+            file=product["name"],
+            sha256=product["hash"],
+            run=product.get("run"),
+            version=product["version"],
+            selection=reference.selection.model_dump(),
+            path=product.get("path"),
+            selected_content=reference.excerpt,
+        )
+        if run_id := product.get("run"):
+            run = next(
+                (
+                    p
+                    for event in events
+                    if event.type == "run_started"
+                    and isinstance(p := event.parsed(), ev.RunStarted)
+                    and p.run_id == run_id
+                ),
+                None,
+            )
+            if run:
+                data.update(
+                    code=run.code[:12000],
+                    code_hash=run.code_hash,
+                    input_hashes=[item.content_hash for item in run.inputs],
+                )
+        return fence_untrusted(json.dumps(data, ensure_ascii=False))
     if kind == "source":
         source = next((s for s in Evidence.from_events(events).sources if s.call_id == ident), None)
         if source is None:
@@ -244,7 +282,7 @@ def reference_text(
                 ),
                 None,
             )
-            if output is None:
+            if not isinstance(output, ev.RunOutput):
                 raise ValueError("Referenced figure is unavailable")
             run_id = output.run_id
         start = next(

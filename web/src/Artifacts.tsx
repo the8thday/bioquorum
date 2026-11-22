@@ -4,7 +4,7 @@ import { Dialog } from "./Dialog";
 
 import { Icon } from "./Icon";
 
-export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string | null; turn_number?: number | null; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|null}
+export interface Product {id: string; name: string; kind: string; version: number; status: string; hash?: string; source?: string; turn?: string | null; turn_number?: number | null; path?: string; run?:string; seq:number; preview:"table"|"figure"|"report"|"sequence"|"structure"|"genome"|"molecule"|null}
 
 export function Artifacts({base, rows, attach, open}: {base: string; rows: Product[]|undefined; attach:(a:Product)=>void;open:(a:Product)=>void}) {
   return <aside className="ledger" aria-label="Session artifacts"><h2>Artifacts</h2>
@@ -15,9 +15,21 @@ export function Artifacts({base, rows, attach, open}: {base: string; rows: Produ
       <p>{row.kind} · v{row.version} · {row.status}{row.turn_number != null ? ` · Turn ${row.turn_number}` : row.turn ? ` · Turn ${row.turn}` : ""}</p>
       <a href={base+"/artifacts/"+row.id+"/file"} download>Download</a>{" "}
       {row.preview && <button className="quiet" onClick={()=>open(row)}>
-        {row.preview==="table"?"Preview table":row.preview==="figure"?"Enlarge figure":"Read report"}</button>}
+        {row.preview==="table"?"Preview table":row.preview==="figure"?"Enlarge figure":row.preview==="report"?"Read report":"View "+row.preview}</button>}
       {row.source === "user_upload" && <button className="quiet" onClick={() => attach(row)}>Attach to question</button>}
     </article>)}</aside>;
+}
+
+export async function uploadFile(base: string, file: File, classification: string, signal?: AbortSignal): Promise<Product> {
+  const query = new URLSearchParams({name:file.name, classification});
+  const response = await fetch(base+"/artifacts?"+query, {
+    method:"POST", headers:{"Content-Type":"application/octet-stream"}, body:file, signal,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Upload failed");
+  }
+  return response.json();
 }
 
 export function Upload({base,resolveBase,classification,onUpload,disabled}: {base:string;resolveBase?:()=>Promise<string>;classification:string;onUpload:(p:Product)=>void;disabled:boolean}) {
@@ -39,11 +51,8 @@ export function Upload({base,resolveBase,classification,onUpload,disabled}: {bas
     active.current = controller;
     setBusy(true);setError("");
     try {
-      const query = new URLSearchParams({name:file.name,classification:level});
       const path = resolveBase ? await resolveBase() : base;
-      const res = await fetch(path+"/artifacts?"+query,{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:file,signal:controller.signal});
-      if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
-      const product: Product = await res.json();
+      const product = await uploadFile(path, file, level, controller.signal);
       if (!controller.signal.aborted) {onUpload(product);close();}
     } catch (e) {
       if (!controller.signal.aborted) {setError(errorMessage(e));setBusy(false);}

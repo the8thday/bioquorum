@@ -32,6 +32,7 @@ from bioquorum.core.enums import (
 from bioquorum.core.ids import id_time, new_id, utc_now
 from bioquorum.core.messages import Message, OpaqueBytes, ToolResultPart
 from bioquorum.core.refs import ClaimRef, DataRef, NamedValue
+from bioquorum.core.selections import ArtifactSelection
 from bioquorum.core.status import StatusTrigger, VerificationStatus
 from bioquorum.core.verification import Tolerance, ValueComparison, VerificationOutcome
 
@@ -172,6 +173,37 @@ def _legacy_project_defaults(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @register
+class ProgramCreated(EventPayload):
+    event_type: ClassVar[str] = "program_created"
+    project_id: str
+    program_id: str
+    name: str = Field(min_length=1, max_length=160)
+
+
+@register
+class ProgramUpdated(EventPayload):
+    event_type: ClassVar[str] = "program_updated"
+    project_id: str
+    program_id: str
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    closed: bool = False
+
+    @model_validator(mode="after")
+    def one_change(self) -> Self:
+        if (self.name is not None) == self.closed:
+            raise ValueError("Choose one change to the program")
+        return self
+
+
+@register
+class SessionAttached(EventPayload):
+    event_type: ClassVar[str] = "session_attached"
+    project_id: str
+    program_id: str
+    session_id: str
+
+
+@register
 class ConnectorChecked(EventPayload):
     event_type: ClassVar[str] = "connector_checked"
     project_id: str
@@ -251,17 +283,21 @@ class TurnRequestedV2(TurnRequestedV1):
 
 class TurnReference(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    kind: Literal["answer", "claim", "value", "figure", "source", "run", "activity"]
+    kind: Literal["answer", "claim", "value", "figure", "source", "run", "activity", "artifact"]
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(default="", max_length=128)
     excerpt: str = Field(default="", max_length=2000)
 
+    selection: ArtifactSelection | None = None
+
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
+        if (self.selection is not None) != (self.kind == "artifact"):
+            raise ValueError("An artifact reference requires a selection")
         if bool(self.name) != (self.kind in {"value", "figure"}):
             raise ValueError("Only values and figures require a record name")
-        if self.excerpt and self.kind not in {"answer", "source"}:
-            raise ValueError("Only answers and sources accept an excerpt")
+        if self.excerpt and self.kind not in {"answer", "source", "artifact"}:
+            raise ValueError("Only answers, sources and artifact selections accept an excerpt")
         return self
 
 
@@ -299,6 +335,13 @@ class TurnStarted(EventPayload):
 
 
 @register
+class TurnResumed(EventPayload):
+    event_type: ClassVar[str] = "turn_resumed"
+    turn_id: str
+    checked_calls: list[str] = Field(default_factory=list)
+
+
+@register
 class TurnFinished(EventPayload):
     event_type: ClassVar[str] = "turn_finished"
     turn_id: str
@@ -318,6 +361,31 @@ class AssistantMessage(EventPayload):
     message: Message
     model_call_id: str | None = None
     provider_raw: OpaqueBytes | None = Field(default=None, description="Debug only (ADR-003)")
+
+
+@register
+class ModelRouteFallback(EventPayload):
+    event_type: ClassVar[str] = "model_route_fallback"
+    role: ModelRole
+    previous: str
+    next_model: str
+
+
+class RoleScore(BaseModel):
+    correct: int = Field(ge=0)
+    total: int = Field(gt=0)
+    failed: int = Field(ge=0)
+
+
+@register
+class ModelEvaluated(EventPayload):
+    event_type: ClassVar[str] = "model_evaluated"
+    project_id: str
+    model: str
+    evaluation_id: str
+    scores: dict[str, RoleScore]
+    protocol: Literal["role-checks-v1"] = "role-checks-v1"
+    responses: dict[str, list[str | None]] = Field(default_factory=dict)
 
 
 @register
@@ -388,6 +456,14 @@ class ToolCallFailed(EventPayload):
 
 
 # ----------------------------------------------------------------- plan & permission
+
+
+@register
+class PlanDrafted(EventPayload):
+    event_type: ClassVar[str] = "plan_drafted"
+    model: str
+    question: str
+    steps: list[str] = Field(min_length=1, max_length=12)
 
 
 @register
@@ -532,6 +608,84 @@ class FileRegistered(EventPayload):
     source: Literal["user_upload"] = "user_upload"
 
 
+MaterialKind = Literal["experimental_data", "vendor_delivery", "literature", "other"]
+
+
+class MaterialChange(EventPayload):
+    project_id: str
+    program_id: str
+
+
+@register
+class MaterialRegistered(MaterialChange):
+    event_type: ClassVar[str] = "material_registered"
+    upload_event_id: str
+    kind: MaterialKind
+    source: str = Field(min_length=1, max_length=1200)
+
+
+@register
+class MaterialSuperseded(MaterialChange):
+    event_type: ClassVar[str] = "material_superseded"
+    prior_version_id: str
+    upload_event_id: str
+    source: str = Field(min_length=1, max_length=1200)
+    reason: str = Field(min_length=1, max_length=1200)
+
+
+@register
+class MaterialWithdrawn(MaterialChange):
+    event_type: ClassVar[str] = "material_withdrawn"
+    version_id: str
+    reason: str = Field(min_length=1, max_length=1200)
+
+
+class MaterialReview(EventPayload):
+    project_id: str
+    program_id: str
+    material_version_id: str
+
+
+@register
+class ClaimReviewFlagged(MaterialReview):
+    event_type: ClassVar[str] = "claim_review_flagged"
+    claim_id: str
+
+
+@register
+class ClaimReviewCleared(MaterialReview):
+    event_type: ClassVar[str] = "claim_review_cleared"
+    claim_id: str
+    recompute_id: str
+    replacement_claim_id: str
+
+
+@register
+class RecomputeStarted(MaterialReview):
+    event_type: ClassVar[str] = "recompute_started"
+    recompute_id: str
+    session_id: str
+    replacement_version_id: str
+    run_ids: list[str]
+    claim_ids: list[str]
+
+
+class RecomputedClaim(BaseModel):
+    old_claim_id: str
+    new_claim_id: str | None = None
+    review_cleared: bool = False
+
+
+@register
+class RecomputeFinished(MaterialReview):
+    event_type: ClassVar[str] = "recompute_finished"
+    recompute_id: str
+    status: Literal["completed", "failed"]
+    reason: str = ""
+    run_map: dict[str, str] = Field(default_factory=dict)
+    comparisons: list[RecomputedClaim] = Field(default_factory=list)
+
+
 @register
 class ArtifactVersionCreated(EventPayload):
     event_type: ClassVar[str] = "artifact_version_created"
@@ -670,6 +824,8 @@ class BundleExported(EventPayload):
     bundle_id: str
     path: str
     manifest_hash: str
+    run_ids: list[str] | None = None
+    claim_ids: list[str] | None = None
 
 
 # ----------------------------------------------------------------- compaction & errors
@@ -715,6 +871,17 @@ class LiteratureFinished(EventPayload):
     priced_calls: int = 0
     model_calls: int = 0
     failed_calls: int = 0
+
+
+@register
+class SubtaskStarted(LiteratureStarted):
+    event_type: ClassVar[str] = "subtask_started"
+    specialist: str | None = None
+
+
+@register
+class SubtaskFinished(LiteratureFinished):
+    event_type: ClassVar[str] = "subtask_finished"
 
 
 @register
@@ -771,3 +938,42 @@ class ClarificationAnswered(EventPayload):
     event_type: ClassVar[str] = "clarification_answered"
     request_id: str
     turn_id: str
+
+
+class DecisionClaim(BaseModel):
+    """An immutable citation to a particular claim and its trust event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str
+    session_id: str
+    source_event_id: str
+    revision: str
+    text: str
+    status: VerificationStatus
+
+
+@register
+class DecisionRecorded(EventPayload):
+    event_type: ClassVar[str] = "decision_recorded"
+    project_id: str
+    program_id: str
+    decision_id: str
+    text: str = Field(min_length=1, max_length=4000)
+    claims: list[DecisionClaim] = Field(min_length=1, max_length=100)
+
+
+@register
+class DecisionRevised(DecisionRecorded):
+    event_type: ClassVar[str] = "decision_revised"
+    prior_revision: str
+
+
+@register
+class ProgramBundleExported(EventPayload):
+    event_type: ClassVar[str] = "program_bundle_exported"
+    project_id: str
+    program_id: str
+    bundle_id: str
+    material_version_ids: list[str]
+    session_bundle_ids: list[str]
+    manifest_hash: str

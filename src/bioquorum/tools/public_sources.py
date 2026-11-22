@@ -190,6 +190,7 @@ def public_sources(http: httpx2.AsyncClient) -> ToolRegistry:
             args_model=schema,
             classification_floor=Classification.PUBLIC,
             target=lambda *_: TARGET,
+            parallel_read=True,
         )
         for name, description, schema, handler in entries
     )

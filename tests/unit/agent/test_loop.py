@@ -341,3 +341,28 @@ async def test_unresolved_binding_does_not_trigger_a_retry_by_default(ctx, store
     turn = await run_turn("q", client=client(store, model), registry=default_registry(), ctx=ctx)
     assert "{{nope}}" in turn.answer.text()
     assert turn.binding_retries == 0 and len(seen) == 1
+
+
+async def test_checkpoint_before_initial_setup_finishes_preparation_once(ctx, store):
+    from bioquorum.core import events as ev
+    from bioquorum.core.messages import Message
+
+    original = store.append(
+        ev.UserMessage(message=Message.user("q")), session_id=ctx.session_id, actor=Actor.USER
+    )
+    started = []
+
+    async def prepare(asked):
+        started.append(asked.id)
+
+    model, _ = scripted(text("Done"))
+    await run_turn(
+        "q",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        resume_events=[original],
+        before_first_model=prepare,
+    )
+    assert started == [original.id]
+    assert len(store.read(ctx.session_id, types=["user_message"])) == 1

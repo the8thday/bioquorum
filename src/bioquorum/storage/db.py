@@ -25,7 +25,7 @@ from sqlalchemy.engine import Engine
 
 from bioquorum.storage.migrations import migrate
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 metadata = MetaData()
 
@@ -80,6 +80,23 @@ sessions = Table(
     Column("created_at", String(32), nullable=False),
 )
 
+programs = Table(
+    "programs",
+    metadata,
+    Column("id", String(26), primary_key=True),
+    Column("project_id", String(26), nullable=False, index=True),
+    Column("name", String(160), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("created_at", String(32), nullable=False),
+)
+
+program_sessions = Table(
+    "program_sessions",
+    metadata,
+    Column("id", String(26), primary_key=True),  # The attached session ID.
+    Column("program_id", String(26), nullable=False, index=True),
+)
+
 runs = Table(
     "runs",
     metadata,
@@ -106,6 +123,29 @@ artifacts = Table(
     Column("project_id", String(26), nullable=False, index=True),
     Column("name", String(256), nullable=False),
     Column("kind", String(16), nullable=False),
+)
+
+material_versions = Table(
+    "material_versions",
+    metadata,
+    Column("id", String(26), primary_key=True),
+    Column("material_id", String(26), nullable=False),
+    Column("project_id", String(26), nullable=False),
+    Column("program_id", String(26), nullable=False, index=True),
+    Column("version", Integer, nullable=False),
+    Column("file_id", String(26), nullable=False),
+    Column("name", String(180), nullable=False),
+    Column("hash", String(64), nullable=False),
+    Column("classification", String(16), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("source", Text, nullable=False),
+    Column("reason", Text),
+    Column("status", String(16), nullable=False),
+    Column("withdrawal_reason", Text),
+    Column("registered_at", String(32), nullable=False),
+    Column("registered_by", String(16), nullable=False),
+    UniqueConstraint("material_id", "version"),
+    UniqueConstraint("program_id", "file_id"),
 )
 
 artifact_versions = Table(
@@ -185,10 +225,13 @@ audit_entries = Table(
 
 PROJECTION_TABLES: tuple[Table, ...] = (
     projects,
+    programs,
+    program_sessions,
     sessions,
     runs,
     artifacts,
     artifact_versions,
+    material_versions,
     claims,
     review_findings,
     model_calls,
@@ -247,7 +290,7 @@ class Database:
                 return
             query = select(schema_meta.c.value).where(schema_meta.c.key == "version")
             version = conn.execute(query).scalar_one_or_none()
-            if version not in ("1", str(SCHEMA_VERSION)):
+            if version not in ("1", "2", str(SCHEMA_VERSION)):
                 raise RuntimeError(f"Unsupported BioQuorum schema version: {version}")
             migrate(conn, baseline=version == "1")
             if version != str(SCHEMA_VERSION):

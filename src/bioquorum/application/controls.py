@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from bioquorum.agent import Hooks
-from bioquorum.application import research
+from bioquorum.application import recovery, research
 from bioquorum.application import workspace as wsp
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, PermissionScope
@@ -45,10 +45,11 @@ class ResearchControls:
         make_client: research.ClientFactory = research.model_client,
         kernel_factory: KernelFactory | None = None,
         registry_factory: Callable[[], ToolRegistry] = default_registry,
+        store: EventStore | None = None,
         demo: bool = False,
     ) -> None:
         self.ws = workspace
-        self.store = EventStore(workspace.database())
+        self.store = store if store is not None else EventStore(workspace.database())
         self.make_client = make_client
         self.kernel_factory = kernel_factory
         self.session_kernels = SessionKernels()
@@ -101,8 +102,15 @@ class ResearchControls:
             raise ConflictError("Session is archived")
         return events
 
+    def check_session(self, sid: str) -> None:
+        self._check_root(self.store.read(sid, to_seq=0))
+
     def require_session(self, sid: str) -> list[ev.Event]:
         events = self.store.read(sid)
+        self._check_root(events)
+        return events
+
+    def _check_root(self, events: list[ev.Event]) -> None:
         if not events:
             raise LookupError("Session not found")
         root = events[0].parsed()
@@ -111,7 +119,6 @@ class ResearchControls:
             or root.project_id != self.ws.project_id
         ):
             raise LookupError("Session not found")
-        return events
 
     def new_session(self, title: str) -> str:
         return wsp.start_session(self.ws, self.store, title)
@@ -178,6 +185,54 @@ class ResearchControls:
         options = Router(self.ws.models_config()).worker_options(self.ws.classification)
         return [{"spec": spec, "allowed": allowed} for spec, allowed in options.items()]
 
+    async def draft_plan(self, sid: str, question: str) -> dict:
+        from bioquorum.core.enums import ModelRole
+        from bioquorum.core.messages import Message
+        from bioquorum.review.modeljson import ReviewModelError, parse_json
+
+        self.ensure_idle()
+        events = self.require_active_session(sid)
+        if self.demo or self.pending(events):
+            raise ConflictError("This session cannot draft another plan right now")
+        question = redact(question.strip())
+        if not 1 <= len(question) <= 12000:
+            raise ValueError("Enter a research question between 1 and 12000 characters")
+        self.reviewing = True
+        try:
+            completion = await self.make_client(self.ws, self.store).complete(
+                ModelRole.PLANNER,
+                [
+                    Message.system(
+                        'Propose a concise research plan. Return JSON {"steps":["..."]} with 1 to 12 short steps.'
+                    ),
+                    Message.user(question),
+                ],
+                session_id=sid,
+                classification=self.ws.classification,
+                causation_id=events[-1].id,
+            )
+            try:
+                steps = parse_json(completion.message.text()).get("steps")
+            except (ValueError, ReviewModelError):
+                raise ValueError("The planner returned an invalid draft") from None
+            if (
+                not isinstance(steps, list)
+                or not 1 <= len(steps) <= 12
+                or any(
+                    not isinstance(step, str) or not 1 <= len(step.strip()) <= 600 for step in steps
+                )
+            ):
+                raise ValueError("The planner returned an invalid draft")
+            draft = ev.PlanDrafted(
+                question=question,
+                model=str(completion.route.spec),
+                steps=[redact(step.strip()) for step in steps],
+            )
+            self._append(sid, draft, Actor.AGENT, events[-1].id)
+            return draft.model_dump()
+        finally:
+            self.reviewing = False
+
     def submit(
         self,
         sid: str,
@@ -217,6 +272,9 @@ class ResearchControls:
                 )
             ):
                 raise ValueError("Enable references and select at most eight items")
+            from bioquorum.application.artifacts import resolve_selection
+
+            references = [resolve_selection(self, sid, item) for item in references]
             for item in references:
                 reference_text(history, item, load_event=self.store.get)
         question = question.strip()
@@ -287,6 +345,26 @@ class ResearchControls:
             )
             self._finish(sid, turn_id, "declined")
 
+    def resume(self, sid: str, turn_id: str, checked_calls: list[str] | None = None) -> None:
+        self.ensure_idle()
+        point = recovery.checkpoint(self.require_active_session(sid))
+        if point is None or point.request.id != turn_id:
+            raise ConflictError("Only the latest interrupted research turn can be resumed")
+        if set(checked_calls or []) != point.uncertain.keys():
+            raise ConflictError("Verify the outcome of the interrupted tools before continuing")
+        request = point.request.parsed()
+        assert isinstance(request, ev.TurnRequested)
+        self._append(
+            sid,
+            ev.TurnResumed(turn_id=turn_id, checked_calls=sorted(point.uncertain)),
+            Actor.USER,
+            turn_id,
+        )
+        task = asyncio.create_task(
+            self._run(sid, turn_id, request.question, point.plan, request.worker_model, point)
+        )
+        self.tasks[sid] = LiveTurn(task, turn_id)
+
     def _start(
         self,
         sid: str,
@@ -306,6 +384,7 @@ class ResearchControls:
         question: str,
         plan: ev.PlanProposed | None,
         worker_model: str | None,
+        point: recovery.Checkpoint | None = None,
     ) -> None:
         live = self.tasks[sid]
 
@@ -325,31 +404,38 @@ class ResearchControls:
             client = self.make_client(self.ws, self.store)
             if worker_model is not None:
                 client = client.with_worker(worker_model, self.ws.classification)
-            turn = await research.execute(
-                self.ws,
-                self.store,
-                sid,
-                question,
-                client=client,
-                plan=plan,
-                hooks=Hooks(on_model_delta=on_delta if self.ws.agent_options().stream else None),
-                permissions=lambda servers: wsp.default_permissions(
+            answer_id = point.answer_id if point else None
+            if answer_id is None:
+                turn = await research.execute(
                     self.ws,
-                    allow=[],
-                    servers=servers,
-                    ask=ask,
-                ),
-                kernel_factory=self.kernel_factory,
-                session_kernels=self.session_kernels,
-                registry_factory=self.registry_factory,
-            )
-            try:
-                reviewed = await research.audit(
-                    self.ws, self.store, sid, client, answer_event_id=turn.answer_event_id
+                    self.store,
+                    sid,
+                    question,
+                    client=client,
+                    plan=plan,
+                    resume_events=point.events if point else None,
+                    hooks=Hooks(
+                        on_model_delta=on_delta if self.ws.agent_options().stream else None
+                    ),
+                    permissions=lambda servers: wsp.default_permissions(
+                        self.ws,
+                        allow=[],
+                        servers=servers,
+                        ask=ask,
+                    ),
+                    kernel_factory=self.kernel_factory,
+                    session_kernels=self.session_kernels,
+                    registry_factory=self.registry_factory,
                 )
-                self._check_failures(sid, turn.answer_event_id, reviewed.errors)
-            except Exception as exc:
-                self._check_failures(sid, turn.answer_event_id, [str(exc)])
+                answer_id = turn.answer_event_id
+            if not point or not point.reviewed:
+                try:
+                    reviewed = await research.audit(
+                        self.ws, self.store, sid, client, answer_event_id=answer_id
+                    )
+                    self._check_failures(sid, answer_id, reviewed.errors)
+                except Exception as exc:
+                    self._check_failures(sid, answer_id, [str(exc)])
             self._finish(sid, turn_id, "completed")
         except asyncio.CancelledError:
             self._finish(sid, turn_id, "interrupted")
@@ -429,7 +515,13 @@ class ResearchControls:
             sid = row["id"]
             events = self.require_session(sid)
             pending = self.pending(events)
-            ended = {p.turn_id for e in events if isinstance(p := e.parsed(), ev.TurnFinished)}
+            ended = set()
+            for item in events:
+                payload = item.parsed()
+                if isinstance(payload, ev.TurnFinished):
+                    ended.add(payload.turn_id)
+                elif isinstance(payload, ev.TurnResumed):
+                    ended.discard(payload.turn_id)
             for e in events:
                 if (
                     isinstance(e.parsed(), ev.TurnRequested)
@@ -456,7 +548,11 @@ class ResearchControls:
                     await self._recover_calls(payload.task_id, child)
                     self._append(
                         sid,
-                        ev.LiteratureFinished(
+                        (
+                            ev.SubtaskFinished
+                            if isinstance(payload, ev.SubtaskStarted)
+                            else ev.LiteratureFinished
+                        )(
                             task_id=payload.task_id,
                             parent_call_id=payload.parent_call_id,
                             outcome="cancelled",
@@ -470,6 +566,53 @@ class ResearchControls:
 
     async def recover_verification(self) -> None:
         """Record an inconclusive result when a local verification process has exited."""
+        project_history = self.store.read(
+            None,
+            types=(
+                "recompute_started",
+                "recompute_finished",
+                "tool_call_finished",
+                "tool_call_failed",
+            ),
+        )
+        terminal = {
+            e.payload["recompute_id"] for e in project_history if e.type == "recompute_finished"
+        }
+        closed_calls = {
+            e.payload["call_id"]
+            for e in project_history
+            if e.type in ("tool_call_finished", "tool_call_failed")
+        }
+        for event in project_history:
+            if event.type != ev.RecomputeStarted.event_type:
+                continue
+            start = ev.RecomputeStarted.model_validate(event.payload)
+            if start.project_id != self.ws.project_id or start.recompute_id in terminal:
+                continue
+            history = self.require_session(start.session_id)
+            await self._recover_calls(start.session_id, history)
+            note = "The previous process exited before completing the recalculation."
+            endings: list[ev.EventPayload] = [
+                ev.RecomputeFinished(
+                    project_id=start.project_id,
+                    program_id=start.program_id,
+                    material_version_id=start.material_version_id,
+                    recompute_id=start.recompute_id,
+                    status="failed",
+                    reason=note,
+                )
+            ]
+            requested = self.store.get(history[0].causation_id) if history[0].causation_id else None
+            call = requested.parsed() if requested else None
+            if (
+                isinstance(call, ev.ToolCallRequested)
+                and call.tool == "recompute_material"
+                and call.call_id not in closed_calls
+            ):
+                endings.append(ev.ToolCallFailed(call_id=call.call_id, tool=call.tool, error=note))
+            self.store.append_chain(
+                endings, session_id=None, actor=Actor.SYSTEM, causation_id=event.id
+            )
         for row in self.sessions():
             sid = row["id"]
             events = self.require_session(sid)

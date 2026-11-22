@@ -89,10 +89,15 @@ def _event_row(event: ev.Event) -> dict | None:
 
 
 def export_spec(
-    project_name: str, evidence_sources: Mapping[str, str], answer_quotes: Sequence[QuoteRef]
+    project_name: str,
+    evidence_sources: Mapping[str, str],
+    answer_quotes: Sequence[QuoteRef],
+    *,
+    program_members: frozenset[str] | None = None,
+    through_seq: int | None = None,
 ) -> ToolSpec:
     async def handler(args: NoArguments, ctx: ToolContext) -> ToolResult:
-        event_log = ctx.store.history(ctx.session_id)
+        event_log = ctx.store.history(ctx.session_id, members=program_members, to_seq=through_seq)
         manifest = build_manifest(
             event_log,
             project_name=project_name,
@@ -113,6 +118,15 @@ def export_spec(
             for answer, review in reviews.items()
             for reason in review.limitations
         ]
+        if program_members is not None and any(
+            e.type == "session_forked" and e.payload["parent_session_id"] not in program_members
+            for e in event_log
+        ):
+            limitations.append(
+                {
+                    "reason": "Ancestor outside the exported research line; its record and evidence were excluded"
+                }
+            )
         sources = {call: redact(text) for call, text in evidence_sources.items()}
         for event in event_log:
             payload = event.parsed()
@@ -275,7 +289,14 @@ def export_spec(
                                 str(ctx.workdir), "."
                             )
                 write("review/coverage.json", canonical_json(ledgers))
-            if not selected and not sources and not limitations and not claims and not ledgers:
+            if (
+                program_members is None
+                and not selected
+                and not sources
+                and not limitations
+                and not claims
+                and not ledgers
+            ):
                 raise ValueError("The session has no exportable runs or retrieved evidence")
 
             pixi = None
@@ -388,7 +409,13 @@ def export_spec(
             temp_zip.replace(exports / filename)
             manifest_hash = sha256_file(draft / "manifest.json")
         ctx.store.append(
-            ev.BundleExported(bundle_id=bundle_id, path=filename, manifest_hash=manifest_hash),
+            ev.BundleExported(
+                bundle_id=bundle_id,
+                path=filename,
+                manifest_hash=manifest_hash,
+                run_ids=[r.run_id for r in selected],
+                claim_ids=[c.claim_id for c in claims],
+            ),
             session_id=ctx.session_id,
             actor=Actor.USER,
             causation_id=ctx.requested_event_id,

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from bioquorum.storage import db as schema
 from bioquorum.storage.db import Database
 from bioquorum.storage.events import EventStore
-from bioquorum.storage.projections import apply_all
+from bioquorum.storage.projections import HANDLERS, apply_all
 
 
 def snapshot(database: Database) -> dict[str, list[dict[str, Any]]]:
@@ -24,13 +24,12 @@ def snapshot(database: Database) -> dict[str, list[dict[str, Any]]]:
 
 
 def rebuild(database: Database) -> int:
-    """Truncate projections and replay all events. Returns the number of events replayed."""
-    count = 0
+    """Truncate projections and replay all events. Returns the total number of events in the log."""
     with database.begin() as conn:
         conn.exec_driver_sql("BEGIN IMMEDIATE")
         for table in schema.PROJECTION_TABLES:
             conn.execute(table.delete())
-        for ev in EventStore.replay_rows(conn):
-            count += 1
+        count = conn.scalar(select(func.count()).select_from(schema.events)) or 0
+        for ev in EventStore.replay_rows(conn, types=tuple(HANDLERS)):
             apply_all(conn, ev)
     return count

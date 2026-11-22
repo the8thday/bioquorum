@@ -1,77 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { errorMessage, request } from "./api";
-import type { Product } from "./Artifacts";
-import { ResultTable, tableAt, type AnswerTable } from "./ResultTables";
-import type { EvidenceRef } from "./types";
+import {Suspense, useEffect, useRef} from "react";
+import type {Product} from "./Artifacts";
+import {ResultTable, type AnswerTable} from "./ResultTables";
+import type {EvidenceRef, TurnRef} from "./types";
+import {viewerFor, filePath} from "./viewers/registry";
 
 export type ResultItem = Product | AnswerTable;
-type Page = {header:string[]; rows:string[][]; more:boolean};
-const filePath = (base:string,id:string) => base+"/artifacts/"+encodeURIComponent(id);
-
-function Report({text,file,products,base,open}: {text:string;file:Product;products:Product[];base:string;open:(p:Product)=>void}) {
-  if (/\.txt$/i.test(file.name)) return <pre className="report-text">{text}</pre>;
-  const lines=text.split(/\r?\n/);
-  const segments=lines.map(t=>[{text:t}]);
-  const blocks:ReactNode[]=[];
-  let code:string[]|null=null;
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i].trim();
-    if (/^```/.test(line)) {
-      if (code) {blocks.push(<pre key={i}>{code.join("\n")}</pre>); code=null;} else code=[];
-      continue;
-    }
-    if (code) {code.push(lines[i]);continue;}
-    if (!line) continue;
-    const cells = tableAt(segments,i);
-    if (cells) {blocks.push(<ResultTable key={i} cells={cells}/>);i+=cells.length;continue;}
-    const heading=/^(#{1,6})\s+(.+)$/.exec(line);
-    if (heading) {blocks.push(heading[1].length===1?<h2 key={i}>{heading[2]}</h2>:<h3 key={i}>{heading[2]}</h3>);continue;}
-    const image=/^!\[([^\]]*)\]\(([^)]+)\)$/.exec(line);
-    if (image && file.run && !/^(?:[a-z]+:|\/|\\)/i.test(image[2])) {
-      const parts=file.name.split("/").slice(0,-1);
-      let inside=true;
-      for(const part of image[2].split("/")) {if(part===".."){if(!parts.length){inside=false;break;}parts.pop();}else if(part && part!==".") parts.push(part);}
-      const matches=products.filter(p=>p.run===file.run && p.preview==="figure" && p.name===parts.join("/"));
-      if(inside && matches.length===1) {
-        const figure=matches[0];
-        blocks.push(<button key={i} className="report-figure" onClick={()=>open(figure)}><img alt={image[1] || figure.name} src={filePath(base,figure.id)+"/preview/image"}/></button>);
-        continue;
-      }
-    }
-    blocks.push(<p key={i}>{lines[i]}</p>);
-  }
-  if(code) blocks.push(<pre key="code-end">{code.join("\n")}</pre>);
-  return <article className="report-document">{blocks}</article>;
-}
-
-function FileContents({file,base,products,open}: {file:Product;base:string;products:Product[];open:(p:Product)=>void}) {
-  const [page,setPage]=useState(1);
-  const [table,setTable]=useState<Page>();
-  const [text,setText]=useState<string>();
-  const [error,setError]=useState("");
-  const path=filePath(base,file.id);
-  useEffect(()=>{
-    const c=new AbortController();
-    setError("");setTable(undefined);
-    const load=file.preview==="table" ? request<Page>(path+"/table?page="+page,undefined,c.signal).then(setTable)
-      :file.preview==="report" ? request<{text:string}>(path+"/preview/text",undefined,c.signal).then(data=>setText(data.text)) : undefined;
-    load?.catch(e=>{if(!c.signal.aborted)setError(errorMessage(e));});
-    return ()=>c.abort();
-  },[path,page,file.preview]);
-  if(error) return <p role="alert">{error}</p>;
-  if(file.preview==="figure") return <img className="reader-figure" alt={file.name} src={path+"/preview/image"} onError={()=>setError("The recorded image could not be displayed.")}/>;
-  if(file.preview==="report" && text!==undefined) return <Report {...{text,file,products,base,open}}/>;
-  if(!table) return <p role="status">Loading preview…</p>;
-  return <><div className="table-scroll"><table><thead><tr>{table.header.map((s,i)=><th key={i} scope="col">{s}</th>)}</tr></thead>
-    <tbody>{table.rows.map((r,i)=><tr key={i}>{r.map((s,j)=><td key={j}>{s}</td>)}</tr>)}</tbody></table></div>
-    {(page>1 || table.more) && <div className="actions"><button className="quiet" disabled={page===1} onClick={()=>setPage(page-1)}>Previous page</button> Page {page}
-      <button className="quiet" disabled={!table.more} onClick={()=>setPage(page+1)}>Next page</button></div>}</>;
-}
-
-export function ResultViewer({items,active,base,products,select,close,open,evidence,inspector}: {
+export function ResultViewer({items,active,base,products,select,close,open,evidence,inspector,quote,initial,comparedFigure}: {
   items:ResultItem[];active:ResultItem;base:string;products:Product[];select:(id:string)=>void;
+  comparedFigure?:string;
+  initial?:TurnRef["selection"];
+  quote?:(item:TurnRef,label:string)=>void;
   inspector:()=>void;close:()=>void;open:(p:Product)=>void;evidence:(id:string,ref:EvidenceRef)=>void;
 }) {
+  const Viewer="cells" in active ? undefined : viewerFor(active.preview)?.Component;
   const heading=useRef<HTMLHeadingElement>(null);
   useEffect(()=>{heading.current?.focus({preventScroll:true});},[active.id]);
   return <section aria-label="Result viewer" className="result-viewer" onKeyDown={e=>{
@@ -84,6 +25,6 @@ export function ResultViewer({items,active,base,products,select,close,open,evide
       <button className="icon-button" aria-label="Close preview" title="Close preview" onClick={close}>×</button></header>
     {"cells" in active ? <ResultTable cells={active.cells} onEvidence={s=>{if(s.ref)evidence(active.answer,s.ref);}}/> :
       <><a className="reader-download" href={filePath(base,active.id)+"/file"} download>Download original</a>
-        <FileContents key={active.id} file={active} {...{base,products,open}}/></>}
+        {Viewer && <Suspense fallback={<p role="status">Loading preview…</p>}><Viewer initial={initial} key={active.id+JSON.stringify(initial)} file={active} {...{base,products,open,quote,comparedFigure}}/></Suspense>}</>}
   </section>;
 }

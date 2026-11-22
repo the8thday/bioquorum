@@ -2,6 +2,8 @@ import { SelectedText } from "./References";
 import { Fragment } from "react";
 import { figurePath, request } from "./api";
 import { Dialog } from "./Dialog";
+import { useProjectRead } from "./useProjectRead";
+import type { MaterialVersion } from "./Materials";
 import type { TurnRef, EvidenceRef } from "./types";
 
 interface Source {source: string; tool: string; task_id?: string; scope?: string}
@@ -50,7 +52,17 @@ function Calculation({data, name, base, openFigure}: {data: Run; name: string; b
   </>;
 }
 
-export function EvidenceDialog({evidence, base, close, item, add,openFigure}: {openFigure:(hash:string)=>void;item?: TurnRef; add?: (ref:TurnRef, visibleText?:string, note?:string) => boolean; evidence: Evidence; base: string; close: () => void}) {
+function ClaimMaterials({path}:{path:string}) {
+  const result=useProjectRead<{materials:(MaterialVersion & {program_id:string})[]}>(path);
+  if (result.error) return <p role="status">Material dependencies unavailable · {result.error}</p>;
+  if (!result.value) return <p role="status">Reading material dependencies…</p>;
+  return result.value.materials.length ? <ul>{result.value.materials.map(m=><li key={m.id}>
+    <a href={"?view=materials&program="+encodeURIComponent(m.program_id)+"#material-"+encodeURIComponent(m.id)}>
+      {m.name} · v{m.version}</a> <small>{m.status}</small>
+  </li>)}</ul> : <p className="muted">No registered material linked to this claim.</p>;
+}
+
+export function EvidenceDialog({claimIds=[],evidence, base, close, item, add,openFigure}: {claimIds?:string[];openFigure:(hash:string)=>void;item?: TurnRef; add?: (ref:TurnRef, visibleText?:string, note?:string) => boolean; evidence: Evidence; base: string; close: () => void}) {
   return <Dialog id="evidence" title={evidence.title} kicker="Evidence" close={close} closeLabel="Close evidence">
     <div id="evidence-body">{evidence.kind === "value"
       ? <Calculation data={evidence.data} name={evidence.title} base={base} openFigure={openFigure}/>
@@ -59,6 +71,7 @@ export function EvidenceDialog({evidence, base, close, item, add,openFigure}: {o
         {evidence.data.task_id && <p className="muted">{evidence.data.scope || "Retrieved by a literature subtask"}</p>}
         <h3>Recorded source · {evidence.data.tool}</h3><div data-ref-kind="source" data-ref-id={item?.id}><Highlight source={evidence.data.source} quote={evidence.quote}/></div></>}
     </div>
+    {!!claimIds.length && <section><h3>Materials supporting this evidence</h3>{claimIds.map(id=><ClaimMaterials key={id} path={base+"/claims/"+encodeURIComponent(id)+"/materials"}/>)}</section>}
     {item && add && <><SelectedText add={add}/><button className="quiet" onClick={() => add(item)}>Quote {item.kind} in question</button></>}
   </Dialog>;
 }

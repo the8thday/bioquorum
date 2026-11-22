@@ -9,15 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any, Generic
 
 from pydantic import BaseModel
 
 from bioquorum.core.enums import Classification, PermissionClass, Trust
 from bioquorum.core.messages import ResultContent, TextPart
-
-if TYPE_CHECKING:
-    from bioquorum.tools.context import ToolContext
+from bioquorum.tools.context import SessionId, ToolContext
 
 
 @dataclass
@@ -30,18 +28,18 @@ class ToolResult:
         return cls(content=[TextPart(text=text)], is_error=is_error)
 
 
-Handler = Callable[[Any, "ToolContext"], Awaitable[ToolResult]]
+Handler = Callable[[Any, ToolContext[SessionId]], Awaitable[ToolResult]]
 """``(args, ctx) -> ToolResult``. ``args`` is an ``args_model`` instance, or a dict."""
 
-TargetFn = Callable[[Any, "ToolContext"], str]
+TargetFn = Callable[[Any, ToolContext[SessionId]], str]
 """``(args, ctx) -> target``; must resolve exactly what the handler will touch."""
 
 
 @dataclass(frozen=True)
-class ToolSpec:
+class ToolSpec(Generic[SessionId]):  # noqa: UP046 - Python 3.12 needs TypeVar for defaults.
     name: str
     description: str
-    handler: Handler
+    handler: Handler[SessionId]
     permission: PermissionClass
     output_trust: Trust = Trust.UNTRUSTED
     classification_floor: Classification | None = None
@@ -49,10 +47,15 @@ class ToolSpec:
     ``None``: data never leaves the machine (see policy.classification)."""
     args_model: type[BaseModel] | None = None
     raw_input_schema: dict[str, Any] | None = None
-    target: TargetFn | None = None
+    target: TargetFn[SessionId] | None = None
     """What the permission is about (a path, a host, ...). Defaults to the tool name."""
 
+    parallel_read: bool = False
+    """A built-in connector whose requests only read records may share a child execution slot."""
+
     def __post_init__(self) -> None:
+        if self.parallel_read and self.permission is not PermissionClass.CONNECTOR:
+            raise ValueError(f"{self.name}: only a built-in connector may declare a parallel read")
         if (self.args_model is None) == (self.raw_input_schema is None):
             raise ValueError(f"{self.name}: give exactly one of args_model / raw_input_schema")
         if self.output_trust is Trust.TRUSTED and self.permission in (
@@ -72,5 +75,5 @@ class ToolSpec:
     def parse_args(self, args: dict[str, Any]) -> Any:
         return self.args_model.model_validate(args) if self.args_model is not None else args
 
-    def target_of(self, parsed_args: Any, ctx: ToolContext) -> str:
+    def target_of(self, parsed_args: Any, ctx: ToolContext[SessionId]) -> str:
         return self.target(parsed_args, ctx) if self.target is not None else self.name

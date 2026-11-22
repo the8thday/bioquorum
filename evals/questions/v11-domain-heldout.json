@@ -1,0 +1,62 @@
+[
+  [
+    "omics-workflows",
+    "Three patients each supplied 2,000 cells before and after therapy. Which comparison supports a treatment association? A pool all cells, B paired patient summaries, C compare six independent samples.",
+    "B"
+  ],
+  [
+    "omics-workflows",
+    "Four cases were run on plate X and four controls on plate Y. Can an adjusted plate coefficient isolate disease? A yes, B only after log transform, C no because disease and plate coincide.",
+    "C"
+  ],
+  [
+    "omics-workflows",
+    "Two cohorts report log-normalized RNA and raw UMI counts respectively. For a common count-based model choose A obtain comparable raw count inputs and designs, B round the logs, C stack all values as counts.",
+    "A"
+  ],
+  [
+    "target-literature",
+    "A trial registry and a conference abstract give identical enrollment and the same registry ID. For independent replication count A two trials, B one study, C no studies were registered.",
+    "B"
+  ],
+  [
+    "target-literature",
+    "One therapeutic inhibits a receptor's ligand binding and improved a viral endpoint. Which extension is supported? A depletion efficacy in autoimmunity, B safety of lifetime depletion, C efficacy evidence specific to this intervention and endpoint.",
+    "C"
+  ],
+  [
+    "target-literature",
+    "RNA expression was elevated in pooled disease tissue. Before asserting accessible antigen on disease cells, choose A cell-resolved surface-protein evidence, B a second enrichment algorithm, C bulk RNA sequencing depth alone.",
+    "A"
+  ],
+  [
+    "sequence-structure",
+    "An mmCIF author residue is 82A and its label sequence ID is 90. To revisit the coordinate choose A remove A, B use residue 90 on any copy, C preserve model, chain namespaces, author number and insertion.",
+    "C"
+  ],
+  [
+    "sequence-structure",
+    "Protein FASTA contains positions 18–23 but the deposited model has no atoms there. Which interpretation follows? A absent coordinates with sequence status retained, B proven deletion, C measured zero exposure.",
+    "A"
+  ],
+  [
+    "sequence-structure",
+    "Two residues are near each other in a predicted complex. Which statement is warranted? A measured affinity, B proximity in this model, C proven inhibition.",
+    "B"
+  ],
+  [
+    "chemical-records",
+    "Two entries share a parent connectivity but have opposite defined stereochemistry. Can they be merged as an identical measured entity? A yes after stripping labels, B yes if masses match, C retain distinct identities.",
+    "C"
+  ],
+  [
+    "chemical-records",
+    "An inhibition result is reported as >10 micromolar. For an exact-value comparison choose A treat as a bound, B assign 10, C set to zero.",
+    "A"
+  ],
+  [
+    "chemical-records",
+    "Two compounds have IC50 from different assay formats and substrate concentrations. To rank intrinsic affinity choose A compare the smaller numeral, B verify comparability or measure under matched conditions, C convert both to nanomolar alone.",
+    "B"
+  ]
+]

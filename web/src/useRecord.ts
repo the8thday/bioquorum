@@ -10,9 +10,10 @@ export function useRecord(base: string) {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const serial = useRef(0);
+  const windowSize=useRef(30);
   const refresh = useCallback(async () => {
     const id = ++serial.current;
-    const data = await request<Snapshot>(base);
+    const data = await request<Snapshot>(base+"?turn_limit="+windowSize.current);
     if (id === serial.current) { setRecord(data); setError(""); }
     return data;
   }, [base]);
@@ -58,5 +59,10 @@ export function useRecord(base: string) {
       window.removeEventListener("pageshow", restore);
     };
   }, [base, refresh]);
-  return {record, refresh, progress, connection, error};
+  const full = useCallback(async () => {
+    windowSize.current=Number.MAX_SAFE_INTEGER;
+    await refresh();
+  }, [refresh]);
+  async function earlier() {windowSize.current+=30;await refresh();}
+  return {record, refresh, earlier, full, progress, connection, error};
 }

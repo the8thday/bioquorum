@@ -101,6 +101,9 @@ def test_r_value_wire_payload_with_local_r(tmp_path):
     stopifnot(nrow(bq_summary(data.frame(x=1:20))$head) == 5L)
     stopifnot(inherits(try(bq_value("invalid name", 1), silent=TRUE), "try-error"))
     stopifnot(inherits(try(bq_value("invalid", NA_real_), silent=TRUE), "try-error"))
+    bq_figure_points("comparison.png", c("sample-A", "sample-B"), c(0, 0.5), c(1, 0.25))
+    points <- read.delim("comparison.png.points.tsv")
+    stopifnot(points$sample_id[2] == "sample-B", points$x[1] == 0, points$y[2] == 0.25)
     bq_value("fraction", 0.123456789123, "ratio")
     """
     out = subprocess.run(

@@ -9,6 +9,7 @@ interface Settings {
   profile: {name:string;recommended_available:boolean;presets:Record<string,Record<string,Value>>};
   project: {name: string; classification: string; data_dirs: string[]};
   agent: Record<string, Value>; models: Record<string, {allowed: boolean; [key: string]: number | boolean | null}>;
+  model_evaluation?: {scores:Record<string,Record<string,{correct:number;total:number;failed:number}>>; suggestions:Record<string,string[]>};
   roles: Record<string, string | string[]>; keys: {reference: string; state: string}[];
   permissions: {permission: string; scope: string; target: string; revoked: boolean}[];
   environment: {isolation: string; network: string; packages: [string,string][]; r_packages: [string,string][]; r_available: boolean; lock_hash: string | null};
@@ -19,11 +20,15 @@ const mechanisms = [
   ["binding_retries","Binding retries","Return unresolved bindings to the worker for up to two revisions.","binding-repair-eval"],
   ["compact_at_bytes","Compress at this many bytes","Summarize older messages past this threshold. Leave blank for manual compression.","v02-runtime-controls"],
   ["skills","Research skills","Let the worker load applicable research instructions.","v05-project-context"],
+  ["program_context","Research line context","Read previous findings and researcher decisions as background in attached sessions.","v10-program-context"],
   ["project_notes","Project notes","Make the saved researcher note available across sessions.","v05-project-context"],
+  ["specialists","Project specialists","Use project-defined roles in parallel tasks.","v12-scale"],
+  ["subtasks","Parallel research tasks","Delegate independent questions using the approved tools.","v12-scale"],
   ["literature_subtasks","Literature subtasks","Allow a child session to search the listed literature tools.","v05-literature-subtasks"],
   ["source_to_kernel","Sources in kernel","Stage retrieved source content for computation.","v05-literature-subtasks"],
   ["references","Follow-up references","Attach the recorded source, calculation or finding to a question.","v07-references"],
   ["coverage","Evidence coverage","Record subquestions, actual searches and remaining gaps.","v08-profile"],
+  ["domain_skills","Domain workflow skills","Load omics, literature, sequence, structure and chemistry guidance on demand.","v11-domain-skills"],
   ["evidence_skills","Evidence category skills","Suggest evidence types and sources for the three research scenarios.","v08-profile"],
   ["first_pass","First-pass judgment","Record a judgment, counterevidence, disagreement and next step.","v08-profile"],
   ["vision","Figure inspection","Let a compatible model inspect recorded images.","v05-target-expansion"],
@@ -43,7 +48,7 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
   function update(section: string, key: string, value: unknown) {
     setPatch(old => {
       const preset = String(old.profile?.name ?? data?.profile.name);
-      if (section === "agent" && preset !== "custom" && key in (data?.profile.presets.minimal ?? {})) {
+      if (section === "agent" && preset !== "custom" && (key in (data?.profile.presets.minimal ?? {}) || ["subtasks","specialists"].includes(key))) {
         return {...old,profile:{name:"custom"},agent:{...data?.profile.presets[preset],...old.agent,[key]:value}};
       }
       return {...old, [section]: {...old[section], [key]: value}};
@@ -51,6 +56,7 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
     setMessage("");
   }
   function agentValue(key: string) {
+    if (patch.profile?.name && patch.profile.name !== "custom" && ["subtasks","specialists"].includes(key)) return false;
     return Object.hasOwn(patch.agent ?? {}, key) ? patch.agent[key] : (data?.profile.presets[String(patch.profile?.name)]?.[key] ?? data?.agent[key]);
   }
   function numeric(key: string, label: string) {
@@ -89,18 +95,33 @@ export function SettingsDialog({quick = false, base, close, saved}: {quick?: boo
           <option value="minimal">Minimal</option><option value="custom">Custom</option>
         </select></label>
         {mechanisms.map(mechanism)}
+        <label>Subtask tools (comma-separated)<input defaultValue={(data.agent.subtask_tools as string[]).join(", ")}
+          onChange={e=>update("agent","subtask_tools",e.target.value.split(",").map(s=>s.trim()).filter(Boolean))}/></label>
+        <label>Concurrent subtasks<input type="number" min={1} max={8} defaultValue={Number(data.agent.subtask_parallelism)}
+          onChange={e=>update("agent","subtask_parallelism",Number(e.target.value))}/></label>
         <label>Literature tool names (comma-separated)<input defaultValue={(data.agent.literature_tools as string[]).join(", ")}
           onChange={e => update("agent","literature_tools",e.target.value.split(",").map(s => s.trim()).filter(Boolean))}/></label>
       </details>
       <details><summary>Models and roles</summary>{Object.entries(data.roles).map(([role, value]) => {
-        const chain = Array.isArray(value) ? value : [value];
-        const selected = patch.roles?.[role] ?? chain;
-        return <label key={role}>{role}<select aria-label={role} value={String(Array.isArray(selected) ? selected[0] ?? "" : selected)}
-          onChange={e => update("roles",role,e.target.value === "auto" ? "auto" : [e.target.value,...chain.slice(1).filter(s => s !== e.target.value)])}>
-          <option value="" disabled>Default routing</option>{role === "reviewer" && <option>auto</option>}
-          {Object.entries(data.models).map(([s,m]) => <option key={s} disabled={!m.allowed}>{s}</option>)}</select>
-          {chain.length > 1 && <small>Fallbacks: {chain.slice(1).join(", ")}</small>}</label>;
-      })}{Object.entries(data.models).map(([spec,m]) => <details key={spec}><summary>{spec}</summary>
+        const chosen = patch.roles?.[role] ?? value;
+        const chain: string[] = Array.isArray(chosen) ? chosen : chosen ? [String(chosen)] : [];
+        const models = Object.entries(data.models);
+        const options = models.filter(([name,m])=>m.allowed && !chain.includes(name));
+        return <div className="setting-row" key={role}><label>{role}
+          <select aria-label={role} value={chain[0] ?? ""}
+            onChange={e=>update("roles",role,e.target.value==="auto" ? "auto" : [e.target.value,...chain.slice(1).filter(s=>s!==e.target.value)])}>
+            <option value="" disabled>Default routing</option>{role==="reviewer" && <option>auto</option>}
+            {models.map(([name,m])=><option key={name} disabled={!m.allowed}>{name}</option>)}</select></label>
+          {chain.slice(1).map((model,i)=><div key={model}>Fallback {i+1} · {model}
+            <button type="button" className="quiet" onClick={()=>update("roles",role,chain.filter(s=>s!==model))}>Remove</button></div>)}
+          {chain[0] && chain[0]!=="auto" && options.length>0 && <label>Add fallback
+            <select aria-label={"Add "+role+" fallback"} value="" onChange={e=>update("roles",role,[...chain,e.target.value])}>
+              <option value="" disabled>Select a model</option>{options.map(([name])=><option key={name}>{name}</option>)}</select></label>}
+        </div>;
+      })}{data.model_evaluation && <section><h3>Model evaluation</h3>
+        {Object.entries(data.model_evaluation.scores).length===0 && <p>Run <code>bq models eval</code> to score the configured models.</p>}
+        {Object.entries(data.model_evaluation.scores).map(([model,scores])=><p key={model}>{model} · {Object.entries(scores).map(([role,s])=>role+" "+s.correct+"/"+s.total+(s.failed?" ("+s.failed+" failed)":"")).join(" · ")}</p>)}
+        {Object.entries(data.model_evaluation.suggestions).map(([role,models])=><p key={role}>Suggested for {role} · {models.join(", ")}</p>)}</section>}{Object.entries(data.models).map(([spec,m]) => <details key={spec}><summary>{spec}</summary>
         {Object.entries(rateLabels).map(([k,label]) => <label key={k}>{label}<input type="number" min="0" step="any"
           defaultValue={String(m[k] ?? "")} onChange={e => {
             const n = e.target.value === "" ? null : Number(e.target.value);

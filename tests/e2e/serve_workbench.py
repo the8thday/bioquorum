@@ -46,6 +46,13 @@ def conversation_controls(directory: str) -> ResearchControls:
             isinstance(p, pa.SystemPromptPart) and "Summarize the older" in p.content for p in parts
         ):
             return pa.ModelResponse(parts=[pa.TextPart(content="Earlier questions recorded.")])
+        if os.environ.get("BQ_TEST_TASKS") and any(
+            isinstance(p, pa.SystemPromptPart) and "Propose a concise research plan" in p.content
+            for p in parts
+        ):
+            return pa.ModelResponse(
+                parts=[pa.TextPart(content='{"steps":["Read local material"]}')]
+            )
         question = next(p.content for p in reversed(parts) if isinstance(p, pa.UserPromptPart))
         if isinstance(question, str) and question.startswith("First **question**"):
             import time
@@ -94,6 +101,12 @@ def conversation_controls(directory: str) -> ResearchControls:
                 parts=[pa.TextPart(content="The installed skill says to inspect column names.")]
             )
         if question == "Wait for permission":
+            if os.environ.get("BQ_TEST_TASKS") and any(
+                isinstance(p, pa.ToolReturnPart) and p.tool_name == "download_file" for p in parts
+            ):
+                return pa.ModelResponse(
+                    parts=[pa.TextPart(content="Permission decision recorded.")]
+                )
             return pa.ModelResponse(
                 parts=[
                     pa.ToolCallPart(
@@ -122,11 +135,15 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
     host = f"127.0.0.1:{sock.getsockname()[1]}"
     print(f"WORKBENCH_URL=http://{host}/", flush=True)
     real = os.environ.get("BQ_TEST_REAL_PROJECT")
-    if os.environ.get("BQ_TEST_PROJECTS"):
+    if os.environ.get("BQ_TEST_PROJECTS") or os.environ.get("BQ_TEST_MATERIALS"):
         from bioquorum.application import project_library
 
         project_library.library_root = lambda: Path(directory) / ".bioquorum" / "test-library"
-    if os.environ.get("BQ_TEST_BILINGUAL"):
+    if os.environ.get("BQ_TEST_SCENARIO_D"):
+        from scenario_d_fixture import scenario_d_controls
+
+        controls = scenario_d_controls(directory)
+    elif os.environ.get("BQ_TEST_BILINGUAL"):
         from bioquorum.core import events as ev
         from bioquorum.core.enums import Actor
         from bioquorum.core.hashing import code_hash
@@ -201,7 +218,7 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         ).start()
         controls = ResearchControls(ws)
         controls.new_session("Initial session")
-    elif os.environ.get("BQ_TEST_UPLOAD"):
+    elif os.environ.get("BQ_TEST_UPLOAD") or os.environ.get("BQ_TEST_VIEWERS"):
         from upload_fixture import upload_controls
 
         controls = upload_controls(directory)
@@ -211,7 +228,13 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
         controls = reference_controls(directory)
     elif any(
         os.environ.get(k)
-        for k in ("BQ_TEST_CONVERSATION", "BQ_TEST_EXTENSIONS", "BQ_TEST_COVERAGE")
+        for k in (
+            "BQ_TEST_CONVERSATION",
+            "BQ_TEST_TASKS",
+            "BQ_TEST_EXTENSIONS",
+            "BQ_TEST_COVERAGE",
+            "BQ_TEST_MATERIALS",
+        )
     ):
         controls = conversation_controls(directory)
     elif os.environ.get("BQ_TEST_PROJECT_NOTE"):

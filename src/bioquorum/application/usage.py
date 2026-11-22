@@ -48,21 +48,30 @@ def report(ws: Workspace, store: EventStore, sid: str) -> dict:
         raise LookupError("Session not found")
     children = {}
     for parent in sessions:
-        for e in store.read(parent, types=["literature_started"]):
+        for e in store.read(parent, types=["literature_started", "subtask_started"]):
             children[e.payload["task_id"]] = (parent, e.seq)
 
     markers = store.read(
         sid,
-        types=["turn_requested", "turn_started", "turn_finished", "user_message", "review_started"],
+        types=[
+            "turn_requested",
+            "turn_started",
+            "turn_resumed",
+            "turn_finished",
+            "user_message",
+            "review_started",
+        ],
     )
     start = end = review = None
-    requested = None
+    requested = last_turn = None
     for event in markers:
         if event.type == "turn_requested":
-            requested = event.id
+            requested = last_turn = event.id
             start, end, review = event, None, None
         elif event.type == "turn_started" and event.payload["turn_id"] == requested:
             start = event
+        elif event.type == "turn_resumed" and event.payload["turn_id"] == last_turn:
+            requested, end = last_turn, None
         elif event.type == "turn_finished" and event.payload["turn_id"] == requested:
             end, requested = event, None
         elif event.type == "user_message" and event.actor is Actor.USER and requested is None:
@@ -71,7 +80,12 @@ def report(ws: Workspace, store: EventStore, sid: str) -> dict:
             review = event
 
     project_rows, session_rows, turn_rows = [], [], []
-    for item in store.model_usage_rows([*sessions, *children]):
+    evaluations = [
+        event.payload["evaluation_id"]
+        for event in store.read(None, types=["model_evaluated"])
+        if event.payload["project_id"] == ws.project_id
+    ]
+    for item in store.model_usage_rows([*sessions, *children, *evaluations]):
         source = item["session_id"]
         owner, seq = children.get(source, (source, item["seq"]))
         row = {**item, "role": "subtask" if source in children else item["role"]}

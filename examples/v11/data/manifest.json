@@ -1,0 +1,23 @@
+[
+  {
+    "name": "1N8Z.cif",
+    "kind": "experimental_data",
+    "source": "https://files.rcsb.org/download/1N8Z.cif",
+    "bytes": 845613,
+    "sha256": "9f22f02b6e514de56dab8a48bc31a16302a51397779e64c398ad3a7f05cb19a2"
+  },
+  {
+    "name": "1N8Z.fasta",
+    "kind": "other",
+    "source": "https://www.rcsb.org/fasta/entry/1N8Z/display",
+    "bytes": 1272,
+    "sha256": "5ace37e7391995724c3eeb2a9fcd304c01c039b183dc9fe5ce316e18c38f8a4c"
+  },
+  {
+    "name": "primary-source.md",
+    "kind": "literature",
+    "source": "https://pubmed.ncbi.nlm.nih.gov/12610629/",
+    "bytes": 382,
+    "sha256": "cb97e8f557176404601037f9cc467974a3e01db6208efd2b14430b4eb4c95c62"
+  }
+]

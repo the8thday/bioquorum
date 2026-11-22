@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Generic
+
+from typing_extensions import TypeVar
 
 from bioquorum.core.enums import Actor, Classification
 from bioquorum.policy.permissions import PermissionPolicy
@@ -11,11 +14,13 @@ from bioquorum.provenance.cas import ContentStore
 from bioquorum.runtime.manager import KernelManager
 from bioquorum.storage.events import EventStore
 
+SessionId = TypeVar("SessionId", bound=str | None, default=str)
+
 
 @dataclass
-class ToolContext:
+class ToolContext(Generic[SessionId]):
     store: EventStore
-    session_id: str
+    session_id: SessionId
     permissions: PermissionPolicy
     project_id: str | None = None
     classification: Classification = Classification.INTERNAL

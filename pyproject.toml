@@ -202,6 +202,8 @@ include = [
   "/src/bioquorum/server/web/*.html",
   "/src/bioquorum/server/web/*.js",
   "/src/bioquorum/server/web/*.css",
+  "/src/bioquorum/server/web/viewer-licenses.md",
+  "/src/bioquorum/server/web/*.wasm",
   "/src/bioquorum/server/web/radiolaria.webp",
   "/bundle-spec/*.json",
   "/README.md", "/LICENSE", "/THIRD_PARTY.md", "/pyproject.toml", "/uv.lock",

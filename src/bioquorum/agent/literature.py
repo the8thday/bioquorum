@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -131,6 +132,10 @@ async def _lookup(
     meter: BudgetMeter,
     start_id: str,
     question: str,
+    *,
+    system: str = _SYSTEM,
+    budget_lock: asyncio.Lock | None = None,
+    tool_lock: asyncio.Lock | None = None,
 ) -> tuple[str, list[ev.LiteratureExcerpt]]:
     store, sid = ctx.store, ctx.session_id
     ask = store.append(
@@ -146,15 +151,18 @@ async def _lookup(
             raise ValueError(f"Parent exploration stopped: {reason}")
         past = store.read(sid)
         definitions = registry.definitions() if tools_left and i < _MAX_CALLS - 1 else []
-        completion = await client.complete(
-            ModelRole.WORKER,
-            [Message.system(_SYSTEM), *conversation(past, source_labels=True)],
-            definitions,
-            session_id=sid,
-            classification=ctx.classification,
-            causation_id=cause,
-        )
-        meter.record(completion)
+        async with budget_lock or nullcontext():
+            if reason := meter.stop_reason():
+                raise ValueError(f"Parent exploration stopped: {reason}")
+            completion = await client.complete(
+                ModelRole.WORKER,
+                [Message.system(system), *conversation(past, source_labels=True)],
+                definitions,
+                session_id=sid,
+                classification=ctx.classification,
+                causation_id=cause,
+            )
+            meter.record(completion)
         msg = completion.message
         if not definitions:
             msg = Message.assistant(msg.text())
@@ -171,18 +179,23 @@ async def _lookup(
             return _report(msg.text(), store.read(sid))
         try:
             for call in calls:
-                reason = meter.stop_reason() or (
-                    "literature tool limit" if not tools_left else None
+                spec = registry.get(call.name) if call.name in registry else None
+                parallel_read = spec and (
+                    spec.permission is PermissionClass.READ_FS or spec.parallel_read
                 )
-                await invoke_by_name(
-                    registry,
-                    call.name,
-                    call.args,
-                    ctx,
-                    call_id=call.call_id,
-                    causation_id=said.id,
-                    skip_reason=reason,
-                )
+                async with (tool_lock if not parallel_read else None) or nullcontext():
+                    reason = meter.stop_reason() or (
+                        "literature tool limit" if not tools_left else None
+                    )
+                    await invoke_by_name(
+                        registry,
+                        call.name,
+                        call.args,
+                        ctx,
+                        call_id=call.call_id,
+                        causation_id=said.id,
+                        skip_reason=reason,
+                    )
                 tools_left = max(0, tools_left - 1)
         except asyncio.CancelledError:
             finished = {
@@ -220,12 +233,101 @@ def usage(events: list[ev.Event]) -> dict[str, Any]:
     }
 
 
-def literature_tool(
+async def run_child(
+    args: LiteratureQuestion,
+    parent: ToolContext,
     registry: ToolRegistry,
     client: ModelClient,
     meter: BudgetMeter,
     *,
     prefetched: bool = False,
+    general: bool = False,
+    system: str = _SYSTEM,
+    specialist: str | None = None,
+    budget_lock: asyncio.Lock | None = None,
+    tool_lock: asyncio.Lock | None = None,
+) -> ToolResult:
+    if reason := meter.stop_reason():
+        return ToolResult.text(f"Parent exploration stopped: {reason}", is_error=True)
+    child = replace(
+        parent,
+        session_id=new_id(),
+        permissions=_ExistingGrants(parent),
+        kernels=None,
+        cas=None,
+        actor=Actor.AGENT,
+        call_id="",
+        requested_event_id=None,
+    )
+    start_type = ev.SubtaskStarted if general else ev.LiteratureStarted
+    finish_type = ev.SubtaskFinished if general else ev.LiteratureFinished
+    start = parent.store.append(
+        start_type(
+            task_id=child.session_id,
+            parent_call_id=parent.call_id,
+            question=args.question,
+            **({"specialist": specialist} if general else {}),
+            prefetched=prefetched,
+        ),
+        session_id=parent.session_id,
+        actor=parent.actor,
+        causation_id=parent.requested_event_id,
+    )
+    summary = ""
+    excerpts: list[ev.LiteratureExcerpt] = []
+    outcome: Literal["completed", "inconclusive", "cancelled"] = "inconclusive"
+    reason = ""
+    try:
+        async with asyncio.timeout(_TIMEOUT):
+            summary, excerpts = await _lookup(
+                child,
+                client,
+                registry,
+                meter,
+                start.id,
+                args.question,
+                system=system,
+                budget_lock=budget_lock,
+                tool_lock=tool_lock,
+            )
+        if excerpts:
+            outcome = "completed"
+        else:
+            reason = "No verifiable excerpt was returned."
+    except TimeoutError:
+        reason = "Literature lookup timed out."
+    except asyncio.CancelledError:
+        outcome, reason = "cancelled", "Research stopped."
+        raise
+    except Exception as exc:
+        # Errors are surfaced as gaps with no promoted evidence, including provider failures.
+        reason = redact(f"{type(exc).__name__}: {exc}")[:500]
+    finally:
+        parent.store.append(
+            finish_type(
+                task_id=child.session_id,
+                parent_call_id=parent.call_id,
+                outcome=outcome,
+                prefetched=prefetched,
+                summary=summary,
+                sources=excerpts,
+                reason=reason,
+                **usage(child.store.read(child.session_id)),
+            ),
+            session_id=parent.session_id,
+            actor=Actor.SYSTEM,
+            causation_id=start.id,
+        )
+    if outcome != "completed":
+        return ToolResult.text(f"Literature subtask inconclusive: {reason}", is_error=True)
+    return ToolResult.text(
+        "Literature lookup completed. Helper synthesis is unverified. "
+        "Use the separately labelled excerpts to check claims.\n" + summary
+    )
+
+
+def literature_tool(
+    registry: ToolRegistry, client: ModelClient, meter: BudgetMeter, *, prefetched: bool = False
 ) -> ToolSpec:
     used = False
 
@@ -236,77 +338,7 @@ def literature_tool(
                 "Only one literature subtask is allowed per turn.", is_error=True
             )
         used = True
-        if reason := meter.stop_reason():
-            return ToolResult.text(f"Parent exploration stopped: {reason}", is_error=True)
-        child = replace(
-            parent,
-            session_id=new_id(),
-            permissions=_ExistingGrants(parent),
-            kernels=None,
-            cas=None,
-            actor=Actor.AGENT,
-            call_id="",
-            requested_event_id=None,
-        )
-        start = parent.store.append(
-            ev.LiteratureStarted(
-                task_id=child.session_id,
-                parent_call_id=parent.call_id,
-                question=args.question,
-                prefetched=prefetched,
-            ),
-            session_id=parent.session_id,
-            actor=parent.actor,
-            causation_id=parent.requested_event_id,
-        )
-        summary = ""
-        excerpts: list[ev.LiteratureExcerpt] = []
-        outcome: Literal["completed", "inconclusive", "cancelled"] = "inconclusive"
-        reason = ""
-        try:
-            async with asyncio.timeout(_TIMEOUT):
-                summary, excerpts = await _lookup(
-                    child,
-                    client,
-                    registry,
-                    meter,
-                    start.id,
-                    args.question,
-                )
-            if excerpts:
-                outcome = "completed"
-            else:
-                reason = "No verifiable excerpt was returned."
-        except TimeoutError:
-            reason = "Literature lookup timed out."
-        except asyncio.CancelledError:
-            outcome, reason = "cancelled", "Research stopped."
-            raise
-        except Exception as exc:
-            # Errors are surfaced as gaps with no promoted evidence, including provider failures.
-            reason = redact(f"{type(exc).__name__}: {exc}")[:500]
-        finally:
-            parent.store.append(
-                ev.LiteratureFinished(
-                    task_id=child.session_id,
-                    parent_call_id=parent.call_id,
-                    outcome=outcome,
-                    prefetched=prefetched,
-                    summary=summary,
-                    sources=excerpts,
-                    reason=reason,
-                    **usage(child.store.read(child.session_id)),
-                ),
-                session_id=parent.session_id,
-                actor=Actor.SYSTEM,
-                causation_id=start.id,
-            )
-        if outcome != "completed":
-            return ToolResult.text(f"Literature subtask inconclusive: {reason}", is_error=True)
-        return ToolResult.text(
-            "Literature lookup completed. Helper synthesis is unverified. "
-            "Use the separately labelled excerpts to check claims.\n" + summary
-        )
+        return await run_child(args, parent, registry, client, meter, prefetched=prefetched)
 
     return ToolSpec(
         _NAME,

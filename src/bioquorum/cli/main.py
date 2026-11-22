@@ -14,7 +14,9 @@ from rich.console import Console
 from rich.table import Table
 
 from bioquorum import __version__
+from bioquorum.application import programs
 from bioquorum.application import workspace as wsp
+from bioquorum.application.controls import ResearchControls
 from bioquorum.core.enums import Classification, ModelRole, PermissionClass
 from bioquorum.mcp.replay import Cassette, record
 from bioquorum.mcp.server import build_server, serve_stdio
@@ -33,6 +35,8 @@ app = typer.Typer(
 )
 db_app = typer.Typer(help="Event store maintenance.")
 project_app = typer.Typer(help="Create and inspect a project in the current directory.")
+program_app = typer.Typer(help="List and inspect research programs.")
+app.add_typer(program_app, name="program")
 mcp_app = typer.Typer(help="Serve BioQuorum tools over MCP.")
 app.add_typer(db_app, name="db")
 app.add_typer(project_app, name="project")
@@ -175,9 +179,51 @@ def project_show(project: ProjectDir = Path(".")) -> None:
         console.print(f"mcp server      {s.name} (clearance: {s.clearance or 'local'})")
 
 
-@app.command("models")
-def models_show(project: ProjectDir = Path(".")) -> None:
+@program_app.command("list")
+def program_list(project: ProjectDir = Path(".")) -> None:
+    """List all research programs in the selected project."""
+    typer.echo(
+        json.dumps(
+            programs.list_programs(ResearchControls(_load(project))), ensure_ascii=False, indent=2
+        )
+    )
+
+
+@program_app.command("show")
+def program_show(program_id: str, project: ProjectDir = Path(".")) -> None:
+    """Show the program's sessions and the latest status of their claims."""
+    try:
+        detail = programs.show(ResearchControls(_load(project)), program_id)
+    except LookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(json.dumps(detail, ensure_ascii=False, indent=2))
+
+
+models_app = typer.Typer(help="Inspect or evaluate model routing.", invoke_without_command=True)
+app.add_typer(models_app, name="models")
+
+
+@models_app.command("eval")
+def models_eval(ctx: typer.Context, project: ProjectDir = Path(".")) -> None:
+    """Run eight scored requests per eligible model using the configured providers."""
+    from bioquorum.application import model_eval, research
+    from bioquorum.storage.events import EventStore
+
+    source = ctx.get_parameter_source("project")
+    if source and source.name == "DEFAULT" and ctx.parent:
+        project = ctx.parent.params.get("project", project)
+    ws = _load(project, ctx)
+    store = EventStore(ws.database())
+    asyncio.run(model_eval.evaluate(ws, store, research.model_client(ws, store)))
+    typer.echo(json.dumps(model_eval.results(ws, store), indent=2))
+
+
+@models_app.callback()
+def models_show(ctx: typer.Context, project: ProjectDir = Path(".")) -> None:
     """Show which model each role uses under this project's classification."""
+    if ctx.invoked_subcommand:
+        return
     ws = _load(project)
     try:
         router = Router(ws.models_config())

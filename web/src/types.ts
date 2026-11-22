@@ -12,7 +12,8 @@ export interface Project {
   example: {question: string; steps: string[]} | null;
 }
 
-export interface TurnRef {kind: "answer" | "claim" | "figure" | "value" | "source" | "run" | "activity"; id: string; name?: string; excerpt?: string}
+export interface StructurePick {type:"structure"; model:number; chain:string; label_chain:string; residue?:number; label_residue?:number; insertion?:string}
+export interface TurnRef {kind: "answer" | "claim" | "figure" | "value" | "source" | "run" | "activity" | "artifact"; selection?:StructurePick|{type:"report";start:number;end:number}|{type:"genome"|"molecule";record:number}|{type:"figure";points:number[]}|{type:"table";row:number;column?:number}|{type:"sequence";record:number;start:number;end:number}; id: string; name?: string; excerpt?: string}
 
 export type DraftReference = {item: TurnRef; label: string; note?: string};
 
@@ -22,6 +23,7 @@ export type EvidenceRef =
 
 export interface Segment {text: string; raw?: string; problem?: string; ref?: EvidenceRef}
 export interface Claim {
+  needs_review?:boolean; replacement_claim_id?:string|null; replacement_session_id?:string|null;
   id: string;
   segments: Segment[];
   status: string;
@@ -55,6 +57,9 @@ export interface Plan {
   deviations: {change: string; reason: string}[];
 }
 export interface Turn {
+  id?:string;
+  resume_checks?: Record<string,string>;
+  selections?:TurnRef[];
   question: string; plan?: Plan | null; status?: string; error?: string;
 }
 export interface Comparison {
@@ -68,9 +73,11 @@ export type Verification =
       comparisons: Comparison[]; note?: string}};
 
 export interface Snapshot {
+  has_earlier?:boolean;first_seq?:number;
+  plan_draft?: {question:string;model:string;steps:string[]}|null;
   disconnected?: string[];
   last_seq: number;
-  questions: {seq: number; text: string}[];
+  questions: {id?:string; seq: number; text: string}[];
   turns: (Turn & {seq: number; id: string})[];
   products?: import("./Artifacts").Product[];
   figures: {id:string; seq: number; hash: string; run_id: string}[];
@@ -82,6 +89,7 @@ export interface Snapshot {
 }
 
 export interface Activity {
+  task_id?:string; previous?:string; next_model?:string;
   run_id?: string;
   type: string;
   tool?: string; replay_miss?: boolean; empty_result?: boolean; is_error?: boolean; error?: string;

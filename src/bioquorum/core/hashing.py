@@ -12,7 +12,7 @@ import json
 import pickle
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import IO, Any, NamedTuple
 
 ALGORITHM = "sha256"
 _CHUNK = 1 << 20
@@ -27,11 +27,15 @@ def sha256_text(text: str) -> str:
 
 
 def sha256_file(path: str | Path) -> str:
-    h = hashlib.sha256()
     with Path(path).open("rb") as fh:
-        while chunk := fh.read(_CHUNK):
-            h.update(chunk)
-    return h.hexdigest()
+        return sha256_stream(fh)
+
+
+def sha256_stream(stream: IO[bytes]) -> str:
+    digest = hashlib.sha256()
+    while chunk := stream.read(_CHUNK):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 # ----------------------------------------------------------------- code & environment

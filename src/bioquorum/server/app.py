@@ -9,7 +9,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.resources import files
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -36,13 +36,19 @@ from bioquorum.core import events as ev
 from bioquorum.core.enums import Classification
 from bioquorum.provenance.cas import IntegrityError
 from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
+from bioquorum.server.programs import program_routes
+from bioquorum.server.recompute import recompute_routes
+from bioquorum.server.request_body import Empty
+from bioquorum.server.request_body import read_body as _body
 
 CSP = (
-    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'sha256-ITHmamcImsZ/Je1xrdtDLZVvRSpj1Zokb6uHXORB824=' 'sha256-NTwDUA6nIvRRpI2lIBtHJqkV0TlTj4HVmI6vI81fIfM='; img-src 'self' data:; "
     "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 )
 WEB = files("bioquorum.server").joinpath("web")
 ASSETS = {
+    "viewer-licenses.md": "text/plain",
+    "RDKit_minimal.wasm": "application/wasm",
     "index.html": "text/html",
     "app.css": "text/css",
     "app.js": "text/javascript",
@@ -94,6 +100,14 @@ class Question(BaseModel):
     worker_model: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class ResumeTurn(BaseModel):
+    checked_calls: list[str] = Field(default_factory=list)
+
+
+class PlanQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=12000)
+
+
 class PlanDecision(BaseModel):
     approve: bool
     reason: str = Field(default="", max_length=600)
@@ -101,20 +115,6 @@ class PlanDecision(BaseModel):
 
 class PermissionDecision(BaseModel):
     grant: bool
-
-
-async def _body[T: BaseModel](request: Request, model: type[T], *, limit: int = 32_768) -> T:
-    if request.headers.get("content-type", "").split(";")[0] != "application/json":
-        raise ValueError("Expected application/json")
-    data = bytearray()
-    async for chunk in request.stream():
-        data.extend(chunk)
-        if len(data) > limit:
-            raise ValueError(f"Request body exceeds {limit // 1024} KiB")
-    try:
-        return model.model_validate_json(data)
-    except ValidationError:
-        raise ValueError("Invalid request fields") from None
 
 
 def _sid(request: Request) -> str:
@@ -154,16 +154,23 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
     async def asset(request: Request) -> Response:
         name = request.path_params.get("asset", "index.html")
         if (
-            name not in ASSETS
+            (
+                name not in ASSETS
+                and not re.fullmatch(r"(?:viewer|chem-worker)-[A-Za-z0-9_-]+\.js", name)
+            )
             or (name == "index.html" and "asset" in request.path_params)
             or not WEB.joinpath(name).is_file()
         ):
             raise LookupError("Asset not found")
         return Response(
             WEB.joinpath(name).read_bytes(),
-            media_type=ASSETS[name],
+            media_type=ASSETS.get(name, "text/javascript"),
             headers={
-                "Content-Security-Policy": CSP,
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'unsafe-eval'; connect-src 'none'"
+                    if name.startswith("chem-worker-")
+                    else CSP
+                ),
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "no-referrer",
                 "Cache-Control": "no-cache",
@@ -190,6 +197,16 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         return JSONResponse(
             await settings.reconnect(controls, _sid(request), request.path_params["name"])
         )
+
+    async def tasks(request: Request) -> Response:
+        from bioquorum.application.tasks import task_list
+
+        return JSONResponse(task_list(controls), headers={"Cache-Control": "no-store"})
+
+    async def pending_items(request: Request) -> Response:
+        from bioquorum.application.tasks import inbox
+
+        return JSONResponse(inbox(controls), headers={"Cache-Control": "no-store"})
 
     async def sessions(request: Request) -> Response:
         if request.method == "POST":
@@ -229,7 +246,14 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def read(request: Request) -> Response:
         return JSONResponse(
-            record.snapshot(controls, _sid(request)), headers={"Cache-Control": "no-store"}
+            record.snapshot(
+                controls,
+                _sid(request),
+                turn_limit=int(request.query_params["turn_limit"])
+                if "turn_limit" in request.query_params
+                else None,
+            ),
+            headers={"Cache-Control": "no-store"},
         )
 
     async def context_info(request: Request) -> Response:
@@ -268,6 +292,10 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         )
         return JSONResponse({"turn_id": turn.id}, status_code=202)
 
+    async def draft_plan(request: Request) -> Response:
+        body = await _body(request, PlanQuestion)
+        return JSONResponse(await controls.draft_plan(_sid(request), body.question))
+
     async def plan(request: Request) -> Response:
         body = await _body(request, PlanDecision)
         await controls.decide_plan(
@@ -279,6 +307,11 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         body = await _body(request, PermissionDecision)
         controls.decide_permission(_sid(request), request.path_params["request_id"], body.grant)
         return Response(status_code=204)
+
+    async def resume(request: Request) -> Response:
+        body = await _body(request, ResumeTurn)
+        controls.resume(_sid(request), request.path_params["turn_id"], body.checked_calls)
+        return JSONResponse({"turn_id": request.path_params["turn_id"]}, status_code=202)
 
     async def stop(request: Request) -> Response:
         await _body(request, Empty)
@@ -346,6 +379,12 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def product_preview(request: Request) -> Response:
         sid, ident = _sid(request), request.path_params["id"]
+        if request.path_params["format"] == "chrom-sizes":
+            return Response(
+                artifacts.chromosome_extents(controls, sid, ident),
+                media_type="text/plain",
+                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+            )
         path, _ = artifacts.download(controls, sid, ident)
         if request.path_params["format"] == "image":
             if path.stat().st_size > 20_000_000:
@@ -362,22 +401,27 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             )
         if request.path_params["format"] != "text":
             raise LookupError("Unknown preview format")
-        if path.stat().st_size > 512 * 1024:
-            raise ValueError("Report exceeds 512 KiB. Download the full file.")
-        try:
-            text = path.read_text(encoding="utf-8-sig")
-        except UnicodeError:
-            raise ValueError(
-                "Text preview requires a UTF-8 report. Download the original file."
-            ) from None
+        text = artifacts.read_report(path)
         return JSONResponse({"text": text}, headers={"Cache-Control": "no-store"})
 
+    async def scientific_data(request: Request) -> Response:
+        data = artifacts.scientific_data(controls, _sid(request), request.path_params["id"])
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
     async def product_table(request: Request) -> Response:
-        data = artifacts.table(
+        from starlette.concurrency import run_in_threadpool
+
+        params = request.query_params
+        data = await run_in_threadpool(
+            artifacts.table,
             controls,
             _sid(request),
             request.path_params["id"],
-            int(request.query_params.get("page", "1")),
+            int(params.get("page", "1")),
+            query=params.get("q", ""),
+            sort=int(params["sort"]) if "sort" in params else None,
+            descending=params.get("order") == "desc",
+            stats=int(params["stats"]) if "stats" in params else None,
         )
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
@@ -465,14 +509,14 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
 
     async def events(request: Request) -> Response:
         sid = _sid(request)
-        available = controls.require_session(sid)
+        controls.check_session(sid)
         try:
             cursor = int(
                 request.headers.get("last-event-id", request.query_params.get("after", "-1"))
             )
         except ValueError:
             raise ValueError("Invalid event cursor") from None
-        if not -1 <= cursor <= available[-1].seq:
+        if not -1 <= cursor <= controls.store.last_seq(sid):
             raise ValueError("Invalid event cursor")
 
         async def stream():
@@ -481,7 +525,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             progress = None
             idle = 0
             while not await request.is_disconnected():
-                changes = controls.store.read(sid, from_seq=cursor + 1)
+                changes = controls.store.read(sid, from_seq=cursor + 1, limit=256)
                 for event in changes:
                     cursor = event.seq
                     yield f"id: {cursor}\nevent: change\ndata: {json.dumps(event.type)}\n\n"
@@ -494,7 +538,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 if idle >= 40:
                     yield ": keepalive\n\n"
                     idle = 0
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0 if len(changes) == 256 else 0.25)
 
         return StreamingResponse(
             stream(),
@@ -599,9 +643,13 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             ),
             *([] if controls.demo else [Mount("/example", app=offline_example)]),
             Route("/assets/{asset}", asset),
+            *program_routes(controls),
+            *recompute_routes(controls),
             Route("/api/extensions", project_extensions, methods=["GET", "POST"]),
             Route("/api/settings", project_settings, methods=["GET", "POST"]),
             Route(session + "/connectors/{name}/reconnect", reconnect, methods=["POST"]),
+            Route("/api/tasks", tasks),
+            Route("/api/inbox", pending_items),
             Route(base, sessions, methods=["GET", "POST"]),
             Route(session, read),
             Route(session + "/title", rename, methods=["POST"]),
@@ -610,7 +658,9 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/usage", usage_report),
             Route(session + "/audit", audit_history),
             Route(session + "/events", events),
+            Route(session + "/plan-draft", draft_plan, methods=["POST"]),
             Route(session + "/turns", ask, methods=["POST"]),
+            Route(session + "/turns/{turn_id}/resume", resume, methods=["POST"]),
             Route(session + "/turns/{turn_id}/plan", plan, methods=["POST"]),
             Route(session + "/permissions/{request_id}", permission, methods=["POST"]),
             Route(session + "/stop", stop, methods=["POST"]),
@@ -623,6 +673,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/artifacts", products, methods=["GET", "POST"]),
             Route(session + "/artifacts/{id}/file", product_file),
             Route(session + "/artifacts/{id}/preview/{format}", product_preview),
+            Route(session + "/artifacts/{id}/annotations", scientific_data),
             Route(session + "/artifacts/{id}/table", product_table),
             Route(session + "/notebook", export_notebook),
             Route(session + "/bundles", bundles, methods=["POST"]),
@@ -630,10 +681,6 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route(session + "/bundles/{bundle_id}", download_bundle),
         ],
     }
-
-
-class Empty(BaseModel):
-    pass
 
 
 def create_app(controls: ResearchControls, host: str, *, library: bool = True):

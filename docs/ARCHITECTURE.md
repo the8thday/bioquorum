@@ -176,20 +176,24 @@ Event(
 |---|---|
 | 项目 | `project_created`（v2 记录创建时的推荐开关，v1 项目沿用原设置） |
 | 项目设置与连接器检查 | `project_settings_changed`, `connector_checked` |
+| 更正与复核 | `claim_review_flagged`, `claim_review_cleared`, `recompute_started`, `recompute_finished` |
+| 研究决定与导出 | `decision_recorded`, `decision_revised`, `program_bundle_exported` |
+| 研究线 | `program_created`, `program_updated`, `session_attached` |
+| 材料版本 | `material_registered`, `material_superseded`, `material_withdrawn` |
 | 项目笔记 | `project_note_saved`, `project_note_drafted` |
 | 会话 | `session_created`, `session_forked`, `session_title_set`, `session_archived` |
 | 对话 | `user_message`, `assistant_message` |
-| 模型 | `model_call_started`, `model_call_finished`, `model_call_failed` |
+| 模型 | `model_call_started`, `model_call_finished`, `model_call_failed`, `model_evaluated`, `model_route_fallback` |
 | 工具 | `tool_call_requested`, `tool_call_finished`, `tool_call_failed` |
-| 计划 | `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
+| 计划 | `plan_drafted`, `plan_proposed`, `plan_approved`, `plan_step_done`, `plan_abandoned`, `plan_deviation` |
 | 权限 | `permission_requested`, `permission_decided` |
 | 执行 | `run_started`, `run_output`, `lineage_observed`, `run_finished`, `run_failed`, `run_cancelled`, `run_timed_out` |
 | 产物 | `file_registered`, `artifact_version_created`, `artifact_status_changed` |
 | 结论 | `claim_extracted`, `claim_status_changed` |
 | 审查 | `review_started`, `review_finding`, `review_finished`, `finding_resolved` |
 | 复现 | `rerun_started`, `rerun_finished`, `replication_started`, `replication_finished`, `bundle_exported` |
-| 研究交互 | `turn_requested`, `turn_started`, `turn_finished` |
-| 文献子任务 | `literature_started`, `literature_finished` |
+| 研究交互 | `turn_requested`, `turn_started`, `turn_resumed`, `turn_finished` |
+| 文献子任务 | `literature_started`, `literature_finished`, `subtask_started`, `subtask_finished` |
 | 首轮判断 | `first_pass_started`, `clarification_requested`, `clarification_answered` |
 | 证据覆盖 | `coverage_planned`, `coverage_updated`, `coverage_closed` |
 | 探索控制 | `context_compacted`, `exploration_stopped` |
@@ -435,6 +439,7 @@ ToolSpec(
   - v0.8 的独立开关为 `[agent] coverage`、`first_pass` 和 `evidence_skills`。覆盖台账与讨论条目从本轮事件重建。对外查询走 `tools.invoke()`，公开来源的返回按不受信任材料处理。启用条件与实测进度见[开关比较](research/v08-profile.md)。
   - 证据绑定（已实现）：`[agent] binding` 默认开启，控制提示词里的绑定说明和 `[source sN]` 行，关闭时使用 v0.1 提示词。解析失败时，`[agent] binding_retries` 控制退回轮数（0 到 2），通过 `user_message`、`actor = system` 列出失败项。退回收益未证实，按 ADR-018 默认设为 0。配对结果见 [绑定评测](research/binding-eval.md)。
   - 计划（v0.3）：计划即预先登记的分析方案；执行中偏离计划要写明原因，偏离记录留在事件里。
+  - 研究线背景（ADR-031、041）：`[agent] program_context` 默认关闭。加入研究线的会话可通过 `read_program_context` 分页读取当前结论与决定；返回内容不参与证据别名或引文绑定。
   - 文献子任务（ADR-024）：空白上下文、已有权限、明确列出的文献工具，使用量计入父轮预算。子流与主对话分离，主会话只收到有限摘要和核对过的原文摘录。
   - Skills、项目笔记（ADR-023）：分开启用。先给 Skill 目录，正文和引用经工具按需打开；笔记保存在项目事件流，模型只能建议，作者保存后才跨会话生效。
 - 入口：`bq run` 提问 → 循环 → 回答 → 自动审查（`review.review_answer`）；`bq review [--answer-file]` 审查会话最后一条回答，或审查外部（例如 Claude Code 经 MCP）写出的回答，证据都取自会话事件。
@@ -467,6 +472,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - `web/`：以研究记录为中心。四个部分：记录（结论带状态标记）、证据抽屉（数字 → 代码、输出、输入 hash；引用 → 原文与高亮的原话）、活动流与输入框、卡片（计划、权限、审查）。
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
 - 前端：v0.3 至 v0.6 是随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）；v0.7 起改为 `web/` 下的 React + TypeScript + Vite 工程，构建产物提交到 `src/bioquorum/server/web/`，CI 检查与源码一致（ADR-029）。每轮的选择写进 `turn_requested`，项目设置的修改写成事件；密钥不经过界面。
+- 文件查看器依据产物类型懒加载；选区附于轮次引用，可从会话历史恢复。CAS 中的表格单元格、序列片段和同次运行的样本映射由服务端解析，模型只收到有界选段（ADR-042）。
 - `turn_requested` v3 保存本轮引用及记录标识，v2 记录升级为空列表。引用只能解析到本会话或分叉继承的记录，来源和运行代码作为不可信数据传给模型。
 - `turn_requested` v2 保存可选的 `worker_model`；v1 升级时填空，按角色默认路由。回答显示的模型由 `assistant_message.model_call_id` 关联成功的 `model_call_finished` 确定。
 - 测试：组件测试不联网；端到端测试对着 cassette 模型和 `FakeKernel` 的服务端。
@@ -567,3 +573,9 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 037 | [对话旁的结果阅读区与可调整侧栏](adr/037-result-reader.md) |
 | 038 | [v0.8 新项目的推荐配置](adr/038-v08-recommended-profile.md) |
 | 039 | [双语言内核、文件交接和重跑](adr/039-bilingual-kernels.md) |
+| 040 | [研究线归属与材料版本的身份](adr/040-program-membership-and-material-versions.md) |
+| 041 | [研究线更正、重算与接手](adr/041-correction-and-handoff.md) |
+| 042 | [按需加载本地文件查看器与可回放的选区](adr/042-artifact-viewers.md) |
+| 043 | [从事件记录恢复中断的研究轮次](adr/043-turn-recovery.md) |
+| 044 | [有权限上限的并行子任务](adr/044-scoped-subtasks.md) |
+| 045 | [按角色评测和记录模型回退](adr/045-role-evaluation-and-routing.md) |

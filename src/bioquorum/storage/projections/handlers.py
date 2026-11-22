@@ -9,17 +9,22 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, literal_column, select, update
 from sqlalchemy.engine import Connection
 
 from bioquorum.core import events as ev
-from bioquorum.core.enums import FindingStatus, RunStatus, SessionStatus
+from bioquorum.core.enums import Actor, FindingStatus, RunStatus, SessionStatus
 from bioquorum.core.events import Event, EventPayload
 from bioquorum.core.status import VerificationStatus
 from bioquorum.storage import db as t
+from bioquorum.storage.projections.materials import apply_material
 
 Handler = Callable[[Connection, Event, Any], None]
-HANDLERS: dict[str, Handler] = {}
+HANDLERS: dict[str, Handler] = {
+    ev.MaterialRegistered.event_type: apply_material,
+    ev.MaterialSuperseded.event_type: apply_material,
+    ev.MaterialWithdrawn.event_type: apply_material,
+}
 
 
 def _on(payload_cls: type[EventPayload]):
@@ -75,6 +80,66 @@ def _project_created(conn: Connection, e: Event, p: ev.ProjectCreated) -> None:
             created_at=e.ts.isoformat(),
         )
     )
+
+
+def _researcher_project_event(e: Event) -> None:
+    if e.session_id is not None or e.actor is not Actor.USER:
+        raise ValueError("Program changes require a project-level researcher action")
+
+
+@_on(ev.ProgramCreated)
+def _program_created(conn: Connection, e: Event, p: ev.ProgramCreated) -> None:
+    _researcher_project_event(e)
+    if not conn.scalar(select(t.projects.c.id).where(t.projects.c.id == p.project_id)):
+        raise ValueError("Project not found")
+    conn.execute(
+        insert(t.programs).values(
+            id=p.program_id,
+            project_id=p.project_id,
+            name=p.name,
+            status="active",
+            created_at=e.ts.isoformat(),
+        )
+    )
+
+
+def _active_program(conn: Connection, project_id: str, program_id: str) -> None:
+    status = conn.scalar(
+        select(t.programs.c.status).where(
+            t.programs.c.id == program_id, t.programs.c.project_id == project_id
+        )
+    )
+    if status is None:
+        raise ValueError("Program not found")
+    if status == "closed":
+        raise ValueError("Program is closed")
+
+
+@_on(ev.ProgramUpdated)
+def _program_updated(conn: Connection, e: Event, p: ev.ProgramUpdated) -> None:
+    _researcher_project_event(e)
+    _active_program(conn, p.project_id, p.program_id)
+    fields = {"status": "closed"} if p.closed else {"name": p.name}
+    conn.execute(update(t.programs).where(t.programs.c.id == p.program_id).values(**fields))
+
+
+@_on(ev.SessionAttached)
+def _session_attached(conn: Connection, e: Event, p: ev.SessionAttached) -> None:
+    _researcher_project_event(e)
+    _active_program(conn, p.project_id, p.program_id)
+    if not conn.scalar(
+        select(t.sessions.c.id).where(
+            t.sessions.c.id == p.session_id, t.sessions.c.project_id == p.project_id
+        )
+    ):
+        raise ValueError("Session not found")
+    assigned = conn.scalar(
+        select(t.program_sessions.c.program_id).where(t.program_sessions.c.id == p.session_id)
+    )
+    if assigned is None:
+        conn.execute(insert(t.program_sessions).values(id=p.session_id, program_id=p.program_id))
+    elif assigned != p.program_id:
+        raise ValueError("Session already belongs to a different program")
 
 
 @_on(ev.SessionCreated)
@@ -334,3 +399,66 @@ def _finding_resolved(conn: Connection, e: Event, p: ev.FindingResolved) -> None
         .where(t.review_findings.c.id == p.finding_id)
         .values(status=p.status.value)
     )
+
+
+@_on(ev.DecisionRecorded)
+@_on(ev.DecisionRevised)
+def _validate_decision(conn: Connection, e: Event, p: ev.DecisionRecorded) -> None:
+    """Check membership and optimistic revision in the same transaction as append."""
+    _researcher_project_event(e)
+    _active_program(conn, p.project_id, p.program_id)
+    previous = conn.scalar(
+        select(t.events.c.id)
+        .where(
+            t.events.c.session_id.is_(None),
+            t.events.c.seq < e.seq,
+            t.events.c.type.in_(("decision_recorded", "decision_revised")),
+            t.events.c.payload["decision_id"].as_string() == p.decision_id,
+            t.events.c.payload["program_id"].as_string() == p.program_id,
+            t.events.c.payload["project_id"].as_string() == p.project_id,
+        )
+        .order_by(t.events.c.seq.desc())
+        .limit(1)
+    )
+    if isinstance(p, ev.DecisionRevised):
+        if previous != p.prior_revision:
+            raise ValueError("Decision revision changed; reload the decision")
+    elif previous is not None:
+        raise ValueError("Decision already recorded")
+    for claim in p.claims:
+        exists = conn.scalar(
+            select(t.claims.c.id)
+            .join(t.program_sessions, t.program_sessions.c.id == t.claims.c.session_id)
+            .where(
+                t.program_sessions.c.program_id == p.program_id,
+                t.claims.c.id == claim.id,
+                t.claims.c.session_id == claim.session_id,
+                t.claims.c.source_event_id == claim.source_event_id,
+            )
+        )
+        if exists is None:
+            raise ValueError("A cited claim is outside this research line")
+        # During both append and projection replay, accept only the head visible at save time.
+        saved_at = (
+            select(literal_column("rowid"))
+            .select_from(t.events)
+            .where(t.events.c.id == e.id)
+            .scalar_subquery()
+        )
+        revision = conn.execute(
+            select(t.events.c.id, t.events.c.payload)
+            .where(
+                t.events.c.session_id == claim.session_id,
+                t.events.c.type.in_(("claim_extracted", "claim_status_changed")),
+                t.events.c.payload["claim_id"].as_string() == claim.id,
+                literal_column("rowid") < saved_at,
+            )
+            .order_by(t.events.c.seq.desc())
+            .limit(1)
+        ).first()
+        if (
+            not revision
+            or revision.id != claim.revision
+            or revision.payload.get("to_status", "unverified") != claim.status.value
+        ):
+            raise ValueError("Claim revision changed; refresh the evidence before saving")

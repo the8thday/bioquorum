@@ -14,6 +14,8 @@ import yaml
 from bioquorum.core.hashing import sha256_bytes
 
 NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+DOMAIN_SKILLS = {"omics-workflows", "target-literature", "sequence-structure", "chemical-records"}
+EVIDENCE_SKILLS = {"omics-evidence", "target-evidence", "evidence-synthesis"}
 MAX_SKILLS = 24
 MAX_HEADER = 8192
 MAX_TEXT = 48 * 1024
@@ -120,6 +122,7 @@ class Skill:
     description: str
     root: Path
     stamp: tuple[int, int, int, int]
+    license: str = ""
 
     def load(self, resource: str | None = None) -> SkillContent:
         member = PurePosixPath(resource or "SKILL.md")
@@ -165,7 +168,14 @@ def discover(directory: Path) -> dict[str, Skill]:
                     continue
                 desc = " ".join(desc.split())
                 if 0 < len(desc) <= 1024:
-                    skills[name] = Skill(name, desc, root, _stamp(os.fstat(file.fileno())))
+                    license = metadata.get("license")
+                    skills[name] = Skill(
+                        name,
+                        desc,
+                        root,
+                        _stamp(os.fstat(file.fileno())),
+                        license[:512] if isinstance(license, str) else "",
+                    )
         except (OSError, ValueError, yaml.YAMLError):
             continue
     return skills

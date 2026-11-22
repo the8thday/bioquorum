@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable, Sequence
 from contextlib import AsyncExitStack
 from copy import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx2
@@ -87,6 +87,20 @@ class ModelClient:
     def with_worker(self, name: str, classification: Classification) -> ModelClient:
         client = copy(self)
         client.router = self.router.select_worker(name, classification)
+        return client
+
+    def for_evaluation(self, name: str, classification: Classification) -> ModelClient:
+        """Pin all role checks to the same eligible candidate, with no fallback."""
+        selected = (
+            self.router.select_worker(name, classification)
+            .resolve(ModelRole.WORKER, classification)
+            .spec
+        )
+        client = copy(self)
+        config = replace(
+            self.router.config, roles={role: [selected] for role in ModelRole}, reviewer_auto=False
+        )
+        client.router = Router(config)
         return client
 
     def _images_for(self, route: Route) -> ImageLoader | None:
@@ -178,7 +192,16 @@ class ModelClient:
             raise
 
         errors: list[str] = []
+        previous_failure: tuple[str, str] | None = None
         for route in self.router.chain(role, classification):
+            if previous_failure:
+                previous, failed_id = previous_failure
+                causation_id = self.store.append(
+                    ev.ModelRouteFallback(role=role, previous=previous, next_model=str(route.spec)),
+                    session_id=session_id,
+                    actor=Actor.SYSTEM,
+                    causation_id=failed_id,
+                ).id
             call_id = new_id()
             started = self.store.append(
                 ev.ModelCallStarted(
@@ -219,7 +242,7 @@ class ModelClient:
                     else redact(f"{type(exc).__name__}: {exc}")[:2000]
                 )
                 errors.append(f"{route.spec}: {error}")
-                self.store.append(
+                failed = self.store.append(
                     ev.ModelCallFailed(
                         call_id=call_id,
                         provider=route.spec.provider,
@@ -231,6 +254,7 @@ class ModelClient:
                     actor=actor,
                     causation_id=started.id,
                 )
+                previous_failure = str(route.spec), failed.id
                 continue
             latency = int((time.monotonic() - t0) * 1000)
             cost = self._cost(str(route.spec), usage)

@@ -36,12 +36,14 @@ jobs:
           diff -ru src/bioquorum/server/web "$RUNNER_TEMP/workbench"
       - run: npm ci --prefix tests/e2e --ignore-scripts
       - run: npm test --prefix tests/e2e
+      - run: BQ_TEST_TASKS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_CONVERSATION=1 npm test --prefix tests/e2e
       - run: BQ_TEST_PROJECTS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_EXTENSIONS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_LAYOUT=1 npm test --prefix tests/e2e
       - run: BQ_TEST_FIRST_RUN=1 npm test --prefix tests/e2e
       - run: BQ_TEST_UPLOAD=1 npm test --prefix tests/e2e
+      - run: BQ_TEST_VIEWERS=1 npm test --prefix tests/e2e
       - run: BQ_TEST_COVERAGE=1 npm test --prefix tests/e2e
       - run: BQ_TEST_BILINGUAL=1 npm test --prefix tests/e2e
       - run: BQ_TEST_REFERENCES=1 npm test --prefix tests/e2e

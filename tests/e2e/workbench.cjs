@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { chromium } = require("playwright");
+process.chdir(require("node:path").resolve(__dirname,"../.."));
 
 async function serverURL(process) {
   let buffer = "";
@@ -163,6 +164,7 @@ async function verifyConversation(page) {
   try {
     const url = await serverURL(server);
     browser = await chromium.launch({
+      args: (process.env.BQ_TEST_VIEWERS || process.env.BQ_TEST_HER2) ? ["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader"] : [],
       channel: process.env.BQ_CHROME_CHANNEL || "chrome", headless: true,
       executablePath: process.env.BQ_CHROME_PATH,
     });
@@ -178,6 +180,82 @@ async function verifyConversation(page) {
         if (attempt === 19) throw error;
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+    }
+    if (process.env.BQ_TEST_TASKS) {
+      const question = "First **question** in the background";
+      await page.getByLabel("Research question").fill(question);
+      await page.getByRole("button", {name:"Run research", exact:true}).click();
+      await page.locator("#composer .running-indicator").waitFor();
+      const location=page.url();
+      await page.close();
+      await context.addInitScript(() => {
+        window.notifications = [];
+        window.Notification = class {
+          static permission = "default";
+          static async requestPermission() { return this.permission = "granted"; }
+          constructor(title, options) { this.title = title; this.options = options; window.notifications.push(this); }
+          close() {}
+        };
+      });
+      const returned=await context.newPage();
+      await returned.goto(location);
+      await returned.getByRole("button",{name:"Research tasks",exact:true}).click();
+      const board=returned.getByRole("dialog",{name:"Research tasks"});
+      await board.getByText("Conversation fixture · completed").waitFor();
+      await board.getByRole("button",{name:question,exact:true}).click();
+      await returned.locator(".answer").first().waitFor();
+      await returned.getByRole("button",{name:"Workbench settings"}).click();
+      const notifications=returned.getByLabel("Notify me of new inbox items while the workbench is open");
+      assert.equal(await notifications.isChecked(),false);
+      await notifications.check();
+      const initialInbox=returned.waitForResponse(response=>new URL(response.url()).pathname==="/api/inbox");
+      await returned.getByRole("button",{name:"Save preferences"}).click();
+      await initialInbox;
+      await returned.getByLabel("Research question").fill("Wait for permission");
+      await returned.getByRole("button",{name:"Run research",exact:true}).click();
+      await returned.getByRole("heading",{name:"Permission requested"}).waitFor();
+      await returned.waitForFunction(()=>window.notifications.length===1,{},{timeout:25000});
+      const notice=await returned.evaluate(()=>({title:window.notifications[0].title, options:window.notifications[0].options}));
+      assert.deepEqual(notice,{title:"BioQuorum has new inbox items",options:{tag:"bioquorum-inbox"}});
+      await returned.evaluate(()=>window.notifications[0].onclick());
+      const inbox=returned.getByRole("dialog",{name:"Inbox"});
+      await inbox.getByRole("button",{name:"download_file",exact:true}).click();
+      await returned.getByRole("button",{name:"Deny",exact:true}).click();
+      await returned.getByText("Permission decision recorded.",{exact:true}).first().waitFor();
+      await returned.getByRole("button",{name:"Inbox",exact:true}).click();
+      await inbox.getByText("No pending items.").waitFor();
+      await inbox.getByRole("button",{name:"Close list"}).click();
+      await returned.getByLabel("Research question").fill("Inspect the archive");
+      await returned.getByLabel("Review a plan first").check();
+      await returned.getByRole("button",{name:"Draft steps with planner"}).click();
+      await returned.waitForFunction(()=>document.querySelector("#steps")?.value==="Read local material");
+      await returned.reload();
+      await returned.getByRole("button",{name:"Submit plan"}).waitFor();
+      assert.equal(await returned.locator("#steps").inputValue(),"Read local material");
+      await returned.getByRole("button",{name:"Submit plan"}).click();
+      await returned.getByRole("button",{name:"Inbox",exact:true}).click();
+      await inbox.getByText("Conversation fixture · Plan approval").waitFor();
+      await inbox.getByRole("button",{name:"Inspect the archive"}).click();
+      await returned.getByRole("button",{name:"Decline plan"}).click();
+      await returned.getByText("Declined by researcher").waitFor();
+      console.log("Reopened a completed background task, resolved permission through the inbox, and restored a planner draft.");
+      return;
+    }
+    if (process.env.BQ_TEST_HER2) {
+      await require("./her2.cjs")(page);
+      assert.deepEqual(errors, []);
+      return;
+    }
+    if (process.env.BQ_TEST_SCENARIO_D) {
+      try { await require("./scenario_d.cjs")(page); }
+      catch (error) { console.error(await page.locator("body").innerText()); throw error; }
+      assert.deepEqual(errors, []);
+      return;
+    }
+    if (process.env.BQ_TEST_VIEWERS) {
+      await require("./viewers.cjs")(page);
+      assert.deepEqual(errors,[]);
+      return;
     }
     if (process.env.BQ_TEST_BILINGUAL) {
       await page.getByRole("button", {name:"7",exact:true}).click();
@@ -199,6 +277,12 @@ async function verifyConversation(page) {
       console.log("R evidence, project package inventory and mixed notebook download passed");
       return;
     }
+    if (process.env.BQ_TEST_MATERIALS) {
+      try { await require("./materials.cjs")(page); }
+      catch (error) { console.error(await page.locator("body").innerText()); throw error; }
+      assert.deepEqual(errors, []);
+      return;
+    }
     if (process.env.BQ_TEST_COVERAGE) {
       await page.getByRole("heading", {name:"Conversation fixture"}).waitFor();
       const question = page.getByLabel("Research question");
@@ -206,6 +290,9 @@ async function verifyConversation(page) {
       await page.getByRole("button",{name:"Run research",exact:true}).click();
       await page.getByText("Evidence coverage · closed").click();
       await page.getByText("Registry outcomes were not searched.").waitFor();
+      await page.getByRole("button",{name:"Inbox",exact:true}).click();
+      await page.getByRole("dialog",{name:"Inbox"}).getByRole("button",{name:"Which outcomes matter?"}).click();
+      assert.match(new URL(page.url()).hash,/^#record-/);
       await page.getByRole("button",{name:"Discuss next step"}).click();
       await page.getByRole("list",{name:"References"}).getByText("Search the registry.").waitFor();
       await question.fill("Follow that step");

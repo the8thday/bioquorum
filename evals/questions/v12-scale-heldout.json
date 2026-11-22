@@ -1,0 +1,5 @@
+[
+  {"topic": "specimen storage", "records":{"trail-a":"The archived storage instruction specifies an amber tube.","trail-b":"The corrected storage instruction specifies a clear vial."},"terms":["amber tube","clear vial"]},
+  {"topic": "sample grouping", "records":{"map-j":"The original group assignment is labelled coastal cohort.","map-k":"The signed replacement assigns the sample to inland cohort."},"terms":["coastal cohort","inland cohort"]},
+  {"topic": "instrument settings", "records":{"scan-m":"The acquisition record identifies the filter as violet glass.","scan-n":"The calibration record identifies the filter as green resin."},"terms":["violet glass","green resin"]}
+]
