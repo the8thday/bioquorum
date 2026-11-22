@@ -1,3 +1,5 @@
+![BioQuorum](web/public/logo.svg)
+
 # BioQuorum
 
 > 我并没有实质参与过抗体药物的研发。那我想试一下，只通过这套Harness加最好的模型，可不可以得到一个候选抗体序列,并把一个抗体序列推到PCC阶段
