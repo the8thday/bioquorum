@@ -157,6 +157,11 @@ class Workspace:
     config: dict[str, Any] = field(default_factory=dict)
     base_config: dict[str, Any] | None = None
 
+    def public_sources_enabled(self, *, standard_registry: bool = True) -> bool:
+        # Injected registries pin the tool set for offline examples and controlled runs.
+        default = standard_registry and self.classification == Classification.PUBLIC
+        return self.config.get("connectors", {}).get("public_sources", default) is True
+
     @property
     def state_dir(self) -> Path:
         return self.root / STATE_DIR
@@ -481,6 +486,7 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
     if root is None:
         raise WorkspaceError(f"no BioQuorum project at or above {start}; run `bq project init`")
     meta = json.loads((root / STATE_DIR / "project.json").read_text(encoding="utf-8"))
+    classification = Classification(meta["classification"])
     config: dict[str, Any] = {}
     global_config = global_config or global_config_path()
     if global_config.is_file():
@@ -493,6 +499,7 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
         for event in store.read(None, types=[ev.ProjectCreated.event_type]):
             if event.payload["project_id"] != meta["project_id"]:
                 continue
+            classification = Classification(event.payload["classification"])
             recommended = event.payload.get("recommended_agent")
             if recommended is not None:
                 switches = config.get("agent", {})
@@ -505,7 +512,11 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
         base_config = copy.deepcopy(config)
         for event in store.read(None, types=[ev.ProjectSettingsChanged.event_type]):
             if event.payload["project_id"] == meta["project_id"]:
-                config = settings_overlay(config, event.payload["patch"])
+                patch = event.payload["patch"]
+                classification = Classification(
+                    patch.get("project", {}).get("classification", classification)
+                )
+                config = settings_overlay(config, patch)
     finally:
         store.db.engine.dispose()
     project = config.get("project", {})
@@ -513,8 +524,8 @@ def load(start: Path, *, global_config: Path | None = None) -> Workspace:
     return Workspace(
         root=root,
         project_id=meta["project_id"],
-        name=meta["name"],
-        classification=Classification(meta["classification"]),
+        name=project.get("display_name", meta["name"]),
+        classification=classification,
         data_dirs=data_dirs,
         config=config,
         base_config=base_config,

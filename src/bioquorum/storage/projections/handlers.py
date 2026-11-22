@@ -82,6 +82,18 @@ def _project_created(conn: Connection, e: Event, p: ev.ProjectCreated) -> None:
     )
 
 
+@_on(ev.ProjectSettingsChanged)
+def _project_settings_changed(conn: Connection, e: Event, p: ev.ProjectSettingsChanged) -> None:
+    details = p.patch.get("project", {})
+    changes = {}
+    if "display_name" in details:
+        changes["name"] = details["display_name"]
+    if "classification" in details:
+        changes["classification"] = details["classification"]
+    if changes:
+        conn.execute(t.projects.update().where(t.projects.c.id == p.project_id).values(**changes))
+
+
 def _researcher_project_event(e: Event) -> None:
     if e.session_id is not None or e.actor is not Actor.USER:
         raise ValueError("Program changes require a project-level researcher action")

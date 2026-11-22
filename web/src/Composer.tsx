@@ -4,7 +4,8 @@ import type { DraftReference, Project, Snapshot } from "./types";
 import { Icon } from "./Icon";
 import type { Product } from "./Artifacts";
 
-export function Composer({draftPlan,initialDraft,executing,connection,upload,openSettings,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+export function Composer({draftPlan,initialDraft,executing,connection,upload,openSettings,chooseModel,attachments,setAttachments,refs, setRefs, planDefault, record, example, worker, setWorker, models, classification, preset, mutate, report}: {
+  chooseModel?:()=>void;
   draftPlan:(q:string)=>Promise<{steps:string[];model:string}>;
   initialDraft?:string; executing: boolean; connection: string; upload: ReactNode; openSettings: () => void; attachments:Product[]; setAttachments:(p:Product[])=>void;
   refs: DraftReference[]; setRefs: (items: DraftReference[]) => void;
@@ -58,6 +59,7 @@ export function Composer({draftPlan,initialDraft,executing,connection,upload,ope
   const message = [question.trim(),...notes].filter(Boolean).join("\n\n");
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (chooseModel) {chooseModel(); return;}
     if (!message || message.length > 12000) {report(new Error("Enter a question of up to 12,000 characters, including reference notes."));return;}
     void act(async () => {
       await mutate("/turns", {question:message, attachments:attachments.map(a=>a.id), references:refs.map(r=>r.item), worker_model: worker || null, steps: plan ? steps.split("\n").map(s => s.trim()).filter(Boolean) : null});

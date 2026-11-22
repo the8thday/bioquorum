@@ -204,6 +204,7 @@ class ResearchControls:
                 [
                     Message.system(
                         'Propose a concise research plan. Return JSON {"steps":["..."]} with 1 to 12 short steps.'
+                        + "".join("\n\n" + text for text in research.instruction_context(self.ws))
                     ),
                     Message.user(question),
                 ],
@@ -501,6 +502,10 @@ class ResearchControls:
             del self.tasks[sid]
             # A task cancelled before its first instruction never reaches _run's finally.
             self._finish(sid, live.turn_id, "interrupted")
+
+    async def reset_session_kernels(self) -> None:
+        previous, self.session_kernels = self.session_kernels, SessionKernels()
+        await previous.close()
 
     async def close(self) -> None:
         for sid in list(self.tasks):

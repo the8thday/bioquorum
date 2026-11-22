@@ -19,12 +19,14 @@ from typing import Any
 import httpx2
 from pydantic_ai import messages as pa
 from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.settings import ModelSettings
 
 from bioquorum.core import events as ev
 from bioquorum.core.enums import Actor, Classification, ModelRole
 from bioquorum.core.ids import new_id
 from bioquorum.core.messages import Message
+from bioquorum.models import chatgpt_plan
 from bioquorum.models.cassette import CassetteMode, ModelCassette, request_key
 from bioquorum.models.convert import ImageLoader, from_provider, to_provider, tool_definitions
 from bioquorum.models.registry import ModelFactory, build_model
@@ -140,7 +142,12 @@ class ModelClient:
             {"max_tokens": self.max_output_tokens} if self.max_output_tokens is not None else None
         )
         async with AsyncExitStack() as stack:
-            if self.outbound_proxy is not None and not route.provider.is_local:
+            if route.provider.kind == "chatgpt" and self.factory is build_model:
+                provider, _ = await stack.enter_async_context(
+                    chatgpt_plan.transport(self.outbound_proxy)
+                )
+                model = OpenAIResponsesModel(route.spec.model, provider=provider)
+            elif self.outbound_proxy is not None and not route.provider.is_local:
                 http = await stack.enter_async_context(
                     httpx2.AsyncClient(proxy=self.outbound_proxy, trust_env=False)
                 )
@@ -241,6 +248,8 @@ class ModelClient:
                     if self._images_for(route) is not None
                     else redact(f"{type(exc).__name__}: {exc}")[:2000]
                 )
+                if route.provider.kind == "chatgpt":
+                    error = "ChatGPT plan request failed. Check your sign-in, selected model and plan limits in Models & accounts."
                 errors.append(f"{route.spec}: {error}")
                 failed = self.store.append(
                     ev.ModelCallFailed(
@@ -254,10 +263,12 @@ class ModelClient:
                     actor=actor,
                     causation_id=started.id,
                 )
+                if route.provider.kind == "chatgpt":
+                    break
                 previous_failure = str(route.spec), failed.id
                 continue
             latency = int((time.monotonic() - t0) * 1000)
-            cost = self._cost(str(route.spec), usage)
+            cost = None if route.provider.kind == "chatgpt" else self._cost(str(route.spec), usage)
             self.store.append(
                 ev.ModelCallFinished(
                     call_id=call_id,

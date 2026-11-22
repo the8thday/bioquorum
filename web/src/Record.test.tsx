@@ -20,6 +20,23 @@ describe("record parity", () => {
     expect(html).toContain("Incomplete source");
   });
 
+  it("shows readable source links and groups evidence notes across paragraphs", () => {
+    const url = "https://pubmed.ncbi.nlm.nih.gov/?term=IL11%20fibrosis";
+    const answer: Answer = {
+      id: "a", seq: 1, inherited: false, review_limitations: [], claims: [],
+      paragraphs: [
+        {segments: [{text: `见[原始研究](${url})。`}], unbound: ["11"]},
+        {segments: [{text: "[unsafe](javascript:alert)"}], unbound: ["12"]},
+      ],
+    };
+    const html = renderToStaticMarkup(<AnswerCard answer={answer} example verification={[]}
+      onEvidence={() => {}} onReview={() => {}} onVerify={() => {}} />);
+    expect(html).toContain(`href="${url}"`);
+    expect(html).not.toContain('href="javascript:');
+    expect(html.match(/Unbound values or citations/g)).toHaveLength(1);
+    expect(html).toMatch(/<details[^>]*><summary>Unbound values or citations/);
+  });
+
   it("keeps unfinished approved plan steps visible after completion", () => {
     const html = renderToStaticMarkup(<TurnCard turn={{question: "Compare counts", status: "completed",
       plan: {status: "approved", steps: ["Count"], done: [], deviations: []}}} />);

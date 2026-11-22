@@ -1,8 +1,16 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+
+function onBackdrop(event: MouseEvent<HTMLDialogElement>) {
+  if (event.target !== event.currentTarget) return false;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return event.clientX < bounds.left || event.clientX >= bounds.right ||
+    event.clientY < bounds.top || event.clientY >= bounds.bottom;
+}
 
 export function Dialog({id, title, close, children, closeLabel, kicker, inline = false}: {
   id: string; title: string; close: () => void; children: ReactNode; closeLabel?: string; kicker?: string; inline?: boolean;
 }) {
+  const startedOutside = useRef(false);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (inline) return;
@@ -15,7 +23,10 @@ export function Dialog({id, title, close, children, closeLabel, kicker, inline =
     };
   }, [inline]);
   if (inline) return <section className="ledger" aria-label={title}><h2>{title}</h2>{children}</section>;
-  return <dialog ref={ref} id={id} aria-labelledby={id + "-title"} onCancel={close}>
+  return <dialog ref={ref} id={id} aria-labelledby={id + "-title"} onCancel={e=>{e.preventDefault();close();}}
+    onPointerDown={e=>{startedOutside.current = e.button===0 && onBackdrop(e);}}
+    onPointerCancel={()=>{startedOutside.current=false;}}
+    onClick={e=>{if (startedOutside.current && onBackdrop(e)) close();startedOutside.current=false;}}>
     <header><div>{kicker && <p className="kicker">{kicker}</p>}
       <h2 id={id + "-title"}>{title}</h2></div>
       {closeLabel && <button type="button" className="icon-button" aria-label={closeLabel} onClick={close}>×</button>}

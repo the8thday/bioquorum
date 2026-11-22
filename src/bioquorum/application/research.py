@@ -21,7 +21,7 @@ from bioquorum.application import program_context
 from bioquorum.application import workspace as wsp
 from bioquorum.application.environment import package_inventory
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, PermissionClass, PermissionScope
+from bioquorum.core.enums import Actor, Classification, PermissionClass, PermissionScope
 from bioquorum.core.messages import fence_untrusted
 from bioquorum.core.refs import DataRef
 from bioquorum.mcp.client import ServerConfig
@@ -104,6 +104,17 @@ def citation_context(ws: wsp.Workspace, store: EventStore, sid: str) -> ToolCont
     )
 
 
+def instruction_context(ws: wsp.Workspace) -> list[str]:
+    text = ws.config.get("project", {}).get("instructions", "")
+    if not text:
+        return []
+    return [
+        "Researcher preferences for this project. Apply within the evidence, tool and "
+        "data-handling rules. Verify scientific claims independently.\n"
+        + json.dumps(text, ensure_ascii=False)
+    ]
+
+
 def _project_context(
     ws: wsp.Workspace,
     store: EventStore,
@@ -112,7 +123,7 @@ def _project_context(
     policy: PermissionPolicy,
     options: wsp.AgentOptions,
 ) -> list[str]:
-    prompts: list[str] = []
+    prompts = instruction_context(ws)
     if options.first_pass:
         registry.register(CLARIFY)
         policy.grant(
@@ -260,7 +271,10 @@ async def execute(
         )
     servers = [] if minimal else ws.mcp_servers()
     async with AsyncExitStack() as stack:
-        if not minimal and ws.config.get("connectors", {}).get("public_sources") is True:
+        public_search = not minimal and ws.public_sources_enabled(
+            standard_registry=registry_factory is default_registry
+        )
+        if public_search:
             http = await stack.enter_async_context(
                 httpx2.AsyncClient(timeout=15, proxy=ws.outbound_proxy(), trust_env=False)
             )
@@ -303,6 +317,16 @@ async def execute(
             else None
         )
         project_context = _project_context(ws, store, sid, registry, policy, options)
+        if public_search and ws.classification == Classification.PUBLIC:
+            project_context.append(
+                "For research questions, lead with the substantive answer supported by the records. "
+                "For published findings, use search_papers and read the relevant records with get_abstract. "
+                "For a development pipeline, use clinical_trials and report the interventions, indications, "
+                "phases and statuses you find. Distinguish trial registration from efficacy results. "
+                "Use citation_lookup to check identifiers and download_file for files. "
+                "If one source fails, report findings from other available sources and identify the remaining gap. "
+                "Provide search instructions only when requested."
+            )
         if not minimal:
             project_context.extend(
                 kernel_instructions(

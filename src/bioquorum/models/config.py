@@ -32,6 +32,7 @@ from bioquorum.core.enums import Classification, ModelRole
 
 # kind -> (default base_url, default family, default api)
 KNOWN_KINDS: dict[str, tuple[str | None, str, str]] = {
+    "chatgpt": (None, "openai-chatgpt", "responses"),
     "openai": (None, "openai", "responses"),
     "deepseek": ("https://api.deepseek.com", "deepseek", "chat"),
     "qwen": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen", "chat"),
@@ -70,11 +71,19 @@ class ProviderConfig:
             )
         default_url, default_family, default_api = KNOWN_KINDS[kind]
         base_url = data.get("base_url", default_url)
+        if kind == "chatgpt" and (
+            base_url is not None
+            or data.get("api_key", "none") != "none"
+            or data.get("api", "responses") != "responses"
+        ):
+            raise ConfigError("ChatGPT plan usage requires the official OAuth Responses provider")
         if kind == "openai-compatible" and not base_url:
             raise ConfigError(f"provider '{name}': openai-compatible needs base_url")
         family = data.get("family") or default_family or name
         key_default = (
-            "none" if kind == "ollama" else f"env:{kind.upper().replace('-', '_')}_API_KEY"
+            "none"
+            if kind in ("ollama", "chatgpt")
+            else f"env:{kind.upper().replace('-', '_')}_API_KEY"
         )
         api_key = data.get("api_key", key_default)
         if api_key not in ("none",) and not str(api_key).startswith(("env:", "keyring:")):

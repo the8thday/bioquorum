@@ -1,3 +1,4 @@
+import { inlineText } from "./InlineText";
 import type { Segment } from "./types";
 
 export type Cells = Segment[][][];
@@ -40,7 +41,7 @@ export function ResultTable({cells,onEvidence}: {cells:Cells;onEvidence?:(s:Segm
     const Cell = heading ? "th" : "td";
     return parts.map((cell,i)=><Cell key={i} scope={heading?"col":undefined}>{cell.map((s,j)=>s.ref && onEvidence
       ? <button key={j} className="evidence-link" onClick={e=>{e.stopPropagation();onEvidence(s);}}>{s.text}</button>
-      : <span key={j} className={s.problem?"error":undefined} title={s.problem}>{s.text}</span>)}</Cell>);
+      : <span key={j} className={s.problem?"error":undefined} title={s.problem}>{inlineText(s.text)}</span>)}</Cell>);
   }
   return <div className="table-scroll"><table><thead><tr>{row(cells[0],true)}</tr></thead>
     <tbody>{cells.slice(1).map((r,i)=><tr key={i}>{row(r,false)}</tr>)}</tbody></table></div>;

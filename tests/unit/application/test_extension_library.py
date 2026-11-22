@@ -161,3 +161,60 @@ def test_install_skill_allows_symlinked_project_ancestor_but_rejects_symlinked_s
                 content=content,
             ),
         )
+
+
+def test_included_skill_installs_and_reopens_in_an_existing_project(tmp_path):
+    from bioquorum.application import extensions
+
+    ws = init_project(tmp_path)
+    controls = ResearchControls(ws)
+    state = extensions.snapshot(controls)
+    assert {"skill-creator", "literature-record-lookup", "pdb-record-lookup"} <= {
+        item["name"] for item in state["included_skills"]
+    }
+    assert "skill-creator" not in ws.project_skills()
+    state = extensions.save(
+        controls,
+        extensions.Edit(revision=None, action="install_included_skill", name="skill-creator"),
+    )
+    reopened = load(tmp_path)
+    assert reopened.agent_options().skills
+    assert reopened.project_skills()["skill-creator"].load().text
+    assert "skill-creator" not in {s["name"] for s in state["included_skills"]}
+    with pytest.raises(ValueError):
+        extensions.save(
+            controls,
+            extensions.Edit(
+                revision=state["revision"], action="install_included_skill", name="../private"
+            ),
+        )
+
+
+def test_public_search_is_visible_and_scoped_to_public_projects(tmp_path, monkeypatch):
+    from bioquorum.application import extensions, project_library
+    from bioquorum.core.enums import Classification
+
+    monkeypatch.setattr(project_library, "library_root", lambda: tmp_path / "library")
+    monkeypatch.setenv("BQ_CONFIG", str(tmp_path / "user.toml"))
+    for level in (Classification.PUBLIC, Classification.INTERNAL):
+        created = project_library.create("Search", level)
+        root = project_library.project_path(created["href"].split("/")[2])
+        controls = ResearchControls(load(root))
+        state = extensions.snapshot(controls)
+        public = level == Classification.PUBLIC
+        assert state["public_search"] == {"enabled": public, "available": public}
+        if public:
+            for enabled in (False, True):
+                state = extensions.save(
+                    controls,
+                    extensions.Edit(
+                        revision=state["revision"], action="set_public_search", enabled=enabled
+                    ),
+                )
+                assert load(root).config["connectors"]["public_sources"] is enabled
+        else:
+            with pytest.raises(ValueError):
+                extensions.save(
+                    controls,
+                    extensions.Edit(revision=None, action="set_public_search", enabled=True),
+                )

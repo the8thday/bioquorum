@@ -12,6 +12,7 @@ const paths = {
   plug: "m7 4 3 3m3-7 3 3 M6 10l7-7 5 5-7 7H8l-2-2z M8 15l-5 5",
   add: "M12 5v14 M5 12h14",
   settings: "M4 7h8m4 0h4 M4 17h3m4 0h9 M12 4v6 M7 14v6",
+  edit: "m14 5 5 5 M4 20l5-1 12-12-4-4L5 15z",
   chat: "M20 15a2 2 0 0 1-2 2H9l-5 4V5h16z",
   menu: "M4 6h16 M4 12h16 M4 18h16",
   side: "M3 4h18v16H3z M15 4v16",

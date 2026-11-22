@@ -25,7 +25,7 @@ export function WorkbenchSettings({value, saved, close, initial, base, newProjec
     <div className="settings-layout"><nav aria-label="Settings sections">
       <span>Preferences</span><button aria-current={section==="General"?"page":undefined} onClick={()=>setSection("General")}><Icon name="gear"/>General</button>
       <span>Customize project</span>{(["Skills","MCP connectors"] as const).map(s=><button key={s} aria-current={section===s?"page":undefined} onClick={()=>setSection(s)}><Icon name={s==="Skills"?"skills":"plug"}/>{s}</button>)}
-    </nav><div className="settings-content">{section!=="General" ? <Extensions key={section} section={section} base={base} newProject={newProject}/> : <><h3>Appearance</h3>
+    </nav><div className="settings-content">{section!=="General" ? <Extensions close={close} key={section} section={section} base={base} newProject={newProject}/> : <><h3>Appearance</h3>
     <p className="muted">Applies to all projects on this machine.</p>
     <form className="preferences-form" onSubmit={submit}>
       <label>Conversation text size<select value={draft.reading_size} onChange={e =>

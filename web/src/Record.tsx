@@ -1,3 +1,4 @@
+import { inlineText } from "./InlineText";
 import { BrandMark } from "./BrandMark";
 import { Coverage } from "./Coverage";
 import { ResultTable, tableAt, type AnswerTable } from "./ResultTables";
@@ -65,16 +66,8 @@ function VerificationResult({entry}: {entry: Verification}) {
 type AnswerProps = Actions & {discuss?:(ref:TurnRef)=>void; openTable?:(item:AnswerTable)=>void; answer: Answer; example: boolean; verification: Verification[]};
 const rawText = (segments: Segment[]) => segments.map(segment => segment.raw ?? segment.text).join("").trim();
 
-function inlineText(text: string) {
-  return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g).map((part, i) => {
-    if (i % 2 === 0) return part;
-    return part.startsWith("`") ? <span key={i}><span hidden>`</span><code>{part.slice(1,-1)}</code><span hidden>`</span></span> :
-      <span key={i}><span hidden>**</span><strong>{part.slice(2,-2)}</strong><span hidden>**</span></span>;
-  });
-}
-
-function ClaimRow({addReference, parts, claim, unbound, sharedStatus, answer, example, verification, onEvidence, onVerify}:
-  Omit<AnswerProps, "onReview"> & {parts: Segment[]; claim?: Claim; unbound?: string[]; sharedStatus?: boolean}) {
+function ClaimRow({addReference, parts, claim, sharedStatus, answer, example, verification, onEvidence, onVerify}:
+  Omit<AnswerProps, "onReview"> & {parts: Segment[]; claim?: Claim; sharedStatus?: boolean}) {
   const status = claim?.status ?? "unverified";
   const canVerify = claim?.has_calculation && !answer.inherited && !example &&
     ["reviewed", "reproduced", "replicated"].includes(status);
@@ -89,7 +82,6 @@ function ClaimRow({addReference, parts, claim, unbound, sharedStatus, answer, ex
     {claim?.replacement_claim_id && claim.replacement_session_id && <a className="replacement-link"
       href={"?session="+encodeURIComponent(claim.replacement_session_id)+"#claim-"+encodeURIComponent(claim.replacement_claim_id)}>View corrected claim</a>}
     {claim && addReference && <button className="quiet" onClick={() => addReference({kind:"claim",id:claim.id})}>Quote claim</button>}
-    {!!unbound?.length && <span className="muted" title={unbound.join(", ")}> · Unbound values or citations</span>}
     {claim?.findings.map((f, i) => <p key={i} className={"muted " + (f.severity === "error" ? "error" : "warning")}>
       {f.check} · {f.evidence}</p>)}
     {claim && verification.filter(entry => entry.result.claim_id === claim.id).map((entry, i) =>
@@ -110,12 +102,13 @@ export function AnswerCard(props: AnswerProps) {
   const matched = new Set(rows.map(row => row.claim));
   const additional = answer.claims.filter(c => !matched.has(c));
   const sharedStatus = rows.length > 1 && rows.every(({claim}) => !claim);
+  const notes = rows.flatMap(({p}, index) => p.unbound.length ? [{index, values: p.unbound}] : []);
   const body = [];
   const lines = answer.paragraphs.map(p=>p.segments);
   let tableCount=0;
   function claimRow(i:number) {
     const {p,claim}=rows[i];
-    return <div key={i}><ClaimRow {...props} parts={p.segments} sharedStatus={sharedStatus} claim={claim} unbound={p.unbound}/>
+    return <div key={i}><ClaimRow {...props} parts={p.segments} sharedStatus={sharedStatus} claim={claim}/>
       {p.unscoped_absence && <p className="warning">Assertion only · No matching scoped query supports this absence claim.</p>}
       </div>;
   }
@@ -147,6 +140,8 @@ export function AnswerCard(props: AnswerProps) {
     {sharedStatus && <Badge status="unverified"/>}
     {answer.review_completed && !answer.review_limitations.length && <p className="muted review-result">Review finished · {answer.claims.length} {answer.claims.length === 1 ? "claim" : "claims"} assessed</p>}
     {answer.review_limitations.length > 0 && <details className="review-limits"><summary>Review incomplete</summary>{answer.review_limitations.map((reason, i) => <p key={i}>{reason}</p>)}</details>}
+    {notes.length > 0 && <details className="claims"><summary>Unbound values or citations · {notes.length} {notes.length === 1 ? "paragraph" : "paragraphs"}</summary>
+      {notes.map(({index, values}) => <p key={index}>Paragraph {index + 1} · {values.join(", ")}</p>)}</details>}
     {additional.length > 0 && <details className="claims"><summary>Review by claim</summary>
       {additional.map(c => <ClaimRow key={c.id} {...props} parts={c.segments} claim={c}/>)}</details>}
     {!answer.inherited && !props.example && <div className="actions">

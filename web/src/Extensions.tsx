@@ -5,7 +5,7 @@ import { Icon } from "./Icon";
 export type Section = "General" | "Skills" | "MCP connectors";
 type Skill = {license:string;name:string; description:string; enabled:boolean; managed:boolean};
 type Connector = {name:string; mode:string; clearance:string; enabled:boolean; managed:boolean; status:string; allowed:boolean; tools:number|null};
-type Library = {project:string; example:boolean; revision:string|null; skills_enabled:boolean; skills:Skill[]; connectors:Connector[]};
+type Library = {project:string; example:boolean; revision:string|null; skills_enabled:boolean; classification:string; minimal:boolean; public_search:{enabled:boolean;available:boolean}; included_skills:Pick<Skill,"name"|"description"|"license">[]; skills:Skill[]; connectors:Connector[]};
 
 async function encode(file: File) {
   if (file.size > 1024 * 1024) throw new Error("Choose a file of at most 1 MiB.");
@@ -13,7 +13,7 @@ async function encode(file: File) {
   return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
 }
 
-export function Extensions({section,base,newProject}: {section:"Skills"|"MCP connectors";base:string;newProject:()=>void}) {
+export function Extensions({section,base,newProject,close}: {section:"Skills"|"MCP connectors";base:string;newProject:()=>void;close:()=>void}) {
   const [library,setLibrary] = useState<Library>();
   const [error,setError] = useState("");
   const [notice,setNotice] = useState("");
@@ -30,9 +30,9 @@ export function Extensions({section,base,newProject}: {section:"Skills"|"MCP con
     request<Library>("/api/extensions",undefined,c.signal).then(setLibrary).catch(e => {if(!c.signal.aborted) setError(errorMessage(e));});
     return () => c.abort();
   }, []);
-  async function action(fn:()=>Promise<Library>, message:string) {
+  async function action(fn:()=>Promise<Library>, message:string, dismiss=false) {
     setBusy(true);setError("");setNotice("");
-    try {setLibrary(await fn());setAdding(false);setRemove("");setFile(undefined);setNotice(message);}
+    try {setLibrary(await fn());setAdding(false);setRemove("");setFile(undefined);setNotice(message);if (dismiss) close();}
     catch(e) {setError(errorMessage(e)); await request<Library>("/api/extensions").then(setLibrary).catch(()=>{});}
     finally {setBusy(false);}
   }
@@ -47,7 +47,7 @@ export function Extensions({section,base,newProject}: {section:"Skills"|"MCP con
       }
       return edit({action:"add_connector",name:form.get("name"),
         ...(mode === "HTTPS" ? {url:form.get("url")} : {command:form.get("command"),args:String(form.get("args") || "").split("\n").map(a=>a.trim()).filter(Boolean)})});
-    },skills ? "Skill installed and enabled for future turns." : "Connector added to this project.");
+    },skills ? "Skill installed and enabled for future turns." : "Connector added to this project.", !skills);
   }
   const noun = skills ? "skill" : "connector";
   const presets = [["PubMed","pubmed","https://pubmed.mcp.claude.com/mcp"],
@@ -76,8 +76,25 @@ export function Extensions({section,base,newProject}: {section:"Skills"|"MCP con
       <div className="actions"><button className="quiet" type="button" disabled={busy} onClick={()=>{setAdding(false);setError("");}}>Cancel</button>
         <button className="primary" disabled={busy}>{skills ? "Install and enable" : "Save connector"}</button></div>
     </form>}
+    {library && !skills && !library.example && <section className="extension-row" aria-label="Built-in public databases">
+      <Icon name="plug"/><div className="extension-copy"><strong>Built-in public databases</strong>
+      <p>Europe PMC papers, PubMed abstracts, ClinicalTrials.gov, US drug labels, GWAS Catalog and Human Protein Atlas.</p>
+      {library.public_search.available ? <button className="quiet" disabled={busy} onClick={()=>action(
+        ()=>edit({action:"set_public_search",enabled:!library.public_search.enabled}),"Public database settings saved.")}>
+        {library.public_search.enabled ? "Disable public search" : "Enable public search"}</button> :
+        <p>{library.classification!=="public" ? "Public database queries are blocked for this "+library.classification+" project. To change the classification, open Project settings. You can also import source documents here." : "Choose a non-minimal research profile to use public databases."}</p>}
+      </div><span className="extension-state">{!library.public_search.available ? "Blocked" : library.public_search.enabled ? "Enabled" : "Disabled"}</span>
+    </section>}
+    {library && skills && !adding && !library.example && library.included_skills.length>0 && <details open={library.skills.length===0}>
+      <summary>Included with BioQuorum ({library.included_skills.length})</summary>
+      {library.minimal && <p>Choose a non-minimal research profile to enable skills.</p>}
+      {library.included_skills.map(skill=><article className="extension-row" key={skill.name}>
+        <Icon name="skills"/><div className="extension-copy"><strong>{skill.name}</strong><p>{skill.description}<br/>License: {skill.license}</p>
+        <button className="quiet" disabled={busy || library.minimal} aria-label={"Enable "+skill.name} onClick={()=>action(
+          ()=>edit({action:"install_included_skill",name:skill.name}),skill.name+" enabled.")}>Enable for project</button></div></article>)}
+    </details>}
     {!!library && skills && !!rows?.length && !library.skills_enabled && <p className="warning">Research skills are switched off in Project settings.</p>}
-    {library && !adding && !rows?.length && <p className="extension-empty">{skills ? "No skills installed in this project." : "No MCP connectors in this project."}</p>}
+    {library && !adding && !rows?.length && <p className="extension-empty">{skills ? "No skills enabled or installed for this project." : "No MCP connectors in this project."}</p>}
     {rows?.map(row=><article className="extension-row" key={row.name}>
       <Icon name={skills ? "skills" : "plug"}/><div className="extension-copy"><strong>{row.name}</strong>
         {"description" in row ? <p>{row.description}<br/>License: {row.license}</p> : <p>{row.mode} · {row.clearance} · {row.enabled ? !row.allowed ? "Blocked by project classification" :

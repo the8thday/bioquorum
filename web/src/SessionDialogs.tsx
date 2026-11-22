@@ -22,7 +22,7 @@ export function NameDialog({mode, initial, close, save}: Close & {
       <input id="session-title" name="title" required maxLength={160} defaultValue={initial}/>
       {error && <p className="error" role="status">{error}</p>}
       <div className="actions"><button type="button" className="quiet" onClick={close}>Cancel</button>
-        <button type="submit" className="primary" disabled={pending}>Continue</button></div>
+        <button type="submit" className="primary" disabled={pending}>{mode==="rename" ? "Save name" : "Continue"}</button></div>
     </form></Dialog>;
 }
 

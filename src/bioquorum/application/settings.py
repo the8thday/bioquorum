@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from bioquorum.application import model_setup
 from bioquorum.application.controls import ConflictError, ResearchControls
 from bioquorum.application.environment import package_inventory
 from bioquorum.application.workspace import (
@@ -20,9 +21,10 @@ from bioquorum.application.workspace import (
     settings_overlay,
 )
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, ModelRole, PermissionClass
+from bioquorum.core.enums import Actor, Classification, ModelRole, PermissionClass
 from bioquorum.models.routing import Router
 from bioquorum.policy.classification import allows
+from bioquorum.policy.secrets import redact
 from bioquorum.runtime.sandbox import IsolationUnavailable
 from bioquorum.tools.context import ToolContext
 from bioquorum.tools.invoke import invoke
@@ -91,6 +93,9 @@ def project_state(controls: ResearchControls) -> tuple[str | None, dict]:
             revision = event.id
             for name in data["patch"].get("extensions", {}).get("connectors", {}):
                 checks.pop(name, None)
+            ws.classification = Classification(
+                data["patch"].get("project", {}).get("classification", ws.classification)
+            )
             config = settings_overlay(config, data["patch"])
     ws.config = config
     return revision, checks
@@ -102,14 +107,14 @@ def snapshot(controls: ResearchControls) -> dict:
     ws = controls.ws
     revision, checks = project_state(controls)
     models = ws.models_config()
-    options = Router(models).worker_options(ws.classification)
+    options = model_setup.choices(models, ws.classification)
+    candidates = list(models.providers.values())
+    if not models.roles.get(ModelRole.WORKER) and model_setup.OPENAI_MODEL in options:
+        candidates.append(model_setup.provider(models, "openai"))
     refs = sorted(
-        {
-            p.api_key
-            for p in models.providers.values()
-            if re.fullmatch(r"env:[A-Za-z_][A-Za-z_0-9]*", p.api_key)
-        }
+        {p.api_key for p in candidates if re.fullmatch(r"env:[A-Za-z_][A-Za-z_0-9]*", p.api_key)}
     )
+    configured = Router(models).worker_options(ws.classification)
     agent = ws.agent_options()
     values = {k: getattr(agent, k) for k in (*FLAGS, "binding_retries", "compact_at_bytes")}
     values.update(
@@ -133,8 +138,17 @@ def snapshot(controls: ResearchControls) -> dict:
             },
         },
         "example": controls.demo,
+        "providers": {
+            p.name: {
+                "kind": p.kind,
+                "allowed": ws.classification in p.allowed_classifications,
+            }
+            for p in models.providers.values()
+        },
+        "local_setup": model_setup.starter(models, ws.classification, "ollama:example"),
         "project": {
             "name": ws.name,
+            "instructions": ws.config.get("project", {}).get("instructions", ""),
             "classification": ws.classification.value,
             "data_dirs": [str(d) for d in ws.data_dirs],
         },
@@ -148,6 +162,7 @@ def snapshot(controls: ResearchControls) -> dict:
         "models": {
             spec: {
                 "allowed": allowed,
+                "configured": spec in configured,
                 **{k: ws.config.get("models", {}).get(spec, {}).get(k) for k in RATES},
             }
             for spec, allowed in options.items()
@@ -177,11 +192,32 @@ def snapshot(controls: ResearchControls) -> dict:
 
 
 def _validate(ws: Workspace, patch: dict[str, dict[str, Any]]) -> dict:
-    if not patch or patch.keys() - {"agent", "permissions", "roles", "models", "profile"}:
+    if not patch or patch.keys() - {
+        "agent",
+        "permissions",
+        "roles",
+        "models",
+        "profile",
+        "project",
+    }:
         raise ValueError("Unsupported settings section")
     if "profile" in patch and set(patch["profile"]) != {"name"}:
         raise ValueError("Unknown profile setting")
-    options = Router(ws.models_config()).worker_options(ws.classification)
+    details = patch.get("project", {})
+    if details.keys() - {"instructions", "display_name", "classification"}:
+        raise ValueError("Unknown project setting")
+    if "classification" in details:
+        ws = replace(ws, classification=Classification(details["classification"]))
+    for key, text in details.items():
+        if not isinstance(text, str) or redact(text) != text:
+            raise ValueError("Invalid project text")
+        if key == "display_name" and not 1 <= len(text.strip()) <= 160:
+            raise ValueError("Invalid project name")
+        if key == "instructions" and len(text) > 6000:
+            raise ValueError("Project instructions are too long")
+        details[key] = text.strip()
+    models = ws.models_config()
+    options = Router(models).worker_options(ws.classification)
     agent = patch.get("agent", {})
     if agent.keys() - {
         *FLAGS,
@@ -205,8 +241,17 @@ def _validate(ws: Workspace, patch: dict[str, dict[str, Any]]) -> dict:
         if role == "reviewer" and values == "auto":
             continue
         chain = [values] if isinstance(values, str) else values
-        if not isinstance(chain, list) or not chain or any(not options.get(s) for s in chain):
+        if not isinstance(chain, list) or not chain or not all(isinstance(s, str) for s in chain):
             raise ValueError("Select an allowed configured model")
+        for spec in chain:
+            if options.get(spec):
+                continue
+            if not model_setup.starter(models, ws.classification, spec):
+                raise ValueError("Select an allowed configured model")
+            name = spec.partition(":")[0]
+            if name not in models.providers:
+                patch.setdefault("providers", {})[name] = {"kind": name}
+            options[spec] = True
     for model, rates in patch.get("models", {}).items():
         if model not in options or not isinstance(rates, dict) or rates.keys() - set(RATES):
             raise ValueError("Unknown model setting")
@@ -221,6 +266,8 @@ def _validate(ws: Workspace, patch: dict[str, dict[str, Any]]) -> dict:
             raise ValueError("Unknown permission")
     config = settings_overlay(ws.config, patch)
     candidate = replace(ws, config=config)
+    if "classification" in details:
+        candidate.kernel_network()
     candidate.agent_options()
     candidate.models_config()
     return config
@@ -231,8 +278,8 @@ def save(controls: ResearchControls, edit: SettingsEdit) -> dict:
     if controls.demo:
         raise ValueError("The offline example uses fixed settings")
     ws = controls.ws
+    patch = dict(edit.patch)
     try:
-        patch = dict(edit.patch)
         if "profile" in patch:
             preset = profile_settings(patch["profile"].get("name", ""))
             if preset and patch.get("agent"):
@@ -243,8 +290,19 @@ def save(controls: ResearchControls, edit: SettingsEdit) -> dict:
             profile_settings(ws.profile_name).keys() | {"subtasks", "specialists"}
         ):
             patch["profile"] = {"name": "custom"}
-        config = _validate(ws, patch)
-    except (ValueError, WorkspaceError, TypeError):
+        if set(patch) == {"connection"}:
+            patch = model_setup.connection_patch(
+                ws.models_config(), ws.classification, patch["connection"]
+            )
+            config = settings_overlay(ws.config, patch)
+            replace(ws, config=config).models_config()
+        else:
+            config = _validate(ws, patch)
+    except WorkspaceError as exc:
+        if "classification" in patch.get("project", {}):
+            raise ValueError(str(exc)) from None
+        raise ValueError("Invalid project settings") from None
+    except (ValueError, TypeError):
         raise ValueError(
             "Invalid settings. Check the selected models, tool names and numeric limits."
         ) from None
@@ -259,6 +317,7 @@ def save(controls: ResearchControls, edit: SettingsEdit) -> dict:
     except ValueError:
         raise ConflictError("Project settings changed. Reopen settings and try again.") from None
     ws.config = config
+    ws.name = config.get("project", {}).get("display_name", ws.name)
     return snapshot(controls)
 
 

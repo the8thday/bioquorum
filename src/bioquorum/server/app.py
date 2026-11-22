@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -36,6 +37,7 @@ from bioquorum.core import events as ev
 from bioquorum.core.enums import Classification
 from bioquorum.provenance.cas import IntegrityError
 from bioquorum.runtime.sandbox import Isolation, IsolationUnavailable
+from bioquorum.server.accounts import account_routes
 from bioquorum.server.programs import program_routes
 from bioquorum.server.recompute import recompute_routes
 from bioquorum.server.request_body import Empty
@@ -91,6 +93,16 @@ class Title(BaseModel):
 class ProjectName(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     classification: Classification
+    instructions: str = Field(default="", max_length=6000)
+
+
+@dataclass
+class ManagedProject:
+    app: ASGIApp
+    controls: ResearchControls
+    stack: AsyncExitStack
+    retired: asyncio.Event
+    requests: int = 0
 
 
 class Question(BaseModel):
@@ -185,10 +197,49 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             data = extensions.snapshot(controls)
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
+    async def openai_models(request: Request) -> Response:
+        from bioquorum.application.model_setup import provider
+        from bioquorum.models.registry import openai_model_ids
+
+        await _body(request, Empty)
+        name = request.path_params["name"]
+        config = controls.ws.models_config()
+        if controls.demo or (name != "openai" and name not in config.providers):
+            raise ValueError("OpenAI model discovery is unavailable for this connection")
+        connection = provider(config, name)
+        if (
+            connection.kind != "openai"
+            or controls.ws.classification not in connection.allowed_classifications
+        ):
+            raise ValueError("OpenAI model discovery is unavailable for this project")
+        proxy = None if connection.is_local else controls.ws.outbound_proxy()
+        return JSONResponse(
+            await openai_model_ids(connection, proxy), headers={"Cache-Control": "no-store"}
+        )
+
+    async def plan_models(request: Request) -> Response:
+        from bioquorum.application.model_setup import provider
+        from bioquorum.models.chatgpt_plan import catalog
+
+        await _body(request, Empty)
+        connection = provider(controls.ws.models_config(), "chatgpt")
+        if (
+            controls.demo
+            or controls.ws.classification not in connection.allowed_classifications
+            or connection.kind != "chatgpt"
+        ):
+            raise ValueError("ChatGPT plan use is unavailable in this project")
+        return JSONResponse(
+            await catalog(controls.ws.outbound_proxy()), headers={"Cache-Control": "no-store"}
+        )
+
     async def project_settings(request: Request) -> Response:
         if request.method == "POST":
             edit = await _body(request, settings.SettingsEdit)
+            before = controls.ws.classification
             data = settings.save(controls, edit)
+            if controls.ws.classification != before:
+                await controls.reset_session_kernels()
         else:
             data = settings.snapshot(controls)
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
@@ -219,6 +270,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         return JSONResponse(
             {
                 "project": controls.ws.name,
+                "instructions": controls.ws.config.get("project", {}).get("instructions", ""),
                 "plan_default": controls.ws.config.get("agent", {}).get("plan_default", False),
                 "references": controls.ws.agent_options().references,
                 "first_pass": controls.ws.agent_options().first_pass,
@@ -526,6 +578,9 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             progress = None
             idle = 0
             while not await request.is_disconnected():
+                retired = request.scope.get("project_retired")
+                if retired is not None and retired.is_set():
+                    return
                 changes = controls.store.read(sid, from_seq=cursor + 1, limit=256)
                 for event in changes:
                     cursor = event.seq
@@ -575,7 +630,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 example_app = child
         await example_app(scope, receive, send)
 
-    managed: dict[str, ASGIApp] = {}
+    managed: dict[str, ManagedProject] = {}
 
     async def preferences(request: Request) -> Response:
         if request.method == "POST":
@@ -589,11 +644,34 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
         if request.method == "POST":
             body = await _body(request, ProjectName)
             return JSONResponse(
-                project_library.create(body.name, body.classification), status_code=201
+                project_library.create(body.name, body.classification, body.instructions),
+                status_code=201,
             )
         return JSONResponse(
             project_library.entries(controls.ws), headers={"Cache-Control": "no-store"}
         )
+
+    async def trash(request: Request) -> Response:
+        return JSONResponse(
+            project_library.entries(controls.ws, trashed=True),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def move_project(request: Request) -> Response:
+        await _body(request, Empty)
+        key = request.path_params["key"]
+        restore = request.url.path.endswith("/restore")
+        async with example_lock:
+            if not restore and (entry := managed.get(key)):
+                entry.controls.ensure_idle()
+                if entry.requests:
+                    raise ConflictError("A project request is in progress. Try again shortly.")
+                entry.retired.set()
+                await entry.stack.aclose()
+                entry.controls.store.db.engine.dispose()
+                del managed[key]
+            project_library.move(key, restore=restore, current=controls.ws)
+        return Response(status_code=204)
 
     async def open_project(scope: Scope, receive: Receive, send: Send) -> None:
         key = scope["path_params"]["key"]
@@ -602,13 +680,25 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
                 root = project_library.project_path(key)
                 if root.resolve() == controls.ws.root:
                     raise ValueError("This project is already open at /")
-                child = create_app(ResearchControls(workspace.load(root)), host, library=False)
+                child_controls = ResearchControls(workspace.load(root))
+                child = create_app(child_controls, host, library=False)
+                stack = AsyncExitStack()
                 try:
-                    await children.enter_async_context(child.router.lifespan_context(child))
+                    await stack.enter_async_context(child.router.lifespan_context(child))
                 except workspace.WorkspaceError as exc:
                     raise ValueError(str(exc)) from None
-                managed[key] = child
-        await managed[key](scope, receive, send)
+                await children.enter_async_context(stack)
+                managed[key] = ManagedProject(child, child_controls, stack, asyncio.Event())
+            entry = managed[key]
+            scope["project_retired"] = entry.retired
+            stream = scope["method"] == "GET" and scope["path"].endswith("/events")
+            if not stream:
+                entry.requests += 1
+        try:
+            await entry.app(scope, receive, send)
+        finally:
+            if not stream:
+                entry.requests -= 1
 
     @asynccontextmanager
     async def lifespan(app):
@@ -635,8 +725,12 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route("/", asset),
             *(
                 [
+                    *account_routes(host),
                     Route("/api/workbench-settings", preferences, methods=["GET", "POST"]),
                     Route("/api/projects", projects, methods=["GET", "POST"]),
+                    Route("/api/projects/trash", trash),
+                    Route("/api/projects/{key}/trash", move_project, methods=["POST"]),
+                    Route("/api/projects/{key}/restore", move_project, methods=["POST"]),
                     Mount("/projects/{key}", app=open_project),
                 ]
                 if library
@@ -647,6 +741,8 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             *program_routes(controls),
             *recompute_routes(controls),
             Route("/api/extensions", project_extensions, methods=["GET", "POST"]),
+            Route("/api/settings/openai-models/{name}", openai_models, methods=["POST"]),
+            Route("/api/settings/chatgpt-models", plan_models, methods=["POST"]),
             Route("/api/settings", project_settings, methods=["GET", "POST"]),
             Route(session + "/connectors/{name}/reconnect", reconnect, methods=["POST"]),
             Route("/api/tasks", tasks),

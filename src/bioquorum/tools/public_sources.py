@@ -1,5 +1,7 @@
 """Read-only public evidence sources, exposed through the audited tool registry."""
 
+import re
+
 import httpx2
 from pydantic import BaseModel, Field
 
@@ -117,16 +119,35 @@ def public_sources(http: httpx2.AsyncClient) -> ToolRegistry:
         )
 
     async def trials(args: Search, _ctx) -> ToolResult:
-        data, source = await read_record(
-            http,
-            TRIALS,
-            {
-                "query.term": args.query,
-                "pageSize": "5",
-                "fields": "NCTId,BriefTitle,OverallStatus,Phase,InterventionName",
-            },
+        fields = (
+            "NCTId,BriefTitle,OverallStatus,Phase,InterventionName,Condition,"
+            "PrimaryOutcomeMeasure,PrimaryOutcomeTimeFrame,LastUpdatePostDate,HasResults"
         )
-        return _text(source, [row["protocolSection"] for row in trial_studies(data)])
+        query = args.query.strip()
+        params = {"pageSize": "5", "fields": fields}
+        exact = re.fullmatch(r"NCT[0-9]{8}", query.upper())
+        if exact:
+            params.update(
+                {"filter.ids": query.upper(), "fields": fields + ",OutcomeMeasuresModule"}
+            )
+        else:
+            params["query.term"] = query
+        data, source = await read_record(http, TRIALS, params)
+        records = []
+        for row in trial_studies(data):
+            record = dict(row["protocolSection"])
+            if "hasResults" in row:
+                record["hasResults"] = row["hasResults"]
+            if exact:
+                outcomes = row.get("resultsSection", {}).get("outcomeMeasuresModule", {})
+                primary = next(
+                    (m for m in outcomes.get("outcomeMeasures", []) if m.get("type") == "PRIMARY"),
+                    None,
+                )
+                if primary is not None:
+                    record["firstReportedPrimaryOutcome"] = primary
+            records.append(record)
+        return _text(source, records)
 
     async def gwas(args: Variant, _ctx) -> ToolResult:
         data, source = await read_record(http, GWAS, {"rs_id": args.rsid, "size": "6"})
@@ -169,7 +190,8 @@ def public_sources(http: httpx2.AsyncClient) -> ToolRegistry:
         ),
         (
             "clinical_trials",
-            "Search ClinicalTrials.gov for study IDs, interventions, statuses and phases.",
+            "Search ClinicalTrials.gov for interventions, phases, primary endpoints and results availability. "
+            "Look up an exact NCT ID to read the first posted primary outcome with arm-level data.",
             Search,
             trials,
         ),

@@ -24,6 +24,7 @@ def reference_controls(directory: str) -> ResearchControls:
         "providers": {"openai": {}},
         "roles": {"worker": model},
         "agent": {"references": True},
+        "connectors": {"public_sources": False},
     }
     cassette = ModelCassette(Path(directory) / "reference.json")
     controls = ResearchControls(

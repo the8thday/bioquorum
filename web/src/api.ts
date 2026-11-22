@@ -1,5 +1,5 @@
 export function apiPath(path: string) {
-  if (typeof location === "undefined" || !path.startsWith("/api/") || ["/api/projects", "/api/workbench-settings"].includes(path)) return path;
+  if (typeof location === "undefined" || !path.startsWith("/api/") || path.startsWith("/api/account/") || path.startsWith("/api/projects/") || ["/api/projects", "/api/workbench-settings"].includes(path)) return path;
   return location.pathname.replace(/\/$/, "") + path;
 }
 

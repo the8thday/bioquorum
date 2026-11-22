@@ -12,11 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from bioquorum.application.controls import ConflictError, ResearchControls
 from bioquorum.application.settings import project_state
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor
+from bioquorum.core.enums import Actor, Classification
 from bioquorum.core.ids import new_id
 from bioquorum.policy.classification import allows
 from bioquorum.policy.secrets import public_url, redact
-from bioquorum.skills.loader import MAX_SKILLS
+from bioquorum.skills.loader import MAX_SKILLS, builtin_catalog
 from bioquorum.skills.package import unpack
 
 
@@ -25,6 +25,8 @@ class Edit(BaseModel):
     revision: str | None
     action: Literal[
         "install_skill",
+        "install_included_skill",
+        "set_public_search",
         "enable_skill",
         "disable_skill",
         "remove_skill",
@@ -33,6 +35,7 @@ class Edit(BaseModel):
         "disable_connector",
         "remove_connector",
     ]
+    enabled: bool | None = None
     name: str = Field(default="", max_length=64)
     filename: str = Field(default="", max_length=255)
     content: str = Field(default="", max_length=1_398_104)
@@ -57,6 +60,7 @@ def snapshot(controls: ResearchControls) -> dict:
                 enabled=entry.get("enabled", True),
             )
         )
+    installed_names = {row["name"] for row in skills}
     connectors = []
     for server in ws.mcp_servers(include_disabled=True):
         entry = library.get("connectors", {}).get(server.name) or {}
@@ -78,6 +82,19 @@ def snapshot(controls: ResearchControls) -> dict:
         example=controls.demo,
         project=ws.name,
         skills=skills,
+        included_skills=[
+            {"name": s.name, "description": s.description, "license": s.license}
+            for s in builtin_catalog().values()
+            if s.name not in installed_names
+        ],
+        classification=ws.classification.value,
+        minimal=ws.profile_name == "minimal",
+        public_search={
+            "enabled": ws.public_sources_enabled(),
+            "available": not controls.demo
+            and ws.classification == Classification.PUBLIC
+            and ws.profile_name != "minimal",
+        },
         skills_enabled=ws.agent_options().skills
         or ws.agent_options().evidence_skills
         or ws.agent_options().domain_skills,
@@ -131,13 +148,26 @@ def save(controls: ResearchControls, edit: Edit) -> dict:
     files: dict[str, bytes] = {}
     root: Path | None = None
     patch: dict = {}
-    change: dict | None
-    if edit.action == "install_skill":
-        try:
-            raw = base64.b64decode(edit.content, validate=True)
-        except ValueError:
-            raise ValueError("Invalid file encoding") from None
-        name, files = unpack(edit.filename, raw)
+    change: dict | None = None
+    if edit.action == "set_public_search":
+        if edit.enabled is None or (edit.enabled and not state["public_search"]["available"]):
+            raise ValueError("Public databases require a public project with a non-minimal profile")
+        patch["connectors"] = {"public_sources": edit.enabled}
+    elif edit.action in ("install_skill", "install_included_skill"):
+        if edit.action == "install_included_skill":
+            included = builtin_catalog().get(name)
+            if included is None:
+                raise ValueError("Select an available included skill")
+            if ws.profile_name == "minimal":
+                raise ValueError("Choose a research profile with skills before enabling this skill")
+            filename, raw = "SKILL.md", (included.root / "SKILL.md").read_bytes()
+        else:
+            filename = edit.filename
+            try:
+                raw = base64.b64decode(edit.content, validate=True)
+            except ValueError:
+                raise ValueError("Invalid file encoding") from None
+        name, files = unpack(filename, raw)
         if any(redact(data.decode()) != data.decode() for data in files.values()):
             raise ValueError("Remove credentials before importing a skill")
         if name in entries:
@@ -163,7 +193,8 @@ def save(controls: ResearchControls, edit: Edit) -> dict:
             change = {"enabled": edit.action.startswith("enable")}
             if group == "skills" and change["enabled"]:
                 patch["agent"] = {"skills": True}
-    patch["extensions"] = {group: {name: change}}
+    if edit.action != "set_public_search":
+        patch["extensions"] = {group: {name: change}}
     store_dir = ws.state_dir.resolve() / "installed-skills"
     try:
         if root is not None:

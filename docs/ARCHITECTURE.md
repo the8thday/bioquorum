@@ -580,3 +580,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 044 | [有权限上限的并行子任务](adr/044-scoped-subtasks.md) |
 | 045 | [按角色评测和记录模型回退](adr/045-role-evaluation-and-routing.md) |
 | 046 | [v1.x 的兼容边界](adr/046-v1-compatibility.md) |
+| 047 | [项目设置与工作台回收站](adr/047-project-lifecycle.md) |
+| 048 | [工作台模型连接与 ChatGPT 套餐](adr/048-model-connections.md) |
+| 049 | [更改已有项目的数据分级](adr/049-project-reclassification.md) |
+| 050 | [Public 项目的内置研究数据库](adr/050-public-research-default.md) |

@@ -112,6 +112,15 @@ async function verifyConversation(page) {
     }
     const answer = page.locator(".answer").filter({hasText: "Recorded answer to " + q});
     await answer.getByText(spec, {exact: true}).waitFor();
+    if (q === "Third question") {
+      const link = answer.getByRole("link", {name: "Trial registry"});
+      assert.equal(await link.getAttribute("href"), "https://example.org/?query=17%20weeks");
+      await answer.getByRole("link", {name: "DOI 10.1000/example"}).waitFor();
+      assert.ok(!(await answer.innerText()).includes("https://"));
+      const notes = answer.locator("details").filter({has: page.locator("summary", {hasText: "Unbound values or citations"})});
+      assert.equal(await notes.count(), 1);
+      assert.equal(await notes.evaluate(el => el.open), false);
+    }
   }
   await model.selectOption("deepseek:fixture");
   await sessionAction(page, "Model context");
@@ -137,7 +146,7 @@ async function verifyConversation(page) {
   assert.equal(await page.locator("#record").innerText(), record);
   await sessionAction(page, "Rename session");
   await page.getByLabel("Session title").fill("Research log");
-  await button("Continue").click();
+  await button("Save name").click();
   await page.getByRole("heading", {name: "Research log"}).waitFor();
   const search = page.getByRole("searchbox", {name: "Search sessions"});
   await search.fill("THIRD QUESTION");
@@ -312,6 +321,7 @@ async function verifyConversation(page) {
       await button(page,"Run research").click();
       await page.locator(".answer").getByText("Recorded answer to Research from home",{exact:true}).waitFor();
       await button(page,"Skills").click();
+      await dialog.getByRole("button",{name:"Enable skill-creator",exact:true}).waitFor();
       await button(dialog,"Install skill").click();
       await dialog.getByLabel("Skill file").setInputFiles({name:"SKILL.md",mimeType:"text/markdown",
         buffer:Buffer.from("---\nname: review-table\ndescription: Check a table header\n---\nInspect the column names.")});
@@ -329,6 +339,8 @@ async function verifyConversation(page) {
       await dialog.getByLabel("Connector name").fill("fixture");
       await dialog.getByLabel("Server URL").fill("https://example.org/mcp");
       await button(dialog,"Save connector").click();
+      await dialog.waitFor({state:"hidden"});
+      await button(page,"MCP connectors").click();
       await dialog.getByText("fixture",{exact:true}).waitFor();
       await button(dialog,"Disable").click();
       await button(dialog,"Close workbench settings").click();
@@ -345,7 +357,9 @@ async function verifyConversation(page) {
       await button(dialog,"Skills").click();
       await button(dialog,"Remove").click();
       await button(dialog,"Confirm removal").click();
-      await dialog.getByText("No skills installed in this project.").waitFor();
+      await dialog.getByText("No skills enabled or installed for this project.").waitFor();
+      await dialog.getByRole("button",{name:"Enable skill-creator",exact:true}).click();
+      await dialog.getByText("skill-creator enabled.",{exact:true}).waitFor();
       assert.deepEqual(errors,[]);
       console.log("Home research, skill install and management, connector registration and persistence verified");return;
     }
@@ -357,10 +371,23 @@ async function verifyConversation(page) {
       await page.getByRole("button",{name:"Save preferences"}).click();
       await page.getByRole("button", {name:"New project"}).click();
       await page.getByLabel("Project name").fill("Research library");
-      await page.getByLabel("Data classification").selectOption("public");
+      await page.getByLabel("Project instructions").fill("Prefer donor-level evidence.");
       await page.getByRole("button", {name:"Create project"}).click();
       await page.waitForURL(/\/projects\/[A-Z0-9]+\//);
       const path = new URL(page.url()).pathname;
+      await page.getByText("OPENAI_API_KEY · Detected by workbench").waitFor();
+      let directoryAvailable = false;
+      await page.route("**/api/settings/openai-models/openai", route=>route.fulfill(directoryAvailable ?
+        {json:["ft:research", "gpt-test-from-account"]} : {status:400,json:{detail:"Catalog temporarily unavailable"}}));
+      await page.getByRole("button",{name:"Choose model"}).click();
+      await page.getByText("Catalog temporarily unavailable").waitFor();
+      directoryAvailable = true;
+      await page.getByRole("button",{name:"Refresh models"}).click();
+      await page.getByRole("combobox",{name:"Account models",exact:true}).selectOption("gpt-test-from-account");
+      await page.getByRole("button",{name:"Save model",exact:true}).click();
+      await page.locator("#settings-dialog").waitFor({state:"hidden"});
+      await page.keyboard.press("Escape");
+      await page.getByRole("region",{name:"Model setup"}).getByText("openai:gpt-test-from-account").waitFor();
       await page.getByRole("button", {name:"New session", exact:true}).click();
       await page.getByLabel("Session title").fill("Local session");
       await page.getByRole("button", {name:"Continue"}).click();
@@ -371,6 +398,16 @@ async function verifyConversation(page) {
       await page.getByRole("heading", {name:"Local session"}).waitFor();
       assert.equal(await page.locator(".shell").getAttribute("data-reading-size"),"large");
       await page.getByRole("region",{name:"Model usage"}).waitFor();
+      const currentURL = page.url();
+      const other = await page.request.post(new URL(path+"api/sessions",currentURL).href, {data:{title:"Other session"},headers:{Origin:new URL(currentURL).origin}});
+      assert.ok(other.ok());
+      await page.reload();
+      await page.getByRole("button",{name:"Rename Other session",exact:true}).click();
+      await page.getByLabel("Session title").fill("Renamed from rail");
+      await page.getByRole("button",{name:"Save name",exact:true}).click();
+      await page.getByRole("button",{name:"Rename Renamed from rail",exact:true}).waitFor();
+      assert.equal(page.url(),currentURL);
+      await page.getByRole("heading",{name:"Local session"}).waitFor();
       const projectSettings = page.getByRole("button", {name:"Project settings", exact:true});
       const profile = page.getByLabel("Research profile");
       const binding = page.getByLabel("Evidence binding", {exact:true});
@@ -380,22 +417,82 @@ async function verifyConversation(page) {
         assert.equal(await binding.isChecked(), oldName === "recommended");
         await profile.selectOption(newName);
         await page.getByRole("button", {name:"Save settings"}).click();
-        await page.getByText("Saved for future research turns.").waitFor();
+        await page.locator("#settings-dialog").waitFor({state:"hidden"});
         await page.reload();
       }
+      await page.getByRole("button",{name:"Models & accounts"}).click();
+      await page.getByRole("heading",{name:"Add a model"}).waitFor();
+      await page.getByRole("combobox",{name:"Connection",exact:true}).selectOption("chatgpt");
+      await page.getByRole("button",{name:"Continue with ChatGPT"}).waitFor();
+      await page.getByRole("combobox",{name:"Connection",exact:true}).selectOption("deepseek");
+      await page.getByLabel("Model ID",{exact:true}).fill("research-model");
+      await page.getByRole("button",{name:"Save model", exact:true}).click();
+      await page.locator("#settings-dialog").waitFor({state:"hidden"});
+      await page.getByRole("button",{name:"Models & accounts"}).click();
+      await page.getByText("Current research model · deepseek:research-model").waitFor();
+      await page.keyboard.press("Escape");
       const chatSettings = page.getByRole("button",{name:"Chat settings"});
       await page.getByLabel("Research question").fill("Draft survives settings");
       await chatSettings.click();
       const quick = page.getByRole("dialog",{name:"Chat settings"});
       await quick.getByLabel("Follow-up references").check();
       await quick.getByRole("button",{name:"Save settings"}).click();
-      await quick.getByText("Saved for future research turns.").waitFor();
+      await quick.waitFor({state:"hidden"});
       await page.keyboard.press("Escape");
       assert.equal(await page.getByLabel("Research question").inputValue(),"Draft survives settings");
       await page.getByRole("button",{name:"Project settings",exact:true}).click();
       assert.ok(await page.getByLabel("Follow-up references").isChecked());
       assert.equal(await profile.inputValue(), "custom");
-      assert.deepEqual(errors,[]);console.log("Created, switched and reopened an isolated project");return;
+      assert.equal(await page.getByLabel("Project instructions").inputValue(), "Prefer donor-level evidence.");
+      await page.getByLabel("Project name").fill("Renamed project");
+      await page.getByLabel("Project instructions").fill("Summarize by donor.");
+      await page.getByRole("button",{name:"Save settings"}).click();
+      await page.locator("#settings-dialog").waitFor({state:"hidden"});
+      await projectSettings.click();
+      await page.getByRole("button",{name:"Delete this project…"}).click();
+      await page.getByRole("dialog",{name:"Delete project?"}).getByText("Renamed project").waitFor();
+      await page.getByRole("button",{name:"Cancel",exact:true}).click();
+      await page.keyboard.press("Escape");
+      assert.equal(await page.getByRole("button",{name:"Delete project…",exact:true}).count(),0);
+      await page.getByRole("button",{name:"Manage projects"}).click();
+      await page.getByRole("button",{name:"Delete project…",exact:true}).click();
+      await page.getByRole("button",{name:"Move to trash"}).click();
+      await page.waitForURL(url);
+      await page.getByRole("button",{name:"Manage projects"}).click();
+      await page.getByRole("button",{name:"View trash"}).click();
+      await page.getByRole("button",{name:"Restore"}).click();
+      await page.getByText("Trash is empty.").waitFor();
+      await page.keyboard.press("Escape");
+      await page.getByLabel("Project",{exact:true}).selectOption(path);
+      await page.getByRole("navigation",{name:"Sessions"}).getByRole("button",{name:"Local session",exact:true}).click();
+      await page.getByRole("heading",{name:"Local session"}).waitFor();
+      await page.getByRole("button",{name:"MCP connectors",exact:true}).click();
+      const sources = page.getByRole("region",{name:"Built-in public databases"});
+      await sources.getByText("Blocked",{exact:true}).waitFor();
+      await page.mouse.click(2,2);
+      await page.locator("#workbench-settings").waitFor({state:"hidden"});
+      await projectSettings.click();
+      await page.getByLabel("Data classification").selectOption("public");
+      await page.mouse.click(2,2);
+      await page.locator("#settings-dialog").waitFor({state:"hidden"});
+      await projectSettings.click();
+      assert.equal(await page.getByLabel("Data classification").inputValue(),"internal");
+      await page.getByLabel("Data classification").selectOption("public");
+      await page.getByRole("button",{name:"Save settings"}).click();
+      await page.locator("#settings-dialog").waitFor({state:"hidden"});
+      await page.getByRole("button",{name:"MCP connectors",exact:true}).click();
+      await sources.getByRole("button",{name:"Disable public search"}).waitFor();
+      await page.getByRole("button",{name:"Close workbench settings"}).click();
+      await page.getByRole("button",{name:"New project",exact:true}).click();
+      await page.getByLabel("Project name").fill("Public search fixture");
+      await page.getByRole("combobox",{name:"Data classification"}).selectOption("public");
+      await page.getByRole("button",{name:"Create project"}).click();
+      await page.waitForURL(u=>u.pathname.startsWith("/projects/") && u.pathname!==path);
+      await page.getByRole("button",{name:"MCP connectors",exact:true}).click();
+      await sources.getByRole("button",{name:"Disable public search"}).click();
+      await sources.getByRole("button",{name:"Enable public search"}).click();
+      await sources.getByText("Enabled",{exact:true}).waitFor();
+      assert.deepEqual(errors,[]);console.log("Project lifecycle, restricted search status and Public database controls passed");return;
     }
     if (process.env.BQ_TEST_LAYOUT) {
       const settings=page.getByRole("button",{name:"Project settings",exact:true});
@@ -457,7 +554,7 @@ async function verifyConversation(page) {
       assert.deepEqual(errors,[]);console.log("Keyboard, five panel selectors, responsive widths and contrast",ratios);return;
     }
     if (process.env.BQ_TEST_FIRST_RUN) {
-      await page.getByRole("heading",{name:"Configure a worker model"}).waitFor();
+      await page.getByText("No research model selected").waitFor();
       await page.getByText(/Kernel unavailable. Python calculations cannot run/).waitFor();
       await page.getByRole("button",{name:"Project settings",exact:true}).click();
       const settings=page.getByRole("dialog",{name:"Project settings"});
@@ -503,8 +600,7 @@ async function verifyConversation(page) {
       const settings=page.getByRole("dialog",{name:"Project settings"});
       await settings.getByRole("checkbox",{name:"Literature subtasks"}).check();
       await button("Save settings").click();
-      await settings.getByText("Saved for future research turns.").waitFor();
-      await button("Close settings").click();
+      await settings.waitFor({state:"hidden"});
       await page.locator("#composer").getByRole("button",{name:"Attach a file"}).click();
       await page.getByRole("dialog",{name:"Attach a file"}).waitFor();
       const bytes = Buffer.from("sample,count\na,3\nb,4\n");
@@ -568,8 +664,7 @@ async function verifyConversation(page) {
       const skills = settings.getByRole("checkbox", {name: "Research skills", exact: true});
       await skills.check();
       await settings.getByRole("button", {name: "Save settings"}).click();
-      await settings.getByText("Saved for future research turns.").waitFor();
-      await settings.getByRole("button", {name:"Close settings"}).click();
+      await settings.waitFor({state:"hidden"});
       await page.reload();
       await page.getByRole("button", {name: "Project settings", exact: true}).click();
       assert.ok(await skills.isChecked());

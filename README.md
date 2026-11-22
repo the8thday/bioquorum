@@ -37,12 +37,18 @@ From the checkout, initialize a separate project directory. This example is for 
 uv run bq project init -C ~/bq-demo --classification public
 ```
 
-Configure the worker, reviewer and any MCP servers in `~/bq-demo/bioquorum.toml`. For a hosted model, set the API key in the terminal that starts the workbench. For a local model, use the Ollama configuration in the deployment guide. [Provider and MCP configuration example](docs/demo-v0.1.md) · [Local model configuration](docs/demo-v0.6.md)
+Open **Models & accounts** in the sidebar. Choose **OpenAI API key** to browse the models visible to the current key. Select a model and its research role, then click **Save model**. Other providers and custom OpenAI-compatible endpoints also support direct model ID entry. For API-key connections, launch the workbench from the terminal where you exported the key. The project home shows which worker is selected and whether this process can see its key. Local Ollama connections use an installed model tag. [Provider and MCP configuration example](docs/demo-v0.1.md) · [Local model configuration](docs/demo-v0.6.md)
+
+To use an eligible ChatGPT plan, choose **ChatGPT plan → Continue with ChatGPT**, grant plan access, then return to the workbench to select an available account model. **Manage usage** opens the usage settings in ChatGPT. When connecting to a Linux host through SSH, forward the same workbench port to `127.0.0.1` in your browser so the sign-in callback reaches BioQuorum. [OpenAI plan access for local apps](https://developers.openai.com/siwc/token-sharing-open-source)
 
 ```bash
 uv run bq models -C ~/bq-demo
 uv run bq workbench -C ~/bq-demo
 ```
+
+Use **New project** to add optional instructions for research and plan drafts. Change the name, instructions or data classification in **Project settings → Project details**. Saving a different classification applies it to future use of the existing sessions and files. For projects created in the workbench, open **Manage projects → Delete project…** or use **Delete this project…** in project settings. The confirmation shows the creation time, session count and short project ID. Open **Manage projects → View trash → Restore** to recover the project and its sessions. The directory you started the workbench from stays under your filesystem management.
+
+For public literature and pipeline research, create a **Public** project. In **MCP connectors → Built-in public databases**, check whether search is enabled. Public projects, including projects changed to Public, enable these sources by default. An explicit project or user setting takes precedence. Internal and Confidential projects can work with imported source records. In **Skills → Included with BioQuorum**, enable a literature, structure or skill-authoring workflow for the current project.
 
 ## What you can do
 

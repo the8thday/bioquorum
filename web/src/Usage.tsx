@@ -61,6 +61,7 @@ export function UsageDialog({inline,base, seq, close}: {inline?:boolean; base: s
     <label className="scope-field">Scope <select value={scope} onChange={e => setScope(e.target.value as typeof scope)}>
       <option value="turn">Latest turn</option><option value="session">This session</option><option value="project">Project</option>
     </select></label>
+    <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">Manage ChatGPT plan usage</a></p>
     {error && <p role="status" className="error">{error}</p>}
     {!data && !error && <p>Loading usage…</p>}
     {data && <><UsageMetrics scope={data[scope]}/>

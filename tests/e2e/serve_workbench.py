@@ -114,7 +114,13 @@ def conversation_controls(directory: str) -> ResearchControls:
                     )
                 ]
             )
-        return pa.ModelResponse(parts=[pa.TextPart(content="Recorded answer to " + str(question))])
+        answer = "Recorded answer to " + str(question)
+        if question == "Third question":
+            tools = {tool.name for tool in info.function_tools}
+            assert {"clinical_trials", "search_papers", "get_abstract"} <= tools
+            answer += "\nStudy 17 is described in [Trial registry](https://example.org/?query=17%20weeks)."
+            answer += "\nSee [10.1000/example](https://doi.org/10.1000/example) for the publication."
+        return pa.ModelResponse(parts=[pa.TextPart(content=answer)])
 
     controls = ResearchControls(
         ws,
@@ -138,6 +144,12 @@ with TemporaryDirectory() as directory, socket.socket() as sock:
     if os.environ.get("BQ_TEST_PROJECTS") or os.environ.get("BQ_TEST_MATERIALS"):
         from bioquorum.application import project_library
 
+        os.environ["BQ_CONFIG"] = str(Path(directory) / "fixture-config.toml")
+        if os.environ.get("BQ_TEST_PROJECTS"):
+            from bioquorum.models import chatgpt_plan
+
+            chatgpt_plan.directory = lambda: Path(directory) / "test-accounts"
+            os.environ["OPENAI_API_KEY"] = "offline-test-placeholder"
         project_library.library_root = lambda: Path(directory) / ".bioquorum" / "test-library"
     if os.environ.get("BQ_TEST_SCENARIO_D"):
         from scenario_d_fixture import scenario_d_controls

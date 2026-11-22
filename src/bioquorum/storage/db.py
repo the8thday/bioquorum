@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from sqlalchemy import (
@@ -237,6 +239,22 @@ PROJECTION_TABLES: tuple[Table, ...] = (
     model_calls,
     audit_entries,
 )
+
+
+def library_summary(path: Path, project_id: str) -> dict | None:
+    """Read only project metadata from a library directory, without opening it for migration."""
+    try:
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                "SELECT name, classification, created_at AS created, "
+                "(SELECT COUNT(*) FROM sessions WHERE project_id = projects.id) AS sessions "
+                "FROM projects WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    return dict(row) if row else None
 
 
 def default_db_path() -> Path:

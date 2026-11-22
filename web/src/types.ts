@@ -1,10 +1,11 @@
 export interface Project {
   first_pass?:boolean;
   project: string;
+  instructions?: string;
   classification: string;
   references?: boolean;
   plan_default?: boolean;
-  onboarding?: {worker:"ready"|"restricted"|"unconfigured"; needs_local:boolean; disconnected:string[]};
+  onboarding?: {worker:"ready"|"restricted"|"unconfigured"; model?:string|null; credential?:{name:string;state:"set"|"missing"|"not_required"|"unsupported"|"connected"|"sign_in"}|null; needs_local:boolean; disconnected:string[]};
   project_notes: boolean;
   worker_models: {spec: string; allowed: boolean}[];
   kernel_notice: string;
