@@ -6,11 +6,11 @@
 >
 > I haven’t been substantively involved in antibody drug development. I want to see whether I can use this harness and the best models available to generate a candidate antibody sequence and advance it to preclinical candidate (PCC) nomination.
 
-BioQuorum is an open, model-neutral workbench for biomedical research. Ask a question, inspect the source passage or calculation behind a claim, and export the record so another researcher can check your work.
+**BioQuorum is an open, model-neutral workbench for biomedical research. Ask a question, inspect the source passage or calculation behind a claim, and export the record so another researcher can check your work.**
 
 **v1.0 release candidate (`1.0.0rc1`) is ready for a research trial from the source checkout.** Explore four offline projects covering a TYK2 trial, donor-paired gene expression, a metformin evidence review and a sample-label correction. [Offline projects](docs/demo-v1.0.md) · [Handbook](docs/index.md) · [Release and acceptance status](docs/release/v1.0-acceptance.md)
 
-[![Recorded TYK2 trial calculation and evidence in the workbench](docs/media/tyk2-workbench.png)](docs/media/tyk2-workbench.mp4)
+[![BioQuorum workbench with the antibody-Q logo, the TYK2 trial chart and its supporting evidence](docs/media/tyk2-workbench.png)](docs/media/tyk2-workbench.mp4)
 
 ## Quick start
 
