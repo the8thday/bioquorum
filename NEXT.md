@@ -5,6 +5,10 @@
 
 ## 当前交接
 
+2026-11-25，完成输入区分级权限模式选择器与会话权限记录归位（[ADR-052](docs/adr/052-permission-modes.md)）：
+- 后端：`core/events.py` 升级 `turn_requested` 至 v6（新增 `permission_mode: "ask" | "auto" | "full" | None`，兼容旧事件），`policy/permissions.py` 支持显式 `revoke()` 优先拦截通配授权，`application/controls.py` 按模式构造每轮权限策略（`ask` 逐项询问；`auto` 在 `public` 项目自动允许只读公共数据库与网络查询、并在计划外操作/写操作时仍询问；`full` 自动允许所有受支持工具）且始终不可绕过数据分级、内核沙箱、下载 IP 绑定与项目显式撤销。
+- 前端：`web/src/Composer.tsx` 将底部栏原有的只读 `Permissions` 浮层替换为紧凑的 `Permission mode` 分级选择器（`Ask` / `Auto` / `Full access`，默认 `Auto` 并沿用会话上一轮模式）；`web/src/App.tsx` 将完整的会话权限记录、项目默认授权与 `Reset session grants` 移入会话标题右侧的隐藏操作菜单（`⋯` → `Permissions`）。已重建随包前端并补充前后端单测（后端 653 项、前端 27 项、9 条导入契约、Ruff、Pyright 全部通过）。
+
 2026-11-25，更新 [docs/DESIGN.md](docs/DESIGN.md)，将 **Agent first** 明确列为与“可核验的研究记录”同等重要的两大开发思想；并完成第一批 P0 正确性与安全边界修复：
 - `policy/secrets.py`：修复 JSON/带引号键值对的密钥脱敏绕过漏洞，并补充 GitHub（`gh*`、`github_pat_`）、HuggingFace（`hf_`）、AWS（`AKIA...`）、Google API Key（`AIza...`）与 JWT 脱敏规则。
 - `tools/invoke.py`、`agent/loop.py`、`agent/literature.py`、`tools/runs.py`、`application/research.py`：取消任务时改用纯同步事务 `refuse_pending()` 原子补齐所有未决 `ToolCallFailed` 事件（消除 `CancelledError` 恢复块内 `await` 导致的孤立调用风险），并在取消运行中的 kernel 时通过 `asyncio.shield` 显式触发 `kernel.interrupt()` 与内核释放。

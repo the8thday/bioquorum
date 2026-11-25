@@ -88,6 +88,15 @@ def test_project_grant_and_revoke():
     assert p.lookup(req()) is None
 
 
+def test_revoke_blocks_wildcard_grants():
+    p = PermissionPolicy()
+    p.grant(PermissionClass.CONNECTOR, "*", PermissionScope.SESSION, session_id="S")
+    assert p.lookup(req(perm=PermissionClass.CONNECTOR, target="pubmed")) is not None
+    p.revoke(PermissionClass.CONNECTOR, "pubmed")
+    assert p.lookup(req(perm=PermissionClass.CONNECTOR, target="pubmed")) is None
+    assert p.lookup(req(perm=PermissionClass.CONNECTOR, target="uniprot")) is not None
+
+
 def test_allow_all_grants_everything():
     p = PermissionPolicy.allow_all()
     for perm in PermissionClass:

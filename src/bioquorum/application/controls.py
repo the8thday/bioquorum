@@ -300,6 +300,7 @@ class ResearchControls:
         references: list[ev.TurnReference] | None = None,
         attachments: list[str] | None = None,
         reasoning_effort: ev.ReasoningEffort | None = None,
+        permission_mode: ev.PermissionMode | None = None,
     ) -> ev.Event:
         self.ensure_idle()
         events = self.require_active_session(sid)
@@ -315,6 +316,8 @@ class ResearchControls:
             target = worker_model or self.default_worker()
             if target is None or not self.ws.models_config().supports_reasoning_effort(target):
                 raise ValueError("The selected research model does not accept a reasoning effort")
+        if permission_mode is not None and self.demo:
+            raise ValueError("The offline example uses its recorded permissions")
         if attachments:
             available = {
                 e.payload["file_id"]
@@ -368,6 +371,7 @@ class ResearchControls:
                 references=references or [],
                 attachments=list(dict.fromkeys(attachments or [])),
                 reasoning_effort=reasoning_effort,
+                permission_mode=permission_mode,
             ),
             Actor.USER,
             events[-1].id,
@@ -390,7 +394,9 @@ class ResearchControls:
         if plan_id and steps:
             self._append(sid, ev.PlanProposed(plan_id=plan_id, steps=steps), Actor.USER, turn.id)
         else:
-            self._start(sid, turn.id, question, None, worker_model, reasoning_effort)
+            self._start(
+                sid, turn.id, question, None, worker_model, reasoning_effort, permission_mode
+            )
         return turn
 
     async def decide_plan(self, sid: str, turn_id: str, *, approve: bool, reason: str = "") -> None:
@@ -404,7 +410,13 @@ class ResearchControls:
         if approve:
             self._append(sid, ev.PlanApproved(plan_id=plan.plan_id), Actor.USER, turn_id)
             self._start(
-                sid, turn_id, payload.question, plan, payload.worker_model, payload.reasoning_effort
+                sid,
+                turn_id,
+                payload.question,
+                plan,
+                payload.worker_model,
+                payload.reasoning_effort,
+                payload.permission_mode,
             )
         else:
             self._append(
@@ -436,6 +448,7 @@ class ResearchControls:
                 request.worker_model,
                 point,
                 effort=request.reasoning_effort,
+                permission_mode=request.permission_mode,
             )
         )
         self.tasks[sid] = LiveTurn(task, turn_id)
@@ -448,10 +461,19 @@ class ResearchControls:
         plan: ev.PlanProposed | None,
         worker_model: str | None,
         effort: str | None = None,
+        permission_mode: ev.PermissionMode | None = None,
     ) -> None:
         self._append(sid, ev.TurnStarted(turn_id=turn_id), Actor.SYSTEM, turn_id)
         task = asyncio.create_task(
-            self._run(sid, turn_id, question, plan, worker_model, effort=effort)
+            self._run(
+                sid,
+                turn_id,
+                question,
+                plan,
+                worker_model,
+                effort=effort,
+                permission_mode=permission_mode,
+            )
         )
         self.tasks[sid] = LiveTurn(task, turn_id)
 
@@ -465,6 +487,7 @@ class ResearchControls:
         point: recovery.Checkpoint | None = None,
         *,
         effort: str | None = None,
+        permission_mode: ev.PermissionMode | None = None,
     ) -> None:
         live = self.tasks[sid]
 
@@ -490,8 +513,20 @@ class ResearchControls:
 
             def policy(servers: list) -> PermissionPolicy:
                 rules = wsp.default_permissions(self.ws, allow=[], servers=servers, ask=ask)
+                if permission_mode == "full":
+                    for perm in PermissionClass:
+                        rules.grant(perm, "*", PermissionScope.SESSION, session_id=sid)
+                elif permission_mode == "auto" and self.ws.classification is Classification.PUBLIC:
+                    rules.grant(
+                        PermissionClass.CONNECTOR, "*", PermissionScope.SESSION, session_id=sid
+                    )
+                    rules.grant(
+                        PermissionClass.NETWORK, "*", PermissionScope.SESSION, session_id=sid
+                    )
                 for permission, target in remembered:
                     rules.grant(permission, target, PermissionScope.SESSION, session_id=sid)
+                for permission, target in self.ws.config.get("permissions", {}).get("revoked", []):
+                    rules.revoke(PermissionClass(permission), target)
                 live.policy = rules
                 return rules
 

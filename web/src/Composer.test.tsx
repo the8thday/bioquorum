@@ -21,8 +21,8 @@ const models = [
   { spec: "deepseek:deepseek-chat", allowed: true, reasoning: false },
 ];
 
-describe("Composer controls (ADR-051)", () => {
-  it("shows reasoning effort picker for reasoning-capable models and hides it otherwise", () => {
+describe("Composer controls (ADR-051 & ADR-052)", () => {
+  it("shows reasoning effort picker for reasoning-capable models and permission mode selector", () => {
     const withEffort = renderToStaticMarkup(
       <Composer
         draftPlan={async () => ({ steps: [], model: "" })}
@@ -38,6 +38,8 @@ describe("Composer controls (ADR-051)", () => {
         setWorker={() => {}}
         effort="high"
         setEffort={() => {}}
+        permissionMode="auto"
+        setPermissionMode={() => {}}
         defaultWorker="openai:gpt-6.2-sol"
         models={models}
         classification="public"
@@ -49,8 +51,10 @@ describe("Composer controls (ADR-051)", () => {
       />
     );
     expect(withEffort).toContain('aria-label="Reasoning effort"');
-    expect(withEffort).toContain("Permissions");
-    expect(withEffort).toContain("pill-count\">1<");
+    expect(withEffort).toContain('aria-label="Permission mode"');
+    expect(withEffort).toContain(">Ask<");
+    expect(withEffort).toContain(">Auto<");
+    expect(withEffort).toContain(">Full access<");
 
     const withoutEffort = renderToStaticMarkup(
       <Composer
@@ -67,6 +71,8 @@ describe("Composer controls (ADR-051)", () => {
         setWorker={() => {}}
         effort=""
         setEffort={() => {}}
+        permissionMode="full"
+        setPermissionMode={() => {}}
         defaultWorker="openai:gpt-6.2-sol"
         models={models}
         classification="public"
@@ -78,6 +84,7 @@ describe("Composer controls (ADR-051)", () => {
       />
     );
     expect(withoutEffort).not.toContain('aria-label="Reasoning effort"');
+    expect(withoutEffort).toContain("perm-full");
   });
 
   it("renders three-way permission controls including session grant", () => {
@@ -96,6 +103,8 @@ describe("Composer controls (ADR-051)", () => {
         setWorker={() => {}}
         effort=""
         setEffort={() => {}}
+        permissionMode="ask"
+        setPermissionMode={() => {}}
         models={models}
         classification="public"
         record={{

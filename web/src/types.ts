@@ -1,4 +1,5 @@
 export type ReasoningEffort = "low" | "medium" | "high";
+export type PermissionMode = "ask" | "auto" | "full";
 
 export interface Project {
   first_pass?:boolean;
@@ -69,6 +70,7 @@ export interface Turn {
   selections?:TurnRef[];
   worker_model?: string | null;
   reasoning_effort?: ReasoningEffort | null;
+  permission_mode?: PermissionMode | null;
   question: string; plan?: Plan | null; status?: string; error?: string;
 }
 export interface Comparison {
@@ -97,6 +99,7 @@ export interface Snapshot {
   session_grants?: {permission: string; target: string}[];
   last_worker_model?: string | null;
   last_reasoning_effort?: ReasoningEffort | null;
+  last_permission_mode?: PermissionMode | null;
   activity: (Activity & {id: string; time: string; seq: number})[];
 }
 

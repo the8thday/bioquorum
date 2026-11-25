@@ -33,6 +33,13 @@ ORIGIN = f"http://{HOST}"
 def test_event_upgrades_for_reasoning_effort():
     v4 = ev.upgrade_payload("turn_requested", 4, {"question": "Check TYK2"})
     assert v4["reasoning_effort"] is None
+    assert v4["permission_mode"] is None
+
+    v5 = ev.upgrade_payload(
+        "turn_requested", 5, {"question": "Check TYK2", "reasoning_effort": "high"}
+    )
+    assert v5["reasoning_effort"] == "high"
+    assert v5["permission_mode"] is None
 
     v1 = ev.upgrade_payload(
         "model_call_started",
@@ -291,5 +298,167 @@ async def test_api_reasoning_effort_and_session_grants_lifecycle(tmp_path: Path)
         # Resetting again when empty returns 409
         reset2 = await http.post(f"/api/sessions/{sid}/permissions/reset", json={})
         assert reset2.status_code == 409
+
+    await controls.close()
+
+
+@pytest.mark.anyio
+async def test_permission_mode_auto_and_full_in_public_project(tmp_path: Path):
+    controls = _make_controls(tmp_path, ask_tool_calls=True)
+    app = create_app(controls, HOST)
+    transport = httpx2.ASGITransport(app=app)
+    headers = {"Origin": ORIGIN}
+
+    async with httpx2.AsyncClient(transport=transport, base_url=ORIGIN, headers=headers) as http:
+        sid = (await http.post("/api/sessions", json={"title": "Auto mode study"})).json()["id"]
+
+        # In a public project, permission_mode="auto" grants connector lookups without prompting.
+        ok = await http.post(
+            f"/api/sessions/{sid}/turns",
+            json={"question": "Check IL11", "permission_mode": "auto"},
+        )
+        assert ok.status_code == 202
+
+        snap: dict[str, Any] = {}
+        for _ in range(50):
+            snap = (await http.get(f"/api/sessions/{sid}")).json()
+            if snap["turns"] and snap["turns"][-1]["status"] == "completed":
+                break
+            await asyncio.sleep(0.02)
+        assert snap["turns"][-1]["status"] == "completed"
+        assert snap["turns"][-1]["permission_mode"] == "auto"
+        assert snap["last_permission_mode"] == "auto"
+        assert snap["permissions"] == []
+        # Auto mode grants are per-turn in-memory, not persisted as manual session grants
+        assert snap["session_grants"] == []
+
+        # permission_mode="full" also completes without prompting and is recorded on the turn.
+        ok_full = await http.post(
+            f"/api/sessions/{sid}/turns",
+            json={"question": "Check TYK2", "permission_mode": "full"},
+        )
+        assert ok_full.status_code == 202
+        for _ in range(50):
+            snap = (await http.get(f"/api/sessions/{sid}")).json()
+            if len(snap["turns"]) == 2 and snap["turns"][-1]["status"] == "completed":
+                break
+            await asyncio.sleep(0.02)
+        assert snap["turns"][-1]["status"] == "completed"
+        assert snap["turns"][-1]["permission_mode"] == "full"
+        assert snap["last_permission_mode"] == "full"
+
+    await controls.close()
+
+
+@pytest.mark.anyio
+async def test_permission_mode_respects_project_revocations(tmp_path: Path):
+    ws = init_project(tmp_path, classification=Classification.PUBLIC)
+    (tmp_path / "bioquorum.toml").write_text(
+        f"""
+[project]
+id = "{ws.project_id}"
+name = "Revoked Lab"
+classification = "public"
+
+[providers.openai]
+
+[roles]
+worker = "openai:gpt-6.2-sol"
+reviewer = "openai:gpt-6.2-sol"
+
+[permissions]
+revoked = [["connector", "pubmed.example"]]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    ws = load(tmp_path)
+
+    def make_client(workspace: Workspace, store: EventStore) -> ModelClient:
+        cfg = workspace.models_config()
+
+        class FakeClient(ModelClient):
+            def __init__(self) -> None:
+                super().__init__(Router(cfg), store)
+
+            async def _call(self, route, messages, tools, on_delta=None, effort=None):
+                usage = {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                }
+                if route.role is ModelRole.REVIEWER:
+                    return Message.assistant('{"claims": []}'), usage
+                if messages[-1].role is not MessageRole.TOOL:
+                    return (
+                        Message(
+                            role=MessageRole.ASSISTANT,
+                            parts=[
+                                ToolCallPart(
+                                    call_id="tc1", name="ext_lookup", args={"query": "IL11"}
+                                )
+                            ],
+                        ),
+                        usage,
+                    )
+                return Message.assistant("Done."), usage
+
+        return FakeClient()
+
+    def registry_factory() -> ToolRegistry:
+        reg = ToolRegistry()
+
+        async def run_lookup(args: _LookupArgs, _ctx) -> ToolResult:
+            return ToolResult.text(f"found {args.query}")
+
+        reg.register(
+            ToolSpec(
+                name="ext_lookup",
+                description="External database lookup",
+                args_model=_LookupArgs,
+                permission=PermissionClass.CONNECTOR,
+                classification_floor=Classification.PUBLIC,
+                target=lambda _a, _c: "pubmed.example",
+                handler=run_lookup,
+            )
+        )
+        return reg
+
+    controls = ResearchControls(ws, make_client=make_client, registry_factory=registry_factory)
+    app = create_app(controls, HOST)
+    transport = httpx2.ASGITransport(app=app)
+    headers = {"Origin": ORIGIN}
+
+    async with httpx2.AsyncClient(transport=transport, base_url=ORIGIN, headers=headers) as http:
+        sid = (await http.post("/api/sessions", json={"title": "Revoked check"})).json()["id"]
+        ok = await http.post(
+            f"/api/sessions/{sid}/turns",
+            json={"question": "Check IL11", "permission_mode": "full"},
+        )
+        assert ok.status_code == 202
+
+        # Even in "full" mode, explicit project revocation must still require confirmation.
+        perm_id = None
+        snap: dict[str, Any] = {}
+        for _ in range(50):
+            snap = (await http.get(f"/api/sessions/{sid}")).json()
+            if snap["permissions"]:
+                perm_id = snap["permissions"][0]["request_id"]
+                break
+            await asyncio.sleep(0.02)
+        assert perm_id is not None
+
+        # Deny and wait for completion
+        await http.post(
+            f"/api/sessions/{sid}/permissions/{perm_id}",
+            json={"grant": False, "remember": False},
+        )
+        for _ in range(50):
+            snap = (await http.get(f"/api/sessions/{sid}")).json()
+            if snap["turns"] and snap["turns"][-1]["status"] == "completed":
+                break
+            await asyncio.sleep(0.02)
+        assert snap["turns"][-1]["status"] == "completed"
 
     await controls.close()

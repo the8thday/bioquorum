@@ -318,14 +318,28 @@ class TurnRequestedV4(TurnRequestedV3):
 
 
 ReasoningEffort = Literal["low", "medium", "high"]
+PermissionMode = Literal["ask", "auto", "full"]
 
 
 @register
-class TurnRequested(TurnRequestedV4):
+class TurnRequestedV5(TurnRequestedV4):
     """v5 (ADR-051): the researcher's reasoning effort for the worker; None = provider default."""
 
     schema_version: ClassVar[int] = 5
     reasoning_effort: ReasoningEffort | None = None
+
+
+@register
+class TurnRequested(TurnRequestedV5):
+    """v6 (ADR-052): the researcher's permission mode for this turn; None = ask."""
+
+    schema_version: ClassVar[int] = 6
+    permission_mode: PermissionMode | None = None
+
+
+@upgrader("turn_requested", 5)
+def _turn_permission_mode_default(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "permission_mode": None}
 
 
 @upgrader("turn_requested", 4)

@@ -63,6 +63,7 @@ class PermissionPolicy:
     def __init__(self, ask: Asker | None = None) -> None:
         self._ask = ask
         self._grants: list[Grant] = []
+        self._revoked: set[tuple[PermissionClass, str]] = set()
 
     @classmethod
     def allow_all(cls) -> PermissionPolicy:
@@ -86,6 +87,7 @@ class PermissionPolicy:
         self._grants.append(Grant(permission, target, scope, session_id, project_id))
 
     def revoke(self, permission: PermissionClass, target: str) -> int:
+        self._revoked.add((permission, target))
         before = len(self._grants)
         self._grants = [
             g for g in self._grants if not (g.permission is permission and g.target == target)
@@ -102,6 +104,11 @@ class PermissionPolicy:
         return list(self._grants)
 
     def lookup(self, req: PermissionRequest) -> Decision | None:
+        if any(
+            perm is req.permission and covers(revoked_target, req.target)
+            for perm, revoked_target in self._revoked
+        ):
+            return None
         for g in self._grants:
             if g.permission is not req.permission or not covers(g.target, req.target):
                 continue

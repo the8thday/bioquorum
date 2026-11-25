@@ -473,6 +473,7 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 - 【承重】构建产物作为静态文件随 Python 包发布，用户不需要 Node。
 - 前端：v0.3 至 v0.6 是随包发布的原生 JavaScript、HTML 和 CSS（ADR-021）；v0.7 起改为 `web/` 下的 React + TypeScript + Vite 工程，构建产物提交到 `src/bioquorum/server/web/`，CI 检查与源码一致（ADR-029）。每轮的选择写进 `turn_requested`，项目设置的修改写成事件；密钥不经过界面。
 - 文件查看器依据产物类型懒加载；选区附于轮次引用，可从会话历史恢复。CAS 中的表格单元格、序列片段和同次运行的样本映射由服务端解析，模型只收到有界选段（ADR-042）。
+- `turn_requested` v6 保存可选的 `permission_mode`（`ask` / `auto` / `full`），v5 升级为空值（后端按 `ask` 处理）；工作台新建会话默认使用 `auto`，后续轮次沿用本会话上一轮记录值，且任何模式均不放宽数据分级、沙箱隔离与项目显式撤销（ADR-052）。
 - `turn_requested` v5 保存可选的 `reasoning_effort`（`low` / `medium` / `high`），v4 升级为空值，表示服务商默认；`model_call_started` v2 记录实际发送的强度，v1 升级为空值。会话授权从 `permission_decided`（`scope = session`）推出，`session_permissions_reset` 之前的会话授权失效（ADR-051）。
 - `turn_requested` v3 保存本轮引用及记录标识，v2 记录升级为空列表。引用只能解析到本会话或分叉继承的记录，来源和运行代码作为不可信数据传给模型。
 - `turn_requested` v2 保存可选的 `worker_model`；v1 升级时填空，按角色默认路由。回答显示的模型由 `assistant_message.model_call_id` 关联成功的 `model_call_finished` 确定。
@@ -586,3 +587,4 @@ CI 默认只跑不联网、不调模型、不启 kernel 的测试。任何新模
 | 049 | [更改已有项目的数据分级](adr/049-project-reclassification.md) |
 | 050 | [Public 项目的内置研究数据库](adr/050-public-research-default.md) |
 | 051 | [输入区的模型、推理强度与权限控制](adr/051-composer-controls.md) |
+| 052 | [输入区权限模式分级（Ask / Auto / Full）与授权记录收拢](adr/052-permission-modes.md) |

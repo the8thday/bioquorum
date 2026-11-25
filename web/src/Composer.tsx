@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import type { DraftReference, Project, ReasoningEffort, Snapshot } from "./types";
+import type { DraftReference, PermissionMode, Project, ReasoningEffort, Snapshot } from "./types";
 
 import { Icon } from "./Icon";
 import type { Product } from "./Artifacts";
@@ -9,13 +9,19 @@ function shortModel(spec: string) {
   return idx >= 0 ? spec.slice(idx + 1) : spec;
 }
 
-const permissionLabels: Record<string, string> = {
+export const permissionLabels: Record<string, string> = {
   read_fs: "Read files",
   write_fs: "Write files",
   execute: "Run code",
   network: "Network",
   connector: "Database connector",
   external_mcp: "MCP server",
+};
+
+const modeDescriptions: Record<PermissionMode, string> = {
+  ask: "Ask before network requests, database connectors, and writes",
+  auto: "Auto-approve safe public database and network lookups; ask on plan deviations",
+  full: "Auto-approve all permitted tools (classification, sandbox, and revocations still apply)",
 };
 
 export function Composer({
@@ -25,7 +31,6 @@ export function Composer({
   connection,
   upload,
   openSettings,
-  openProjectSettings,
   chooseModel,
   attachments,
   setAttachments,
@@ -39,9 +44,9 @@ export function Composer({
   setWorker,
   effort,
   setEffort,
+  permissionMode = "auto",
+  setPermissionMode,
   defaultWorker,
-  projectPermissions,
-  hasSession,
   models,
   classification,
   preset,
@@ -55,7 +60,6 @@ export function Composer({
   connection: string;
   upload: ReactNode;
   openSettings: () => void;
-  openProjectSettings?: () => void;
   attachments: Product[];
   setAttachments: (p: Product[]) => void;
   refs: DraftReference[];
@@ -66,9 +70,9 @@ export function Composer({
   setWorker: (value: string) => void;
   effort: ReasoningEffort | "";
   setEffort: (value: ReasoningEffort | "") => void;
+  permissionMode?: PermissionMode;
+  setPermissionMode?: (value: PermissionMode) => void;
   defaultWorker?: string | null;
-  projectPermissions?: Project["project_permissions"];
-  hasSession?: boolean;
   models: Project["worker_models"];
   classification: string;
   record: Snapshot;
@@ -102,29 +106,8 @@ export function Composer({
   }, [saved, question]);
 
   const [busy, setBusy] = useState(false);
-  const [permOpen, setPermOpen] = useState(false);
-  const permRef = useRef<HTMLDivElement>(null);
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const stepsRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (!permOpen) return;
-    const dismiss = (e: PointerEvent) => {
-      if (!permRef.current?.contains(e.target as Node)) setPermOpen(false);
-    };
-    const escape = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setPermOpen(false);
-        permRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", dismiss);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("pointerdown", dismiss);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [permOpen]);
 
   useEffect(() => {
     if (preset && example) {
@@ -155,7 +138,6 @@ export function Composer({
   const checks = Object.entries(interrupted?.resume_checks ?? {});
   const demoDone = !!example && !running && record.turns.some((t) => t.status !== "declined" && t.status !== "queued");
   const disabled = busy || running || !!record.pending_plan || demoDone;
-  const sessionGrants = record.session_grants ?? [];
 
   const focused = useRef<DraftReference | undefined>(undefined);
   useEffect(() => {
@@ -206,6 +188,7 @@ export function Composer({
         references: refs.map((r) => r.item),
         worker_model: worker || null,
         reasoning_effort: supportsReasoning && effort ? effort : null,
+        permission_mode: example ? null : permissionMode,
         steps: plan ? steps.split("\n").map((s) => s.trim()).filter(Boolean) : null,
       });
       setAttachments([]);
@@ -456,98 +439,25 @@ export function Composer({
             </label>
           )}
           {!example && (
-            <div className="perm-anchor" ref={permRef}>
-              <button
-                type="button"
-                className={
-                  "composer-pill perm-trigger" +
-                  (permOpen ? " active" : "") +
-                  (sessionGrants.length ? " has-grants" : "")
-                }
-                aria-expanded={permOpen}
-                aria-haspopup="dialog"
-                title="Inspect session and project permissions"
-                onClick={() => setPermOpen((v) => !v)}
+            <label
+              className={"composer-select perm-mode-picker" + (permissionMode === "full" ? " perm-full" : "")}
+              title={modeDescriptions[permissionMode]}
+            >
+              <Icon name="shield" />
+              <span className="sr-only">Permission mode</span>
+              <select
+                aria-label="Permission mode"
+                title={modeDescriptions[permissionMode]}
+                value={permissionMode}
+                disabled={disabled}
+                onChange={(e) => setPermissionMode?.(e.target.value as PermissionMode)}
               >
-                <Icon name="shield" />
-                <span>Permissions</span>
-                {sessionGrants.length > 0 && <span className="pill-count">{sessionGrants.length}</span>}
-              </button>
-              {permOpen && (
-                <div className="composer-popover" role="dialog" aria-label="Session permissions">
-                  <header className="popover-header">
-                    <strong>Permissions</strong>
-                    <span className="classification-chip">{classification}</span>
-                  </header>
-                  <section className="popover-section">
-                    <h4>Allowed for this session</h4>
-                    {sessionGrants.length > 0 ? (
-                      <>
-                        <ul className="grant-list">
-                          {sessionGrants.map((g) => (
-                            <li key={g.permission + ":" + g.target}>
-                              <span className="grant-kind">{permissionLabels[g.permission] ?? g.permission}</span>
-                              <code>{g.target}</code>
-                            </li>
-                          ))}
-                        </ul>
-                        {hasSession && (
-                          <button
-                            type="button"
-                            className="quiet danger reset-grants"
-                            disabled={busy}
-                            onClick={() =>
-                              act(async () => {
-                                await mutate("/permissions/reset", {});
-                                setPermOpen(false);
-                              })
-                            }
-                          >
-                            Reset session grants
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <p className="muted">
-                        None yet. Choose &ldquo;Allow for this session&rdquo; on a prompt to avoid repeating the same approval.
-                      </p>
-                    )}
-                  </section>
-                  {projectPermissions && projectPermissions.length > 0 && (
-                    <section className="popover-section">
-                      <h4>Project defaults</h4>
-                      <ul className="grant-list">
-                        {projectPermissions.map((g) => (
-                          <li key={g.permission + ":" + g.target}>
-                            <span className="grant-kind">{permissionLabels[g.permission] ?? g.permission}</span>
-                            <code>{g.target}</code>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-                  <section className="popover-section">
-                    <h4>Requires approval</h4>
-                    <p className="muted">External network requests, ungranted connectors, and writes outside the project always ask.</p>
-                  </section>
-                  <footer className="popover-footer">
-                    <p className="muted">Data classification, kernel isolation, and project revocations always apply.</p>
-                    {openProjectSettings && (
-                      <button
-                        type="button"
-                        className="text-action"
-                        onClick={() => {
-                          setPermOpen(false);
-                          openProjectSettings();
-                        }}
-                      >
-                        Manage in Project settings →
-                      </button>
-                    )}
-                  </footer>
-                </div>
-              )}
-            </div>
+                <option value="ask">Ask</option>
+                <option value="auto">Auto</option>
+                <option value="full">Full access</option>
+              </select>
+              <Icon name="chevron" />
+            </label>
           )}
           <button
             type="button"

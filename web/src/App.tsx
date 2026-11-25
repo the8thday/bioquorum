@@ -6,7 +6,7 @@ import { EvidenceIndex } from "./EvidenceIndex";
 import { Onboarding } from "./Onboarding";
 import { Artifacts, Upload, type Product } from "./Artifacts";
 import { ActivityFeed } from "./Activity";
-import { Composer } from "./Composer";
+import { Composer, permissionLabels } from "./Composer";
 import { EvidenceDialog, readEvidence } from "./Evidence";
 import { AnswerCard, TurnCard } from "./Record";
 import { AuditDialog, NameDialog, NoteDialog, ReplicationDialog, type Audit, type Estimate, type Note } from "./SessionDialogs";
@@ -19,7 +19,7 @@ import { ResearchTools, type ToolDestination } from "./ResearchTools";
 import { SettingsDialog, type SettingsSection } from "./Settings";
 import { UsageDialog } from "./Usage";
 import { useRecord } from "./useRecord";
-import type { DraftReference, EvidenceRef, Project, ReasoningEffort, Snapshot, TurnRef } from "./types";
+import type { DraftReference, EvidenceRef, PermissionMode, Project, ReasoningEffort, Snapshot, TurnRef } from "./types";
 import { Icon } from "./Icon";
 import { BrandMark } from "./BrandMark";
 import { InboxNotifications } from "./InboxNotifications";
@@ -29,7 +29,7 @@ import { Materials } from "./Materials";
 import type { Section } from "./Extensions";
 import plate from "./radiolaria.webp";
 
-type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "archive" | "usage" | "context" | "research-tools" | "model-settings" | "chat-settings"} | {kind:"settings"; section?:SettingsSection} | {kind:"rename"; id:string; title:string} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
+type Modal = {kind: "inbox" | "tasks" | "new" | "fork" | "archive" | "usage" | "context" | "permissions" | "research-tools" | "model-settings" | "chat-settings"} | {kind:"settings"; section?:SettingsSection} | {kind:"rename"; id:string; title:string} | {kind:"preferences"; section:Section} | {kind: "audit"; data: Audit} | {kind: "note"; data: Note}
   | {kind: "evidence"; claimIds:string[]; item: TurnRef; data: Awaited<ReturnType<typeof readEvidence>>}
   | {kind: "replication"; path: string; estimate: Estimate};
 
@@ -191,6 +191,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
   }
   const [worker, setWorker] = useState("");
   const [effort, setEffort] = useState<ReasoningEffort | "">("");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto");
   const [quickDraft, setQuickDraft] = useState(draft);
   useEffect(() => setQuickDraft(draft), [draft]);
   const inheritedTurnChoice = useRef(false);
@@ -199,6 +200,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     inheritedTurnChoice.current = true;
     if (record.last_worker_model) setWorker(record.last_worker_model);
     if (record.last_reasoning_effort) setEffort(record.last_reasoning_effort);
+    if (record.last_permission_mode) setPermissionMode(record.last_permission_mode);
   }, [record]);
   const [preset, setPreset] = useState(Number(fill));
   const title = project.sessions.find(s => s.id === id)?.title ?? "Start a research session";
@@ -422,6 +424,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
     {id && <div className="session-tools" ref={actionsRef}><button className="icon-button" aria-label="Session actions" aria-expanded={actionsOpen} onClick={() => setActionsOpen(v => !v)}><Icon name="more"/></button>
       {actionsOpen && <div className="record-actions" onClick={() => setActionsOpen(false)}>
       <button className="quiet" onClick={() => request<Audit>(base + "/audit").then(data => setModal({kind: "audit", data})).catch(report)}>Audit log</button>
+      {!project.example && <button className="quiet" onClick={() => setModal({kind: "permissions"})}>Permissions{record?.session_grants?.length ? ` (${record.session_grants.length})` : ""}</button>}
       {project.project_notes && <button className="quiet" onClick={() => request<Note>(base + "/project-note").then(data =>
         setModal({kind: "note", data})).catch(report)}>Project note</button>}
       <button className="quiet" disabled={running || !record?.answers.length} onClick={() => exportBundle().catch(report)}>Export research bundle</button>
@@ -454,7 +457,7 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       return request(sessionPath(session)+"/plan-draft",{question:q});
     }} initialDraft={quickDraft} executing={executing} connection={connection} upload={!project.example && <Upload base={base} resolveBase={home ? async()=>sessionPath(await prepareSession("")) : undefined}
       classification={project.classification} disabled={!!running || attachments.length >= 8}
-      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} openProjectSettings={() => setModal({kind:"settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} literatureEnabled={project.literature_subtasks} planDefault={project.plan_default} worker={worker} setWorker={setWorker} effort={effort} setEffort={setEffort} defaultWorker={project.default_worker} projectPermissions={project.project_permissions} hasSession={!!id} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
+      onUpload={p => {attach(p);if(id) void refresh().catch(report);}}/>} openSettings={() => setModal({kind:"chat-settings"})} chooseModel={!project.example && project.onboarding && project.onboarding.worker!=="ready" && !worker ? ()=>setModal({kind:"model-settings"}) : undefined} attachments={attachments} setAttachments={setAttachments} refs={project.references || project.first_pass ? refs : []} setRefs={setRefs} literatureEnabled={project.literature_subtasks} planDefault={project.plan_default} worker={worker} setWorker={setWorker} effort={effort} setEffort={setEffort} permissionMode={permissionMode} setPermissionMode={setPermissionMode} defaultWorker={project.default_worker} record={record ?? emptyRecord} models={project.worker_models} classification={project.classification} example={project.example} preset={preset} report={report} mutate={mutate}/>}
     <p id="message" role="status" aria-live="polite">{message || error}</p></div>
     {home && !project.example && <section className="home-launchpad" aria-label="Research starters">
       <div className="starter-grid">
@@ -518,6 +521,41 @@ function Session({id, project, fill, draft, select, prefs, setPrefs,layout}: Sel
       const file=products.find(p=>p.run===modal.item.id && p.hash===hash && p.preview==="figure");
       if(file){close();openResult(file);}
     }} add={quote} item={modal.item} evidence={modal.data} base={base} close={close}/>}
+    {modal?.kind === "permissions" && <Dialog id="permissions-dialog" title="Session permissions" close={close}>
+      <p className="muted">Classification: <strong>{project.classification}</strong> · Current mode: <strong>{permissionMode === "full" ? "Full access" : permissionMode === "auto" ? "Auto" : "Ask"}</strong></p>
+      <section className="popover-section">
+        <h4>Allowed for this session</h4>
+        {(record?.session_grants?.length ?? 0) > 0 ? <>
+          <ul className="grant-list">
+            {(record?.session_grants ?? []).map(g => (
+              <li key={g.permission + ":" + g.target}>
+                <span className="grant-kind">{permissionLabels[g.permission] ?? g.permission}</span>
+                <code>{g.target}</code>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="quiet danger reset-grants" onClick={() => {
+            void mutate("/permissions/reset", {}).then(close).catch(report);
+          }}>Reset session grants</button>
+        </> : <p className="muted">No session-specific grants recorded yet.</p>}
+      </section>
+      {(project.project_permissions?.length ?? 0) > 0 && <section className="popover-section">
+        <h4>Project defaults</h4>
+        <ul className="grant-list">
+          {(project.project_permissions ?? []).map(g => (
+            <li key={g.permission + ":" + g.target}>
+              <span className="grant-kind">{permissionLabels[g.permission] ?? g.permission}</span>
+              <code>{g.target}</code>
+            </li>
+          ))}
+        </ul>
+      </section>}
+      <p className="muted">Data classification, kernel isolation, and project revocations always apply in every mode.</p>
+      <div className="actions">
+        <button type="button" className="quiet" onClick={() => setModal({kind: "settings"})}>Manage in Project settings</button>
+        <button type="button" className="quiet" onClick={close}>Close</button>
+      </div>
+    </Dialog>}
     {modal?.kind === "audit" && <AuditDialog initial={modal.data} path={base + "/audit"} close={close}/>}
     {modal?.kind === "note" && <NoteDialog initial={modal.data} path={base + "/project-note"} close={close}
       saved={() => {close(); setMessage("Project note saved.");}}/>}

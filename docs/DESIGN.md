@@ -204,4 +204,4 @@ v0.8 的九项消融和六题确认支持保留证据绑定。其他机制的收
 
 研究入口按使用目的组织。Research tools 使用项目的实际设置显示数据库、R 内核、文献检索和并行配置，并打开现有操作界面。依赖回答或产物的动作出现在对应记录旁，保留可验证的上下文。[工作台对照](workbench-capabilities.md)
 
-输入区参照主流桌面 Agent 整理：问题框下方集中放置附件、研究模式（直接研究 / 先审计划 / 独立文献检索）、权限浮层、模型与推理强度选择，Enter 发送、Shift+Enter 换行。推理强度写入 `turn_requested` v5，实际发送的强度记入 `model_call_started` v2 并在回答旁展示；会话级授权从 `permission_decided` 推出并可经 `session_permissions_reset` 随时重置，数据分级与隔离边界不放宽。首页提供四类常见科研起点与最近会话，侧栏将新建会话置于顶部、项目配置收在底部，可信度标记按信任阶梯分色。[ADR-051](adr/051-composer-controls.md)
+输入区参照主流桌面 Agent 整理：问题框下方集中放置附件、研究模式（直接研究 / 先审计划 / 独立文献检索）、权限模式分级（`Ask` / `Auto` / `Full`）、模型与推理强度选择，Enter 发送、Shift+Enter 换行。推理强度写入 `turn_requested` v5，权限模式写入 `turn_requested` v6（工作台新建会话默认 `Auto`，自动放行 Public 项目的只读公共数据库与受控检索，不再频繁弹窗打断；原有本会话授权记录与重置收拢至会话 `⋯` 菜单），实际发送的强度记入 `model_call_started` v2 并在回答旁展示；会话级授权从 `permission_decided` 推出并可经 `session_permissions_reset` 随时重置，数据分级、沙箱隔离与项目显式撤销在任何模式下均不放宽。首页提供四类常见科研起点与最近会话，侧栏将新建会话置于顶部、项目配置收在底部，可信度标记按信任阶梯分色。[ADR-051](adr/051-composer-controls.md) · [ADR-052](adr/052-permission-modes.md)

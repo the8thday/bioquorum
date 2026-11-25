@@ -116,6 +116,7 @@ class Question(BaseModel):
     steps: list[str] | None = Field(default=None, max_length=12)
     worker_model: str | None = Field(default=None, min_length=1, max_length=256)
     reasoning_effort: ev.ReasoningEffort | None = None
+    permission_mode: ev.PermissionMode | None = None
 
 
 class ResumeTurn(BaseModel):
@@ -353,6 +354,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             references=body.references,
             attachments=body.attachments,
             reasoning_effort=body.reasoning_effort,
+            permission_mode=body.permission_mode,
         )
         return JSONResponse({"turn_id": turn.id}, status_code=202)
 

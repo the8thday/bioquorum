@@ -223,6 +223,7 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
     latest_draft = None
     last_worker_model: str | None = None
     last_reasoning_effort: str | None = None
+    last_permission_mode: ev.PermissionMode | None = None
     pending = controls.pending(local)
     for e, p in parsed:
         if isinstance(p, ev.ClaimStatusChanged):
@@ -238,6 +239,7 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
             if e.seq >= 0:
                 last_worker_model = p.worker_model
                 last_reasoning_effort = p.reasoning_effort
+                last_permission_mode = p.permission_mode
             turns[e.id] = {
                 "id": e.id,
                 "seq": e.seq,
@@ -249,6 +251,7 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
                 "plan_id": p.plan_id,
                 "worker_model": p.worker_model,
                 "reasoning_effort": p.reasoning_effort,
+                "permission_mode": p.permission_mode,
             }
         elif isinstance(p, ev.TurnStarted | ev.TurnResumed) and p.turn_id in turns:
             turns[p.turn_id].update(status="running", error="")
@@ -359,6 +362,7 @@ def snapshot(controls: ResearchControls, sid: str, *, turn_limit: int | None = N
         ],
         "last_worker_model": last_worker_model,
         "last_reasoning_effort": last_reasoning_effort,
+        "last_permission_mode": last_permission_mode,
         "answers": answers,
         "disconnected": disconnected(controls),
         "activity": [
