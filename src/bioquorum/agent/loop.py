@@ -20,7 +20,7 @@ from bioquorum.agent.compaction import compact_history
 from bioquorum.agent.context import conversation
 from bioquorum.agent.prompts import binding_feedback, worker_system
 from bioquorum.core import events as ev
-from bioquorum.core.enums import Actor, ModelRole
+from bioquorum.core.enums import Actor, ModelRole, PermissionClass
 from bioquorum.core.messages import Message, ToolCallPart, ToolResultPart
 from bioquorum.models.client import ModelClient, OnDelta
 from bioquorum.models.config import ConfigError
@@ -28,7 +28,7 @@ from bioquorum.policy.secrets import recorded_args, recorded_message
 from bioquorum.review.binding import unresolved
 from bioquorum.review.evidence import Evidence
 from bioquorum.tools.context import ToolContext
-from bioquorum.tools.invoke import invoke_by_name
+from bioquorum.tools.invoke import invoke_by_name, refuse_pending
 from bioquorum.tools.registry import ToolRegistry
 
 DEFAULT_MAX_STEPS = 12
@@ -57,6 +57,16 @@ class TurnResult:
     model_specs: list[str] = field(default_factory=list)
     binding_retries: int = 0
     stop_reason: str | None = None
+
+
+def _repeatable_on_resume(registry: ToolRegistry, name: str, args: dict) -> bool:
+    """Kernel cells (memory may have reset) and pure read tools may safely re-run after resume."""
+    if name in ("python_execute", "r_execute"):
+        return True
+    if name == "research_coverage" and args.get("action") == "inspect":
+        return True
+    spec = registry.get(name) if name in registry else None
+    return spec is not None and (spec.permission is PermissionClass.READ_FS or spec.parallel_read)
 
 
 async def _call(hook, *args) -> None:
@@ -242,7 +252,8 @@ async def run_turn(
                     causation_id=said.id,
                     skip_reason=(
                         "This operation already entered execution before the interruption; use its recorded result."
-                        if (call.name, recorded_args(call.name, call.args, ctx.workdir))
+                        if not _repeatable_on_resume(registry, call.name, call.args)
+                        and (call.name, recorded_args(call.name, call.args, ctx.workdir))
                         in recorded_calls
                         else meter.stop_reason()
                     ),
@@ -254,17 +265,12 @@ async def run_turn(
                 for e in store.read(sid, from_seq=said.seq + 1)
                 if isinstance(p := e.parsed(), ev.ToolCallFinished | ev.ToolCallFailed)
             }
-            for call in tool_calls:
-                if call.call_id not in finished:
-                    await invoke_by_name(
-                        registry,
-                        call.name,
-                        call.args,
-                        ctx,
-                        call_id=call.call_id,
-                        causation_id=said.id,
-                        skip_reason="Research stopped",
-                    )
+            refuse_pending(
+                ctx,
+                [(call.call_id, call.name) for call in tool_calls if call.call_id not in finished],
+                "Research stopped",
+                causation_id=said.id,
+            )
             raise
         cause = said.id
 

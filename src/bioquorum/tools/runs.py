@@ -6,10 +6,12 @@ together, and those sibling layers may not import each other.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -168,7 +170,11 @@ async def execute_run(
                 status=EndStatus.ERROR,
                 error=KernelError(ename=type(exc).__name__, evalue=str(exc)),
             )
-        except BaseException:  # task cancelled: record it, then propagate
+        except (
+            BaseException
+        ):  # task cancelled: interrupt kernel, record cancellation, then propagate
+            with suppress(Exception):
+                await asyncio.shield(asyncio.wait_for(kernel.interrupt(), timeout=3.0))
             store.append(
                 ev.RunCancelled(run_id=run_id),
                 session_id=sid,

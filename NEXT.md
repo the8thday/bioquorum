@@ -5,6 +5,13 @@
 
 ## 当前交接
 
+2026-11-25，更新 [docs/DESIGN.md](docs/DESIGN.md)，将 **Agent first** 明确列为与“可核验的研究记录”同等重要的两大开发思想；并完成第一批 P0 正确性与安全边界修复：
+- `policy/secrets.py`：修复 JSON/带引号键值对的密钥脱敏绕过漏洞，并补充 GitHub（`gh*`、`github_pat_`）、HuggingFace（`hf_`）、AWS（`AKIA...`）、Google API Key（`AIza...`）与 JWT 脱敏规则。
+- `tools/invoke.py`、`agent/loop.py`、`agent/literature.py`、`tools/runs.py`、`application/research.py`：取消任务时改用纯同步事务 `refuse_pending()` 原子补齐所有未决 `ToolCallFailed` 事件（消除 `CancelledError` 恢复块内 `await` 导致的孤立调用风险），并在取消运行中的 kernel 时通过 `asyncio.shield` 显式触发 `kernel.interrupt()` 与内核释放。
+- `agent/loop.py`：中断恢复（`resume_events`）时豁免 `python_execute`/`r_execute`、只读工具及 `research_coverage(action="inspect")`，允许重启内核后重建前置变量与状态检查，同时继续阻止非幂等外部副作用重复执行。
+- `agent/compaction.py`、`agent/context.py`：修复 `conversation()` 的 `latest_user` 未受 `through_seq` 约束的问题；自动压缩优先在当前活跃轮次的 `UserMessage` 之前切分，避免重复 `latest_user` 并保留本轮可引用工具原文。
+- `tools/builtin/download.py`、`models/chatgpt_plan.py`、`server/accounts.py`、`server/app.py`：直接下载改用 `_PinnedTransport` 绑定已校验公网 IP（保留 `Host` 头与 TLS `sni_hostname`）消除 DNS Rebinding 窗口；`chatgpt_plan.verify_identity` 与 `disconnect` 统一透传 `outbound_proxy` 与 `trust_env=proxy is None`。
+
 2026-11-22，补齐 HTML 产物右侧沙箱交互预览（`catalog.py`、`server/app.py` `/preview/html`、`web/src/viewers/Html.tsx`），并将模型生成的 `sandbox:/...` 本地文件链接解析为可点击预览链接；本轮产物卡片紧跟回答正文下方展示并带独立下载按钮；修复未开启 `Follow-up references` 时划词不弹追问框的问题（默认退回引用块带入输入框）。已重建随包前端。
 
 2026-11-22，工作台 UI 整体升级与输入区控制（[ADR-051](docs/adr/051-composer-controls.md)）已在本地完成并通过作者观感复核。输入区改为桌面 Agent 风格的单行工具栏：附件、`Plan` / `Literature` 模式切换、会话权限浮层（展示项目默认授权、本会话已允许项及一键重置）、模型选择、推理强度（`Default` / `Low` / `Medium` / `High`，按模型能力自动显示）、圆形发送按钮及 Enter 发送 / Shift+Enter 换行；新一轮默认沿用本会话上一轮的模型与推理强度。权限请求卡片提供 `Allow for this session`、`Allow once`、`Deny` 三项，会话授权从事件日志重建并支持 `session_permissions_reset` 事件撤销，不放宽分级与沙箱边界。侧栏 **+ New session** 改为免弹窗直接进入空白提问页并在首轮提问时自动生成会话标题；同步修复侧栏 `Manage projects` / `New project` 对齐、项目设置弹窗表单排版、首页启动台居中布局、正文引文胶囊收敛、未核验引用胶囊（`[s1 · unverified]`）与行内斜体渲染，并在右上角 Workbench settings 和 Project settings → Models and roles 中补齐完整的模型与账号配置入口。已重建随包前端并补充前后端单元测试。

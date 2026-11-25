@@ -111,6 +111,32 @@ def test_redact_known_and_patterned_secrets():
     assert "auth failed" in out
 
 
+def test_redact_quoted_json_and_provider_tokens():
+    jwt_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlMTIzNDU2"
+    text = (
+        '{"api_key": "json-secret-123", "refresh_token": "refresh-xyz-999", '
+        '"input_tokens": 42, "token": ""} '
+        "password='quoted-pass-456' "
+        "ghp_1234567890abcdefghij1234 "
+        "hf_1234567890abcdefghij1234 "
+        "AKIAIOSFODNN7EXAMPLE "
+        f"jwt={jwt_token}"
+    )
+    out = redact(text)
+    for leaked in (
+        "json-secret-123",
+        "refresh-xyz-999",
+        "quoted-pass-456",
+        "ghp_1234567890abcdefghij1234",
+        "hf_1234567890abcdefghij1234",
+        "AKIAIOSFODNN7EXAMPLE",
+        jwt_token,
+    ):
+        assert leaked not in out
+    assert '"input_tokens": 42' in out
+    assert '"token": ""' in out
+
+
 def test_resolve_secret(monkeypatch):
     from bioquorum.policy.secrets import SecretError, resolve_secret
 

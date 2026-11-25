@@ -164,3 +164,56 @@ async def test_authorize_catalog_stream_and_disconnect(tmp_path, monkeypatch):
     assert bearer not in str([e.payload for e in c.store.iter_all()])
     assert (await plan.disconnect())["revoked"] and not plan.status()["connected"]
     assert paths.count("/v1/responses") == 1
+
+
+@pytest.mark.anyio
+async def test_verify_identity_and_disconnect_respect_outbound_proxy(tmp_path, monkeypatch):
+    import json
+    import time
+
+    import httpx2
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.algorithms import RSAAlgorithm
+
+    monkeypatch.setattr(plan, "directory", lambda: tmp_path / "private")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = jwt.encode(
+        {
+            "iss": plan.ISSUER,
+            "sub": "u1",
+            "aud": "c1",
+            "exp": int(time.time()) + 3600,
+            "nonce": "n1",
+        },
+        key,
+        algorithm="RS256",
+        headers={"kid": "k1"},
+    )
+    jwk = json.loads(RSAAlgorithm.to_jwk(key.public_key()))
+    proxy = "http://127.0.0.1:18080"
+    seen_clients = []
+    real_client = httpx2.AsyncClient
+
+    def capture_client(**kwargs):
+        seen_clients.append((kwargs.get("proxy"), kwargs.get("trust_env")))
+        kwargs.pop("proxy", None)
+        kwargs["transport"] = httpx2.MockTransport(
+            lambda req: (
+                httpx2.Response(200, json={"keys": [{**jwk, "kid": "k1"}]})
+                if req.url.path.endswith("jwks.json")
+                else httpx2.Response(200)
+            )
+        )
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(httpx2, "AsyncClient", capture_client)
+    claims = await plan.verify_identity(token, "c1", "n1", proxy=proxy)
+    assert claims["sub"] == "u1"
+    plan.directory().mkdir(parents=True, exist_ok=True)
+    plan._write(
+        "account.json",
+        {"client_id": "c1", "sub": "u1", "tokens": {"refresh_token": "rt", "scope": ""}},
+    )
+    assert (await plan.disconnect(proxy=proxy))["revoked"] is True
+    assert seen_clients == [(proxy, False), (proxy, False)]

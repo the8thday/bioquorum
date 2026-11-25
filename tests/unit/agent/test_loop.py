@@ -366,3 +366,138 @@ async def test_checkpoint_before_initial_setup_finishes_preparation_once(ctx, st
     )
     assert started == [original.id]
     assert len(store.read(ctx.session_id, types=["user_message"])) == 1
+
+
+async def test_resume_allows_kernel_and_read_tools_while_skipping_side_effects(
+    ctx, store, kernel, tmp_path
+):
+    from bioquorum.core import events as ev
+    from bioquorum.core.messages import Message
+
+    (tmp_path / "data.txt").write_text("gene=TP53\n")
+    ctx.classification = Classification.PUBLIC
+    original = store.append(
+        ev.UserMessage(message=Message.user("reload and finish")),
+        session_id=ctx.session_id,
+        actor=Actor.USER,
+    )
+    prior_py = store.append(
+        ev.ToolCallRequested(
+            call_id="c-py",
+            tool="python_execute",
+            args={"code": "x = 1"},
+            permission=PermissionClass.EXECUTE,
+        ),
+        session_id=ctx.session_id,
+        actor=Actor.AGENT,
+    )
+    prior_read = store.append(
+        ev.ToolCallRequested(
+            call_id="c-read",
+            tool="read_file",
+            args={"path": "data.txt"},
+            permission=PermissionClass.READ_FS,
+        ),
+        session_id=ctx.session_id,
+        actor=Actor.AGENT,
+    )
+    prior_dl = store.append(
+        ev.ToolCallRequested(
+            call_id="c-dl",
+            tool="download_file",
+            args={"url": "https://example.org/file.csv"},
+            permission=PermissionClass.NETWORK,
+        ),
+        session_id=ctx.session_id,
+        actor=Actor.AGENT,
+    )
+    model, _ = scripted(
+        pa.ModelResponse(
+            parts=[
+                pa.ToolCallPart("python_execute", {"code": "x = 1"}, tool_call_id="r1"),
+                pa.ToolCallPart("read_file", {"path": "data.txt"}, tool_call_id="r2"),
+                pa.ToolCallPart(
+                    "download_file", {"url": "https://example.org/file.csv"}, tool_call_id="r3"
+                ),
+            ]
+        ),
+        text("Done."),
+    )
+    results = []
+    await run_turn(
+        "reload and finish",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        resume_events=[original, prior_py, prior_read, prior_dl],
+        hooks=Hooks(on_tool_result=lambda c, r: results.append((c.name, r.is_error, r.text()))),
+    )
+    assert kernel.executed == ["x = 1"]
+    assert results[0][0] == "python_execute" and not results[0][1]
+    assert results[1][0] == "read_file" and not results[1][1] and "TP53" in results[1][2]
+    assert results[2][0] == "download_file" and results[2][1] and "already entered" in results[2][2]
+
+
+async def test_compaction_prefers_turn_boundary_without_duplicating_active_question(
+    ctx, store, kernel
+):
+    from bioquorum.core import events as ev
+    from bioquorum.core.messages import Message
+
+    old = "earlier study " * 120
+    store.append(ev.UserMessage(message=Message.user(old)), session_id="S", actor=Actor.USER)
+    store.append(
+        ev.AssistantMessage(message=Message.assistant("earlier findings " * 120)),
+        session_id="S",
+        actor=Actor.AGENT,
+    )
+    model, _ = scripted(
+        tool_call("python_execute", {"code": "step1"}),
+        text("summary of earlier study"),
+        tool_call("python_execute", {"code": "step2"}),
+        text("final answer"),
+    )
+    await run_turn(
+        "active question",
+        client=client(store, model),
+        registry=default_registry(),
+        ctx=ctx,
+        compact_at_bytes=2000,
+    )
+    events = store.read("S")
+    compacted = [e.parsed() for e in events if e.type == "context_compacted"]
+    assert len(compacted) == 1
+    active_user_seq = next(
+        e.seq
+        for e in events
+        if e.type == "user_message" and e.parsed().message.text() == "active question"
+    )
+    assert compacted[0].to_seq == active_user_seq - 1
+    projected = conversation(events, compacted=True)
+    assert [m.text() for m in projected].count("active question") == 1
+
+
+async def test_cancellation_interrupts_kernel_and_closes_all_pending_tool_calls(ctx, store, kernel):
+    import asyncio
+
+    kernel.queue(Script(hang=True))
+    model, _ = scripted(
+        pa.ModelResponse(
+            parts=[
+                pa.ToolCallPart("python_execute", {"code": "hang()"}, tool_call_id="c1"),
+                pa.ToolCallPart("list_files", {"path": "."}, tool_call_id="c2"),
+            ]
+        )
+    )
+    task = asyncio.create_task(
+        run_turn("q", client=client(store, model), registry=default_registry(), ctx=ctx)
+    )
+    while not kernel.executed:
+        await asyncio.sleep(0.005)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert kernel._interrupted.is_set()
+    failed = [e.payload["call_id"] for e in store.read("S") if e.type == "tool_call_failed"]
+    assert len(failed) == 2
+    assert any(e.type == "run_cancelled" for e in store.read("S"))

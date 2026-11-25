@@ -10,8 +10,8 @@ from bioquorum.server.request_body import Empty, read_body
 PRIVATE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 
 
-def account_routes(host: str) -> list[Route]:
-    login = chatgpt_plan.SignIn(host)
+def account_routes(host: str, *, proxy: str | None = None) -> list[Route]:
+    login = chatgpt_plan.SignIn(host, proxy=proxy)
 
     async def account(request: Request):
         return JSONResponse(chatgpt_plan.status(), headers=PRIVATE)
@@ -23,7 +23,7 @@ def account_routes(host: str) -> list[Route]:
     async def signout(request: Request):
         await read_body(request, Empty)
         login.flow = None
-        return JSONResponse(await chatgpt_plan.disconnect(), headers=PRIVATE)
+        return JSONResponse(await chatgpt_plan.disconnect(proxy=proxy), headers=PRIVATE)
 
     async def callback(request: Request):
         try:

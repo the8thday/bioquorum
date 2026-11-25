@@ -765,7 +765,7 @@ def surface(controls: ResearchControls, host: str, *, library: bool = True) -> d
             Route("/", asset),
             *(
                 [
-                    *account_routes(host),
+                    *account_routes(host, proxy=controls.ws.outbound_proxy()),
                     Route("/api/workbench-settings", preferences, methods=["GET", "POST"]),
                     Route("/api/projects", projects, methods=["GET", "POST"]),
                     Route("/api/projects/trash", trash),

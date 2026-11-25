@@ -77,8 +77,10 @@ class CredentialSource:
         _write("account.json", account)
 
 
-async def verify_identity(token: str, client_id: str, nonce: str) -> dict:
-    async with httpx2.AsyncClient(timeout=15) as http:
+async def verify_identity(
+    token: str, client_id: str, nonce: str, *, proxy: str | None = None
+) -> dict:
+    async with httpx2.AsyncClient(proxy=proxy, trust_env=proxy is None, timeout=15) as http:
         response = await http.get(ISSUER + "/.well-known/jwks.json")
         response.raise_for_status()
     keys = jwt.PyJWKSet.from_dict(response.json())
@@ -97,8 +99,9 @@ async def verify_identity(token: str, client_id: str, nonce: str) -> dict:
 
 
 class SignIn:
-    def __init__(self, host: str):
+    def __init__(self, host: str, *, proxy: str | None = None):
         self.redirect = f"http://{host}/auth/callback"
+        self.proxy = proxy
         self.flow: OpenAIChatGPTOAuthFlow | None = None
         self.expires = 0.0
 
@@ -138,7 +141,7 @@ class SignIn:
                     params["code"], client_id=params.get("client_id")
                 )
                 claims = await verify_identity(
-                    credentials.id_token or "", credentials.client_id, flow.nonce
+                    credentials.id_token or "", credentials.client_id, flow.nonce, proxy=self.proxy
                 )
                 if account and claims["sub"] != account["sub"]:
                     raise ValueError("Account identity changed")
@@ -158,14 +161,14 @@ class SignIn:
             ) from None
 
 
-async def disconnect() -> dict:
+async def disconnect(*, proxy: str | None = None) -> dict:
     async with _lock():
         account = _read("account.json")
         tokens = account.pop("tokens", None)
         confirmed = True
         if tokens:
             confirmed = False
-            async with httpx2.AsyncClient(timeout=8) as http:
+            async with httpx2.AsyncClient(proxy=proxy, trust_env=proxy is None, timeout=8) as http:
                 for attempt in range(2):
                     try:
                         response = await http.post(

@@ -16,8 +16,18 @@ from bioquorum.core.messages import Message, TextPart, ToolCallPart
 
 _KNOWN: set[str] = set()
 _PATTERNS = [
-    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),  # OpenAI / Anthropic / DeepSeek style keys
-    re.compile(r"(?i)(api[_-]?key|token|secret|password)(\s*[=:]\s*)([^\s'\"&]+)"),
+    re.compile(
+        r"sk-[A-Za-z0-9_\-]{16,}"  # OpenAI / Anthropic / DeepSeek style keys
+        r"|\bgh[pousr]_[A-Za-z0-9_]{20,}"  # GitHub tokens
+        r"|\bgithub_pat_[A-Za-z0-9_]{20,}"  # GitHub fine-grained PATs
+        r"|\bhf_[A-Za-z0-9]{20,}"  # HuggingFace tokens
+        r"|\bAKIA[0-9A-Z]{16}\b"  # AWS access keys
+        r"|\bAIza[0-9A-Za-z_\-]{30,}"  # Google API keys
+        r"|\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"  # JWTs
+    ),
+    re.compile(
+        r"""(?i)(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd)["']?\s*[=:]\s*["']?)([^\s'"&,}\]]+)"""
+    ),
     re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{12,})"),
 ]
 MASK = "***"
@@ -109,7 +119,7 @@ def redact(text: str) -> str:
     for value in sorted(_KNOWN, key=len, reverse=True):
         text = text.replace(value, MASK)
     text = _PATTERNS[0].sub(MASK, text)
-    text = _PATTERNS[1].sub(lambda m: f"{m.group(1)}{m.group(2)}{MASK}", text)
+    text = _PATTERNS[1].sub(lambda m: f"{m.group(1)}{MASK}", text)
     text = _PATTERNS[2].sub(lambda m: f"{m.group(1)}{MASK}", text)
     return text
 

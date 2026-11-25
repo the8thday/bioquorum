@@ -22,7 +22,7 @@ from bioquorum.review.binding import quote_matches, scoped_sources
 from bioquorum.review.evidence import Evidence, citations_in_text
 from bioquorum.review.modeljson import parse_json
 from bioquorum.tools.context import ToolContext
-from bioquorum.tools.invoke import invoke_by_name
+from bioquorum.tools.invoke import invoke_by_name, refuse_pending
 from bioquorum.tools.registry import ToolRegistry
 from bioquorum.tools.spec import ToolResult, ToolSpec
 
@@ -206,17 +206,12 @@ async def _lookup(
                 for event in store.read(sid, from_seq=said.seq + 1)
                 if isinstance(p := event.parsed(), ev.ToolCallFinished | ev.ToolCallFailed)
             }
-            for call in calls:
-                if call.call_id not in finished:
-                    await invoke_by_name(
-                        registry,
-                        call.name,
-                        call.args,
-                        ctx,
-                        call_id=call.call_id,
-                        causation_id=said.id,
-                        skip_reason="Subtask stopped" if general else "Literature lookup stopped",
-                    )
+            refuse_pending(
+                ctx,
+                [(call.call_id, call.name) for call in calls if call.call_id not in finished],
+                "Subtask stopped" if general else "Literature lookup stopped",
+                causation_id=said.id,
+            )
             raise
         cause = said.id
     return "", []

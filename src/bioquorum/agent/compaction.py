@@ -39,17 +39,27 @@ async def compact_history(
     manual: bool = False,
     references: bool = False,
 ) -> int:
-    # The latest assistant message and all of its tool results stay together.
+    # Prefer cutting right before the latest user question so the active turn's question and
+    # quotable tool results stay intact; fall back to before the latest assistant message when
+    # compacting manually or when the current turn alone exceeds the threshold.
     assistants = [e.seq for e in events if e.type == ev.AssistantMessage.event_type]
-    if len(assistants) < 2 or assistants[-1] - 1 <= attempted_through:
+    if len(assistants) < 2:
         return attempted_through
-    cut = assistants[-1] - 1
-    if any(
-        isinstance(p := e.parsed(), ev.ContextCompacted) and p.to_seq >= cut
-        for e in events
-        if e.type == ev.ContextCompacted.event_type
-    ):
-        return cut
+    latest_user = next(
+        (
+            e.seq
+            for e in reversed(events)
+            if e.type == ev.UserMessage.event_type and e.actor is Actor.USER
+        ),
+        None,
+    )
+    fallback_cut = assistants[-1] - 1
+    candidates: list[int] = []
+    if not manual and latest_user is not None and any(seq < latest_user for seq in assistants):
+        candidates.append(latest_user - 1)
+    if fallback_cut not in candidates:
+        candidates.append(fallback_cut)
+
     messages = conversation(
         events,
         source_labels=binding,
@@ -59,17 +69,33 @@ async def compact_history(
     )
     if len(_transcript(messages).encode()) < target_bytes:
         return attempted_through
-    prefix = conversation(
-        events,
-        source_labels=binding,
-        references=references,
-        load_event=ctx.store.get,
-        compacted=True,
-        through_seq=cut,
-    )
-    text = _transcript(prefix)
-    if len(text.encode()) < target_bytes // 2:
-        return cut
+
+    cut = fallback_cut
+    text = ""
+    for candidate in candidates:
+        if candidate <= attempted_through:
+            continue
+        if any(
+            isinstance(p := e.parsed(), ev.ContextCompacted) and p.to_seq >= candidate
+            for e in events
+            if e.type == ev.ContextCompacted.event_type
+        ):
+            continue
+        prefix = conversation(
+            events,
+            source_labels=binding,
+            references=references,
+            load_event=ctx.store.get,
+            compacted=True,
+            through_seq=candidate,
+        )
+        candidate_text = _transcript(prefix)
+        if len(candidate_text.encode()) >= target_bytes // 2:
+            cut = candidate
+            text = candidate_text
+            break
+    if not text:
+        return max(attempted_through, fallback_cut)
     try:
         reply = await client.complete(
             ModelRole.SUMMARIZER,

@@ -96,7 +96,7 @@ class _RefusedError(Exception):
     pass
 
 
-async def _check_host(host: str, resolve: Resolver) -> None:
+async def _check_host(host: str, resolve: Resolver) -> list[str]:
     try:
         addresses = [str(ipaddress.ip_address(host.strip("[]")))]
     except ValueError:
@@ -106,6 +106,29 @@ async def _check_host(host: str, resolve: Resolver) -> None:
             raise _RefusedError(f"cannot resolve {host}: {exc}") from None
     if not addresses or not all(_is_public(a) for a in addresses):
         raise _RefusedError(f"{host} resolves to a private or local address; refused")
+    return addresses
+
+
+class _PinnedTransport(httpx2.AsyncHTTPTransport):
+    """Connect directly to the pre-checked public IP while preserving Host and TLS SNI."""
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        pinned_ip = request.extensions.get("bq_pinned_ip")
+        if not isinstance(pinned_ip, str) or not pinned_ip:
+            return await super().handle_async_request(request)
+        original_host = request.url.host
+        ip_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+        headers = httpx2.Headers(request.headers)
+        headers["host"] = request.url.netloc.decode("ascii")
+        extensions = {**request.extensions, "sni_hostname": original_host}
+        pinned_request = httpx2.Request(
+            method=request.method,
+            url=request.url.copy_with(host=ip_host),
+            headers=headers,
+            stream=request.stream,
+            extensions=extensions,
+        )
+        return await super().handle_async_request(pinned_request)
 
 
 def _destination(directory: Path, name: str, digest: str) -> tuple[Path, bool]:
@@ -135,8 +158,13 @@ def download_tool(
         partial: Path | None = None
         url = httpx2.URL(args.url)
         try:
+            client_transport = (
+                transport
+                if transport is not None
+                else (_PinnedTransport() if ctx.outbound_proxy is None else None)
+            )
             async with httpx2.AsyncClient(
-                transport=transport,
+                transport=client_transport,
                 follow_redirects=False,
                 proxy=ctx.outbound_proxy,
                 trust_env=ctx.outbound_proxy is None,
@@ -148,12 +176,14 @@ def download_tool(
                         raise _RefusedError(f"redirect to unsupported scheme: {url.scheme}")
                     if url.userinfo:
                         raise _RefusedError("credentials in the URL are not allowed")
+                    extensions: dict[str, str] = {}
                     if ctx.outbound_proxy:
                         if url.scheme != "https":
                             raise _RefusedError("The outbound proxy requires HTTPS")
                     else:
-                        await _check_host(url.host, resolver)
-                    async with client.stream("GET", url) as resp:
+                        addresses = await _check_host(url.host, resolver)
+                        extensions["bq_pinned_ip"] = addresses[0]
+                    async with client.stream("GET", url, extensions=extensions) as resp:
                         if resp.is_redirect and resp.next_request is not None:
                             url = resp.next_request.url
                             continue

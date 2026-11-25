@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import ValidationError
@@ -223,6 +224,25 @@ async def invoke(
         causation_id=requested.id,
     )
     return part
+
+
+def refuse_pending(
+    ctx: ToolContext[SessionId],
+    calls: Sequence[tuple[str, str]],
+    reason: str,
+    *,
+    causation_id: str | None = None,
+) -> None:
+    """Synchronously close uncompleted tool calls so cancellation cannot leave orphan calls."""
+    if not calls:
+        return
+    error = redact(f"Tool skipped: {reason}")[:_MAX_ERROR]
+    ctx.store.append_chain(
+        [ev.ToolCallFailed(call_id=call_id, tool=name, error=error) for call_id, name in calls],
+        session_id=ctx.session_id,
+        actor=Actor.SYSTEM,
+        causation_id=causation_id,
+    )
 
 
 async def invoke_by_name(

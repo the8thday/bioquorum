@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import Callable
@@ -504,11 +505,11 @@ async def execute(
             )
         except BaseException:
             if session_kernels is not None:
-                await session_kernels.release(sid)
+                await asyncio.shield(session_kernels.release(sid))
             raise
         finally:
             if session_kernels is None:
-                await ctx.require_kernels().shutdown_all()
+                await asyncio.shield(ctx.require_kernels().shutdown_all())
 
 
 async def audit(

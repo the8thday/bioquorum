@@ -220,3 +220,38 @@ async def test_proxy_owns_dns_for_each_https_hop(public_ctx, monkeypatch):
         download_tool(resolve=no_local_dns), {"url": "https://data.example.org/moved"}, public_ctx
     )
     assert not result.is_error, result.text()
+
+
+async def test_direct_download_pins_validated_ip_with_host_and_sni(public_ctx, monkeypatch):
+    from bioquorum.tools.builtin.download import _PinnedTransport
+
+    seen_extensions = []
+
+    def inspect_server(request: httpx2.Request) -> httpx2.Response:
+        seen_extensions.append(dict(request.extensions))
+        return server(request)
+
+    tool = download_tool(transport=httpx2.MockTransport(inspect_server), resolve=resolver)
+    result = await invoke(tool, {"url": "https://data.example.org/counts.tsv"}, public_ctx)
+    assert not result.is_error
+    assert seen_extensions[0]["bq_pinned_ip"] == PUBLIC_IP
+
+    captured = []
+
+    async def fake_super(self, request: httpx2.Request) -> httpx2.Response:
+        captured.append(request)
+        return httpx2.Response(200, content=b"ok")
+
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", fake_super)
+    transport = _PinnedTransport()
+    for pinned, expected_host in ((PUBLIC_IP, PUBLIC_IP), ("2001:db8::1", "2001:db8::1")):
+        req = httpx2.Request(
+            "GET",
+            "https://data.example.org:8443/counts.tsv",
+            extensions={"bq_pinned_ip": pinned},
+        )
+        await transport.handle_async_request(req)
+        sent = captured[-1]
+        assert sent.url.host == expected_host
+        assert sent.headers["host"] == "data.example.org:8443"
+        assert sent.extensions["sni_hostname"] == "data.example.org"

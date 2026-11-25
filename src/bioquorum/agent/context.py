@@ -57,7 +57,9 @@ def conversation(
         (
             e.seq
             for e in reversed(items)
-            if e.type == ev.UserMessage.event_type and e.actor is Actor.USER
+            if (through_seq is None or e.seq <= through_seq)
+            and e.type == ev.UserMessage.event_type
+            and e.actor is Actor.USER
         ),
         None,
     )
